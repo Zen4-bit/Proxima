@@ -12,7 +12,7 @@ Connect ChatGPT, Claude, Gemini & Perplexity to your AI coding tools via MCP
 
 ## Demo
 
-https://github.com/Zen4-bit/Proxima/raw/main/screenshots/proxima-demo.mp4
+https://github.com/user-attachments/assets/6eb76618-2c1d-4dad-b753-aaaee9e93310
 
 ---
 
