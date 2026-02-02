@@ -6,20 +6,21 @@
 
 Connect ChatGPT, Claude, Gemini & Perplexity to your AI coding tools via MCP
 
-[Getting Started](#getting-started) · [MCP Tools](#available-mcp-tools) · [Configuration](#mcp-configuration) · [Providers](#supported-providers)
+[Getting Started](#getting-started)  [MCP Tools](#available-mcp-tools)  [Configuration](#mcp-configuration)  [Providers](#supported-providers)
 
 ---
 
 ## Demo
 
-https://github.com/user-attachments/assets/proxima-demo.mp4
+https://github.com/Zen4-bit/Proxima/raw/main/screenshots/proxima-demo.mp4
+
+---
 
 ![Proxima Settings](screenshots/proxima-settings.png)
 
 ![Proxima Provider View](screenshots/proxima-provider.png)
 
 </div>
-
 ## Overview
 
 Proxima is a local MCP (Model Context Protocol) server that connects multiple AI providers to your coding environment. Instead of paying for API keys, use your existing AI accounts directly.
