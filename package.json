@@ -1,0 +1,73 @@
+{
+    "name": "proxima",
+    "version": "1.0.0",
+    "description": "Proxima - Local MCP Server (requires localhost network access for AI coding tools)",
+    "license": "SEE LICENSE IN LICENSE",
+    "keywords": [
+        "mcp",
+        "ai",
+        "chatgpt",
+        "claude",
+        "gemini",
+        "perplexity",
+        "multi-ai",
+        "electron"
+    ],
+    "type": "module",
+    "main": "electron/main-v2.cjs",
+    "scripts": {
+        "start": "electron .",
+        "mcp": "node src/mcp-server-v3.js",
+        "build": "electron-builder --win --x64",
+        "build:installer": "electron-builder --win --x64 -c.win.target=nsis"
+    },
+    "build": {
+        "appId": "com.proxima.app",
+        "productName": "Proxima",
+        "copyright": "Copyright © 2026 Proxima",
+        "directories": {
+            "output": "dist"
+        },
+        "files": [
+            "electron/**/*",
+            "src/**/*",
+            "assets/**/*",
+            "images/**/*",
+            "node_modules/**/*",
+            "package.json"
+        ],
+        "asarUnpack": [
+            "src/**/*",
+            "node_modules/**/*"
+        ],
+        "win": {
+            "target": [
+                {
+                    "target": "nsis",
+                    "arch": [
+                        "x64"
+                    ]
+                }
+            ],
+            "icon": "assets/proxima-icon.png",
+            "artifactName": "${productName}-Setup-${version}.${ext}"
+        },
+        "nsis": {
+            "oneClick": false,
+            "allowToChangeInstallationDirectory": true,
+            "createDesktopShortcut": true,
+            "createStartMenuShortcut": true,
+            "shortcutName": "Proxima"
+        }
+    },
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.25.3",
+        "zod": "^4.3.6"
+    },
+    "devDependencies": {
+        "concurrently": "^9.2.1",
+        "electron": "^33.4.11",
+        "electron-builder": "^25.1.8",
+        "http-server": "^14.1.1"
+    }
+}

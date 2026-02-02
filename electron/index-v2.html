@@ -1,0 +1,1625 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-AI MCP Server</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #0a0a1a 0%, #1a1a3e 50%, #0a0a1a 100%);
+            color: #fff;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 20px;
+            background: rgba(0, 0, 0, 0.4);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            -webkit-app-region: drag;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #00d4ff, #7c3aed, #f472b6);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .version {
+            background: linear-gradient(135deg, #7c3aed, #f472b6);
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            -webkit-app-region: no-drag;
+        }
+
+        .header-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 6px 14px;
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+
+        .header-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-1px);
+        }
+
+        /* Tab Navigation */
+        .tab-nav {
+            display: flex;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 8px 12px;
+            gap: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .tab {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .tab:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .tab.active {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        .tab.disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .tab-icon {
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+        }
+
+        .tab-icon-img {
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            object-fit: contain;
+        }
+
+        .tab-icon.perplexity {
+            background: linear-gradient(135deg, #20b2aa, #00ced1);
+        }
+
+        .tab-icon.chatgpt {
+            background: linear-gradient(135deg, #10a37f, #1a7f64);
+        }
+
+        .tab-icon.claude {
+            background: linear-gradient(135deg, #cc785c, #d4956c);
+        }
+
+        .tab-icon.gemini {
+            background: linear-gradient(135deg, #4285f4, #8ab4f8);
+        }
+
+        .tab-icon.settings {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            font-size: 1.4rem;
+            text-shadow:
+                1px 1px 2px rgba(0, 0, 0, 0.5),
+                -1px -1px 1px rgba(255, 255, 255, 0.2);
+            filter: drop-shadow(2px 2px 3px rgba(0, 0, 0, 0.4));
+        }
+
+        .tab-icon.settings:hover {
+            transform: scale(1.1) rotate(15deg);
+            filter: drop-shadow(2px 2px 4px rgba(0, 0, 0, 0.5));
+        }
+
+        .tab-name {
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+
+        .tab-status {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            position: absolute;
+            top: 6px;
+            right: 6px;
+        }
+
+        .tab-status.ready {
+            background: #22c55e;
+            box-shadow: 0 0 8px #22c55e;
+        }
+
+        .tab-status.loading {
+            background: #f59e0b;
+            animation: pulse 1s infinite;
+        }
+
+        .tab-status.offline {
+            background: #666;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .tab-spacer {
+            flex: 1;
+        }
+
+        /* Main Content Area */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Browser Container - Where BrowserView will be displayed */
+        #browser-container {
+            flex: 1;
+            background: #1a1a2e;
+            position: relative;
+        }
+
+        /* Settings Panel */
+        .settings-panel {
+            display: none;
+            flex: 1;
+            padding: 30px 40px;
+            overflow-y: auto;
+            background: linear-gradient(180deg, rgba(15, 15, 35, 0.95) 0%, rgba(10, 10, 26, 0.98) 100%);
+        }
+
+        .settings-panel.active {
+            display: block;
+        }
+
+        .settings-section {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.03) 100%);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 28px;
+            margin-bottom: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow:
+                0 8px 32px rgba(0, 0, 0, 0.3),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .settings-section:hover {
+            transform: translateY(-2px);
+            box-shadow:
+                0 12px 40px rgba(0, 0, 0, 0.4),
+                inset 0 1px 0 rgba(255, 255, 255, 0.15);
+        }
+
+        .settings-title {
+            font-size: 1.4rem;
+            font-weight: 700;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #fff;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            letter-spacing: 0.5px;
+        }
+
+        .section-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 6px 10px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: #fff;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Provider Cards in Settings */
+        .provider-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 18px;
+        }
+
+        .provider-card {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%);
+            border-radius: 16px;
+            padding: 18px 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            border: 2px solid transparent;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .provider-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+        }
+
+        .provider-card.enabled {
+            border-color: rgba(34, 197, 94, 0.6);
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(34, 197, 94, 0.05) 100%);
+        }
+
+        .provider-card.disabled {
+            opacity: 0.5;
+        }
+
+        .provider-card-icon {
+            width: 52px;
+            height: 52px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.6rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        .provider-card-info {
+            flex: 1;
+        }
+
+        .provider-card-name {
+            font-weight: 700;
+            font-size: 1.1rem;
+            margin-bottom: 5px;
+            letter-spacing: 0.3px;
+        }
+
+        .provider-card-status {
+            font-size: 0.8rem;
+            color: #888;
+        }
+
+        .provider-card-status.ready {
+            color: #22c55e;
+        }
+
+        .provider-card-status.not-ready {
+            color: #f59e0b;
+        }
+
+        .toggle-switch {
+            width: 48px;
+            height: 26px;
+            background: #333;
+            border-radius: 13px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .toggle-switch.active {
+            background: #22c55e;
+        }
+
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            width: 22px;
+            height: 22px;
+            background: white;
+            border-radius: 50%;
+            top: 2px;
+            left: 2px;
+            transition: transform 0.3s;
+        }
+
+        .toggle-switch.active::after {
+            transform: translateX(22px);
+        }
+
+        /* Feature Toggle Row */
+        .feature-toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.03) 100%);
+            border-radius: 14px;
+            padding: 18px 20px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            transition: all 0.2s ease;
+        }
+
+        .feature-toggle-row:hover {
+            border-color: rgba(255, 255, 255, 0.2);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+        }
+
+        .feature-info {
+            flex: 1;
+        }
+
+        .feature-name {
+            font-weight: 700;
+            font-size: 1rem;
+            color: #fff;
+            margin-bottom: 6px;
+        }
+
+        .feature-desc {
+            font-size: 0.85rem;
+            color: #9ca3af;
+            line-height: 1.4;
+        }
+
+        /* MCP Config */
+        .config-box {
+            background: linear-gradient(180deg, #0d0d1a 0%, #0a0a15 100%);
+            border-radius: 14px;
+            padding: 20px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.3);
+            font-size: 0.85rem;
+            overflow-x: auto;
+            position: relative;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .config-box pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-all;
+            color: #a5f3fc;
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            border: none;
+            padding: 10px 18px;
+            border-radius: 10px;
+            color: white;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+        }
+
+        .copy-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(34, 197, 94, 0.4);
+        }
+
+        .copy-btn:active {
+            transform: translateY(0);
+        }
+
+        /* Method Toggle Buttons */
+        .method-btn {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 10px 20px;
+            border-radius: 10px;
+            color: #9ca3af;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+
+        .method-btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+            color: #fff;
+        }
+
+        .method-btn.active {
+            background: linear-gradient(135deg, #00d4ff, #a855f7);
+            border-color: transparent;
+            color: #fff;
+            box-shadow: 0 4px 15px rgba(0, 212, 255, 0.3);
+        }
+
+        /* Welcome Panel */
+        .welcome-panel {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            text-align: center;
+            padding: 60px 40px;
+            background: radial-gradient(ellipse at top, rgba(99, 102, 241, 0.08) 0%, transparent 50%);
+        }
+
+        .welcome-title {
+            font-size: 2.5rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: 1px;
+        }
+
+        .welcome-subtitle {
+            color: #9ca3af;
+            font-size: 1rem;
+            margin-bottom: 12px;
+            max-width: 450px;
+            line-height: 1.6;
+        }
+
+        .welcome-sub-light {
+            color: #6b7280;
+            font-size: 0.9rem;
+            display: block;
+            margin-top: 6px;
+        }
+
+        .welcome-divider {
+            width: 80px;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(167, 139, 250, 0.4), transparent);
+            margin: 40px 0;
+        }
+
+        .welcome-get-started {
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: #9ca3af;
+            margin-bottom: 28px;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+        }
+
+        .welcome-steps {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .welcome-step {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            background: rgba(255, 255, 255, 0.02);
+            padding: 18px 24px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            text-align: left;
+            transition: all 0.25s ease;
+        }
+
+        .welcome-step:hover {
+            background: rgba(255, 255, 255, 0.04);
+            border-color: rgba(167, 139, 250, 0.2);
+        }
+
+        .welcome-step-num {
+            min-width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, rgba(96, 165, 250, 0.15), rgba(167, 139, 250, 0.15));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: #a78bfa;
+        }
+
+        .welcome-step-content {
+            flex: 1;
+        }
+
+        .welcome-step-title {
+            font-weight: 500;
+            margin-bottom: 4px;
+            font-size: 0.95rem;
+            color: #e5e7eb;
+        }
+
+        .welcome-step-desc {
+            font-size: 0.8rem;
+            color: #6b7280;
+            line-height: 1.4;
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: white;
+            padding: 14px 24px;
+            border-radius: 10px;
+            display: none;
+            z-index: 1000;
+            box-shadow: 0 4px 20px rgba(34, 197, 94, 0.3);
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        /* Browser Controls */
+        .browser-controls {
+            display: none;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 16px;
+            background: rgba(0, 0, 0, 0.4);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .browser-controls.active {
+            display: flex;
+        }
+
+        .browser-ctrl-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+
+        .browser-ctrl-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .browser-url {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            padding: 6px 12px;
+            color: #888;
+            font-size: 0.85rem;
+        }
+
+        .login-status {
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .login-status.logged-in {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+        }
+
+        .login-status.not-logged-in {
+            background: rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
+        }
+
+        /* Cookie Login Modal */
+        .cookie-modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(5px);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .cookie-modal-overlay.active {
+            display: flex;
+        }
+
+        .cookie-modal {
+            background: linear-gradient(135deg, #1a1a3e, #0f0f23);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 20px;
+            padding: 30px;
+            width: 600px;
+            max-width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            animation: modalSlideIn 0.3s ease;
+        }
+
+        @keyframes modalSlideIn {
+            from {
+                opacity: 0;
+                transform: scale(0.9) translateY(-20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+            }
+        }
+
+        .cookie-modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+
+        .cookie-modal-title {
+            font-size: 1.4rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: linear-gradient(135deg, #4285f4, #8ab4f8);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .cookie-modal-close {
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            color: white;
+            cursor: pointer;
+            font-size: 1.2rem;
+            transition: all 0.2s;
+        }
+
+        .cookie-modal-close:hover {
+            background: rgba(239, 68, 68, 0.5);
+            transform: scale(1.1);
+        }
+
+        .cookie-instructions {
+            background: rgba(66, 133, 244, 0.1);
+            border: 1px solid rgba(66, 133, 244, 0.3);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+
+        .cookie-instructions ol {
+            margin: 10px 0 0 20px;
+        }
+
+        .cookie-instructions li {
+            margin: 6px 0;
+        }
+
+        .cookie-instructions code {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Consolas', monospace;
+        }
+
+        .cookie-textarea {
+            width: 100%;
+            height: 200px;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+            padding: 16px;
+            color: #a5f3fc;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.85rem;
+            resize: vertical;
+            margin-bottom: 20px;
+        }
+
+        .cookie-textarea:focus {
+            outline: none;
+            border-color: #4285f4;
+            box-shadow: 0 0 0 3px rgba(66, 133, 244, 0.2);
+        }
+
+        .cookie-textarea::placeholder {
+            color: #666;
+        }
+
+        .cookie-modal-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+
+        .cookie-btn {
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            font-size: 0.95rem;
+        }
+
+        .cookie-btn-cancel {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+
+        .cookie-btn-cancel:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .cookie-btn-login {
+            background: linear-gradient(135deg, #4285f4, #34a853);
+            color: white;
+        }
+
+        .cookie-btn-login:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(66, 133, 244, 0.4);
+        }
+
+        .cookie-btn-login:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .cookie-status {
+            margin-top: 15px;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            display: none;
+        }
+
+        .cookie-status.success {
+            display: block;
+            background: rgba(34, 197, 94, 0.2);
+            border: 1px solid rgba(34, 197, 94, 0.4);
+            color: #22c55e;
+        }
+
+        .cookie-status.error {
+            display: block;
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            color: #ef4444;
+        }
+
+        /* Cookie Login Button in browser controls */
+        .cookie-login-btn {
+            background: linear-gradient(135deg, #f472b6, #a855f7) !important;
+            border: none !important;
+        }
+
+        .cookie-login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(168, 85, 247, 0.4);
+        }
+
+        /* Proxima Cute Mascot */
+        .proxima-mascot {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .proxima-cube {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, #00d4ff, #a855f7);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            box-shadow: 0 4px 15px rgba(0, 212, 255, 0.4);
+            position: relative;
+        }
+
+        .proxima-eye {
+            width: 8px;
+            height: 10px;
+            background: white;
+            border-radius: 50%;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .proxima-pupil {
+            width: 4px;
+            height: 4px;
+            background: #1a1a2e;
+            border-radius: 50%;
+            position: absolute;
+            top: 3px;
+            left: 2px;
+            animation: lookAround 3s ease-in-out infinite;
+        }
+
+        .proxima-eye:last-child .proxima-pupil {
+            animation-delay: 0.1s;
+        }
+
+        @keyframes lookAround {
+
+            0%,
+            100% {
+                transform: translate(0, 0);
+            }
+
+            20% {
+                transform: translate(2px, -1px);
+            }
+
+            40% {
+                transform: translate(-2px, 1px);
+            }
+
+            60% {
+                transform: translate(1px, 2px);
+            }
+
+            80% {
+                transform: translate(-1px, -2px);
+            }
+        }
+
+        .proxima-name {
+            font-size: 1.3rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #00d4ff, #a855f7);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: 0.5px;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="header-left">
+            <div class="proxima-mascot">
+                <div class="proxima-cube">
+                    <div class="proxima-eye">
+                        <div class="proxima-pupil"></div>
+                    </div>
+                    <div class="proxima-eye">
+                        <div class="proxima-pupil"></div>
+                    </div>
+                </div>
+                <span class="proxima-name">Proxima</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tab Navigation -->
+    <div class="tab-nav">
+        <div class="tab" data-provider="perplexity" onclick="switchTab('perplexity')">
+            <img src="../images/gcMkPKyj2RX8EOEja8A1GWvCb7E.png" class="tab-icon-img" alt="Perplexity">
+            <span class="tab-name">Perplexity</span>
+            <div class="tab-status offline" id="status-dot-perplexity"></div>
+        </div>
+        <div class="tab" data-provider="chatgpt" onclick="switchTab('chatgpt')">
+            <img src="../images/1702059841openai-icon-png.png" class="tab-icon-img" alt="ChatGPT">
+            <span class="tab-name">ChatGPT</span>
+            <div class="tab-status offline" id="status-dot-chatgpt"></div>
+        </div>
+        <div class="tab" data-provider="claude" onclick="switchTab('claude')">
+            <img src="../images/claude-ai-icon.svg" class="tab-icon-img" alt="Claude">
+            <span class="tab-name">Claude</span>
+            <div class="tab-status offline" id="status-dot-claude"></div>
+        </div>
+        <div class="tab" data-provider="gemini" onclick="switchTab('gemini')">
+            <img src="../images/google-gemini-icon.png" class="tab-icon-img" alt="Gemini">
+            <span class="tab-name">Gemini</span>
+            <div class="tab-status offline" id="status-dot-gemini"></div>
+        </div>
+        <div class="tab-spacer"></div>
+        <div class="tab" data-tab="settings" onclick="switchTab('settings')">
+            <div class="tab-icon settings">⚙️</div>
+            <span class="tab-name">Settings</span>
+        </div>
+    </div>
+
+    <!-- Browser Controls -->
+    <div class="browser-controls" id="browser-controls">
+        <button class="browser-ctrl-btn" onclick="goBack()" title="Back">◀</button>
+        <button class="browser-ctrl-btn" onclick="goForward()" title="Forward">▶</button>
+        <button class="browser-ctrl-btn" onclick="reloadPage()" title="Reload">↻</button>
+        <div class="browser-url" id="browser-url">https://...</div>
+        <button class="header-btn" onclick="openInChrome()" title="Open in system browser for login"
+            style="background: linear-gradient(135deg, #4285f4, #34a853);">
+            <span>🌐</span> Open in Chrome
+        </button>
+        <button class="header-btn cookie-login-btn" onclick="openCookieModal()" title="Login with cookies (for Gemini)">
+            <span>🍪</span> Cookie Login
+        </button>
+        <div class="login-status not-logged-in" id="login-status">Not logged in</div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Browser Container (BrowserView will be attached here) -->
+        <div id="browser-container">
+            <!-- Welcome Panel (shown when no tab selected) -->
+            <div class="welcome-panel" id="welcome-panel">
+                <h1 class="welcome-title">Proxima</h1>
+                <p class="welcome-subtitle">
+                    Free Multi-AI MCP Server<br>
+                    <span class="welcome-sub-light">No API keys required. Connect ChatGPT, Claude, Gemini & Perplexity
+                        locally.</span>
+                </p>
+                <div class="welcome-divider"></div>
+                <h3 class="welcome-get-started">Get Started</h3>
+                <div class="welcome-steps">
+                    <div class="welcome-step">
+                        <div class="welcome-step-num">1</div>
+                        <div class="welcome-step-content">
+                            <div class="welcome-step-title">Enable Providers</div>
+                            <div class="welcome-step-desc">Click Settings and toggle the AI providers you want to use
+                            </div>
+                        </div>
+                    </div>
+                    <div class="welcome-step">
+                        <div class="welcome-step-num">2</div>
+                        <div class="welcome-step-content">
+                            <div class="welcome-step-title">Login to Each Provider</div>
+                            <div class="welcome-step-desc">Click each tab above and login to your accounts</div>
+                        </div>
+                    </div>
+                    <div class="welcome-step">
+                        <div class="welcome-step-num">3</div>
+                        <div class="welcome-step-content">
+                            <div class="welcome-step-title">Copy MCP Config</div>
+                            <div class="welcome-step-desc">Go to Settings and copy the config to your AI coding app
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Panel -->
+        <div class="settings-panel" id="settings-panel">
+            <!-- Provider Settings -->
+            <div class="settings-section">
+                <h2 class="settings-title"><span class="section-icon"
+                        style="background: linear-gradient(135deg, #a855f7, #6366f1);">AI</span> Providers</h2>
+                <div class="provider-grid">
+                    <div class="provider-card enabled" data-provider="perplexity">
+                        <div class="provider-card-icon" style="background: transparent;">
+                            <img src="../images/gcMkPKyj2RX8EOEja8A1GWvCb7E.png"
+                                style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
+                        </div>
+                        <div class="provider-card-info">
+                            <div class="provider-card-name">Perplexity</div>
+                            <div class="provider-card-status not-ready" id="card-status-perplexity">Not logged in</div>
+                        </div>
+                        <div class="toggle-switch active" data-provider="perplexity" onclick="toggleProvider(this)">
+                        </div>
+                    </div>
+                    <div class="provider-card enabled" data-provider="chatgpt">
+                        <div class="provider-card-icon" style="background: transparent;">
+                            <img src="../images/1702059841openai-icon-png.png"
+                                style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
+                        </div>
+                        <div class="provider-card-info">
+                            <div class="provider-card-name">ChatGPT</div>
+                            <div class="provider-card-status not-ready" id="card-status-chatgpt">Not logged in</div>
+                        </div>
+                        <div class="toggle-switch active" data-provider="chatgpt" onclick="toggleProvider(this)"></div>
+                    </div>
+                    <div class="provider-card disabled" data-provider="claude">
+                        <div class="provider-card-icon" style="background: transparent;">
+                            <img src="../images/claude-ai-icon.svg"
+                                style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
+                        </div>
+                        <div class="provider-card-info">
+                            <div class="provider-card-name">Claude</div>
+                            <div class="provider-card-status not-ready" id="card-status-claude">Disabled</div>
+                        </div>
+                        <div class="toggle-switch" data-provider="claude" onclick="toggleProvider(this)"></div>
+                    </div>
+                    <div class="provider-card enabled" data-provider="gemini">
+                        <div class="provider-card-icon" style="background: transparent;">
+                            <img src="../images/google-gemini-icon.png"
+                                style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
+                        </div>
+                        <div class="provider-card-info">
+                            <div class="provider-card-name">Gemini</div>
+                            <div class="provider-card-status not-ready" id="card-status-gemini">Not logged in</div>
+                        </div>
+                        <div class="toggle-switch active" data-provider="gemini" onclick="toggleProvider(this)"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MCP Configuration -->
+            <div class="settings-section">
+                <h2 class="settings-title"><span class="section-icon"
+                        style="background: linear-gradient(135deg, #6b7280, #4b5563);">MCP</span> MCP Configuration</h2>
+                <p style="color: #b3b3b3; margin-bottom: 16px; font-size: 0.95rem; line-height: 1.5;">
+                    Add Proxima MCP server to your AI coding assistant. Choose your preferred method:
+                </p>
+
+                <!-- Method Toggle -->
+                <div style="display: flex; gap: 10px; margin-bottom: 16px;">
+                    <button class="method-btn active" id="method-manual" onclick="switchConfigMethod('manual')">Manual
+                        Config</button>
+                    <button class="method-btn" id="method-ai" onclick="switchConfigMethod('ai')">AI Prompt</button>
+                </div>
+
+                <!-- Manual Config -->
+                <div id="config-manual" class="config-box">
+                    <button class="copy-btn" onclick="copyConfig()">Copy Config</button>
+                    <pre id="mcp-config">Loading...</pre>
+                </div>
+
+                <!-- AI Prompt -->
+                <div id="config-ai" class="config-box" style="display: none;">
+                    <button class="copy-btn" onclick="copyAIPrompt()">Copy Prompt</button>
+                    <pre id="ai-prompt" style="white-space: pre-wrap; word-wrap: break-word;">Add the Proxima MCP server to this application’s MCP configuration.
+
+Proxima is a Multi-AI MCP server that connects ChatGPT, Claude, Gemini & Perplexity with local server.
+
+Here is the MCP configuration to add:
+
+<span id="ai-prompt-config"></span>
+
+
+Confirm when done</pre>
+                </div>
+            </div>
+
+            <!-- File Reference Feature -->
+            <div class="settings-section">
+                <h2 class="settings-title"><span class="section-icon"
+                        style="background: linear-gradient(135deg, #22c55e, #16a34a);">FI</span> File Reference</h2>
+                <p style="color: #b3b3b3; margin-bottom: 16px; font-size: 0.95rem; line-height: 1.5;">
+                    When enabled, MCP calls can include file paths that will be uploaded as attachments to AI providers.
+                </p>
+                <div class="feature-toggle-row">
+                    <div class="feature-info">
+                        <div class="feature-name">Enable File Attachments</div>
+                        <div class="feature-desc">Allow MCP to upload files (images, code, documents) to AI chats</div>
+                    </div>
+                    <div class="toggle-switch" id="file-reference-toggle" onclick="toggleFileReference(this)"></div>
+                </div>
+                <div id="file-reference-info"
+                    style="margin-top: 16px; padding: 16px 20px; background: linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(34, 197, 94, 0.1)); border-radius: 12px; display: none; border-left: 4px solid #22c55e; border: 1px solid rgba(34, 197, 94, 0.3);">
+                    <p style="color: #4ade80; font-size: 0.95rem; margin: 0; font-weight: 500;">
+                        <strong style="color: #22c55e; font-size: 1rem;">File Reference Active!</strong><br>
+                        <span style="color: #86efac;">Use <code
+                                style="background: rgba(34, 197, 94, 0.3); padding: 3px 8px; border-radius: 6px; color: #fff; font-weight: 600;">filePath</code>
+                            parameter in MCP calls to attach files.</span>
+                    </p>
+                </div>
+            </div>
+
+
+            <!-- Version Footer -->
+            <div
+                style="text-align: center; padding: 20px 0; margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.05);">
+                <span style="color: #666; font-size: 0.8rem;">Proxima v1.0 • Multi-AI MCP Server</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast">Message</div>
+
+    <!-- Cookie Login Modal -->
+    <div class="cookie-modal-overlay" id="cookie-modal-overlay" onclick="closeCookieModalOutside(event)">
+        <div class="cookie-modal">
+            <div class="cookie-modal-header">
+                <h2 class="cookie-modal-title">
+                    <span>🍪</span> Cookie Login - <span id="cookie-modal-provider">Gemini</span>
+                </h2>
+                <button class="cookie-modal-close" onclick="closeCookieModal()">✕</button>
+            </div>
+
+            <div class="cookie-instructions">
+                <strong>📋 How to get cookies:</strong>
+                <ol>
+                    <li>Install <code>EditThisCookie</code> or <code>Cookie-Editor</code> extension in Chrome</li>
+                    <li>Go to <a href="#" onclick="openGeminiInChrome(event)"
+                            style="color: #4285f4;">gemini.google.com</a> in Chrome and login normally</li>
+                    <li>Click the cookie extension icon → <strong>Export</strong> (as JSON)</li>
+                    <li>Paste the copied JSON below</li>
+                </ol>
+            </div>
+
+            <textarea class="cookie-textarea" id="cookie-textarea" placeholder='Paste your cookies JSON here...
+
+Example format:
+[
+  {
+    "name": "cookie_name",
+    "value": "cookie_value",
+    "domain": ".google.com",
+    ...
+  }
+]'></textarea>
+
+            <div class="cookie-modal-actions">
+                <button class="cookie-btn cookie-btn-cancel" onclick="closeCookieModal()">Cancel</button>
+                <button class="cookie-btn cookie-btn-login" id="cookie-login-btn" onclick="applyCookieLogin()">
+                    🔓 Login with Cookies
+                </button>
+            </div>
+
+            <div class="cookie-status" id="cookie-status"></div>
+        </div>
+    </div>
+
+    <script>
+        let settings = {};
+        let currentTab = null;
+        let providerStatus = {};
+
+        // Initialize
+        async function init() {
+            settings = await agentHub.getSettings();
+            updateUI();
+            loadMcpConfig();
+            loadFileReferenceState();
+
+            // Listen for auto-initialization from main process
+            if (agentHub.onActiveProvider) {
+                agentHub.onActiveProvider((provider) => {
+                    console.log('Auto-switching to:', provider);
+                    switchTab(provider);
+                });
+            }
+
+            // Get first enabled provider
+            const firstEnabled = Object.entries(settings.providers)
+                .find(([_, config]) => config.enabled)?.[0];
+
+            // Auto-switch to first enabled provider after short delay
+            if (firstEnabled) {
+                setTimeout(() => {
+                    if (!currentTab) {
+                        switchTab(firstEnabled);
+                    }
+                }, 2000);
+            }
+        }
+
+        function updateUI() {
+            // Update provider cards and tabs
+            Object.entries(settings.providers).forEach(([name, config]) => {
+                const tab = document.querySelector(`.tab[data-provider="${name}"]`);
+                const card = document.querySelector(`.provider-card[data-provider="${name}"]`);
+                const toggle = document.querySelector(`.toggle-switch[data-provider="${name}"]`);
+
+                if (config.enabled) {
+                    tab?.classList.remove('disabled');
+                    card?.classList.add('enabled');
+                    card?.classList.remove('disabled');
+                    toggle?.classList.add('active');
+                } else {
+                    tab?.classList.add('disabled');
+                    card?.classList.remove('enabled');
+                    card?.classList.add('disabled');
+                    toggle?.classList.remove('active');
+                }
+            });
+        }
+
+        async function switchTab(tabName) {
+            // Handle settings tab
+            if (tabName === 'settings') {
+                document.getElementById('browser-container').style.display = 'none';
+                document.getElementById('settings-panel').classList.add('active');
+                document.getElementById('browser-controls').classList.remove('active');
+                await agentHub.hideBrowser();
+
+                // Update tab active state
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelector('.tab[data-tab="settings"]').classList.add('active');
+                currentTab = 'settings';
+                return;
+            }
+
+            // Check if provider is enabled
+            if (!settings.providers[tabName]?.enabled) {
+                showToast(`${tabName} is disabled. Enable it in Settings.`);
+                return;
+            }
+
+            // Hide settings, show browser
+            document.getElementById('settings-panel').classList.remove('active');
+            document.getElementById('browser-container').style.display = 'block';
+            document.getElementById('welcome-panel').style.display = 'none';
+            document.getElementById('browser-controls').classList.add('active');
+
+            // Update tab active state
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelector(`.tab[data-provider="${tabName}"]`).classList.add('active');
+
+            // Show the provider
+            await agentHub.showProvider(tabName);
+            currentTab = tabName;
+
+            // Update status
+            updateProviderStatus(tabName);
+        }
+
+        async function updateProviderStatus(provider) {
+            const result = await agentHub.checkLoginStatus(provider);
+            const statusDot = document.getElementById(`status-dot-${provider}`);
+            const cardStatus = document.getElementById(`card-status-${provider}`);
+            const loginStatus = document.getElementById('login-status');
+
+            if (result.loggedIn) {
+                statusDot.className = 'tab-status ready';
+                cardStatus.textContent = '✅ Logged in';
+                cardStatus.className = 'provider-card-status ready';
+                if (currentTab === provider) {
+                    loginStatus.textContent = 'Logged in';
+                    loginStatus.className = 'login-status logged-in';
+                }
+            } else {
+                statusDot.className = 'tab-status loading';
+                cardStatus.textContent = 'Not logged in';
+                cardStatus.className = 'provider-card-status not-ready';
+                if (currentTab === provider) {
+                    loginStatus.textContent = 'Not logged in';
+                    loginStatus.className = 'login-status not-logged-in';
+                }
+            }
+        }
+
+        async function toggleProvider(element) {
+            const provider = element.dataset.provider;
+            settings.providers[provider].enabled = !settings.providers[provider].enabled;
+
+            await agentHub.saveSettings(settings);
+            await agentHub.saveEnabledProviders();
+            updateUI();
+
+            if (settings.providers[provider].enabled) {
+                await agentHub.initProvider(provider);
+                showToast(`${provider} enabled`);
+            } else {
+                showToast(`${provider} disabled`);
+            }
+        }
+
+        async function toggleFileReference(element) {
+            const isActive = element.classList.contains('active');
+
+            if (isActive) {
+                element.classList.remove('active');
+                document.getElementById('file-reference-info').style.display = 'none';
+                settings.fileReferenceEnabled = false;
+                showToast('File Reference disabled');
+            } else {
+                element.classList.add('active');
+                document.getElementById('file-reference-info').style.display = 'block';
+                settings.fileReferenceEnabled = true;
+                showToast('File Reference enabled! Use filePath parameter in MCP calls.');
+            }
+
+            await agentHub.saveSettings(settings);
+            await agentHub.setFileReferenceEnabled(settings.fileReferenceEnabled);
+        }
+
+        function loadFileReferenceState() {
+            const toggle = document.getElementById('file-reference-toggle');
+            const info = document.getElementById('file-reference-info');
+
+            if (settings.fileReferenceEnabled) {
+                toggle.classList.add('active');
+                info.style.display = 'block';
+            } else {
+                toggle.classList.remove('active');
+                info.style.display = 'none';
+            }
+        }
+
+        async function openAllEnabled() {
+            for (const [name, config] of Object.entries(settings.providers)) {
+                if (config.enabled) {
+                    await agentHub.initProvider(name);
+                }
+            }
+            showToast('All enabled providers initialized');
+        }
+
+        async function checkAllStatus() {
+            for (const [name, config] of Object.entries(settings.providers)) {
+                if (config.enabled) {
+                    await updateProviderStatus(name);
+                }
+            }
+            showToast('Status checked for all providers');
+        }
+
+        async function reloadPage() {
+            if (currentTab && currentTab !== 'settings') {
+                await agentHub.reloadProvider(currentTab);
+                showToast(`Reloading ${currentTab}...`);
+            }
+        }
+
+        async function loadMcpConfig() {
+            const config = await agentHub.getMcpConfig();
+            const configStr = JSON.stringify(config, null, 2);
+            document.getElementById('mcp-config').textContent = configStr;
+            // Also update AI prompt config
+            document.getElementById('ai-prompt-config').textContent = configStr;
+        }
+
+        async function copyConfig() {
+            const config = document.getElementById('mcp-config').textContent;
+            await agentHub.copyToClipboard(config);
+            showToast('Config copied to clipboard!');
+        }
+
+        async function copyAIPrompt() {
+            const promptEl = document.getElementById('ai-prompt');
+            const prompt = promptEl.innerText || promptEl.textContent;
+            await agentHub.copyToClipboard(prompt);
+            showToast('AI Prompt copied! Paste it to your AI coding assistant.');
+        }
+
+        function switchConfigMethod(method) {
+            const manualBtn = document.getElementById('method-manual');
+            const aiBtn = document.getElementById('method-ai');
+            const manualConfig = document.getElementById('config-manual');
+            const aiConfig = document.getElementById('config-ai');
+
+            if (method === 'manual') {
+                manualBtn.classList.add('active');
+                aiBtn.classList.remove('active');
+                manualConfig.style.display = 'block';
+                aiConfig.style.display = 'none';
+            } else {
+                manualBtn.classList.remove('active');
+                aiBtn.classList.add('active');
+                manualConfig.style.display = 'none';
+                aiConfig.style.display = 'block';
+            }
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.style.display = 'block';
+            setTimeout(() => {
+                toast.style.display = 'none';
+            }, 2500);
+        }
+
+        // Navigation controls
+        function goBack() {
+            // Will be handled by browser view
+        }
+
+        function goForward() {
+            // Will be handled by browser view
+        }
+
+        // Open in system browser (for Google login issues)
+        async function openInChrome() {
+            if (currentTab && currentTab !== 'settings') {
+                await agentHub.openInSystemBrowser(currentTab);
+                showToast(`Opening ${currentTab} in Chrome for login...`);
+            }
+        }
+
+        // Cookie Login Modal Functions
+
+        let cookieModalProvider = null; // Store provider when modal opens
+
+        function openCookieModal() {
+            if (!currentTab || currentTab === 'settings') {
+                showToast('Please select a provider first');
+                return;
+            }
+
+            // Store current provider
+            cookieModalProvider = currentTab;
+
+            // Update modal title with current provider
+            document.getElementById('cookie-modal-provider').textContent =
+                currentTab.charAt(0).toUpperCase() + currentTab.slice(1);
+
+            // Clear previous state
+            document.getElementById('cookie-textarea').value = '';
+            document.getElementById('cookie-status').className = 'cookie-status';
+            document.getElementById('cookie-status').textContent = '';
+            document.getElementById('cookie-login-btn').disabled = false;
+            document.getElementById('cookie-login-btn').innerHTML = '🔓 Login with Cookies';
+
+            // IMPORTANT: Hide browser view so modal is visible
+            agentHub.hideBrowser();
+
+            // Show modal
+            document.getElementById('cookie-modal-overlay').classList.add('active');
+        }
+
+        async function closeCookieModal() {
+            document.getElementById('cookie-modal-overlay').classList.remove('active');
+
+            // Restore browser view if we had a provider open
+            if (cookieModalProvider) {
+                await agentHub.showProvider(cookieModalProvider);
+            }
+        }
+
+        function closeCookieModalOutside(event) {
+            if (event.target.id === 'cookie-modal-overlay') {
+                closeCookieModal();
+            }
+        }
+
+        async function openGeminiInChrome(event) {
+            event.preventDefault();
+            await agentHub.openExternal('https://gemini.google.com/');
+            showToast('Opening Gemini in Chrome...');
+        }
+
+        async function applyCookieLogin() {
+            const textarea = document.getElementById('cookie-textarea');
+            const statusDiv = document.getElementById('cookie-status');
+            const loginBtn = document.getElementById('cookie-login-btn');
+
+            const cookiesJson = textarea.value.trim();
+
+            if (!cookiesJson) {
+                statusDiv.className = 'cookie-status error';
+                statusDiv.textContent = '❌ Please paste your cookies JSON first';
+                return;
+            }
+
+            // Validate JSON format
+            try {
+                const parsed = JSON.parse(cookiesJson);
+                if (!Array.isArray(parsed)) {
+                    throw new Error('Not an array');
+                }
+                if (parsed.length === 0) {
+                    throw new Error('Empty array');
+                }
+            } catch (e) {
+                statusDiv.className = 'cookie-status error';
+                statusDiv.textContent = '❌ Invalid JSON format. Make sure you copied the full cookie export.';
+                return;
+            }
+
+            // Disable button and show loading
+            loginBtn.disabled = true;
+            loginBtn.innerHTML = '⏳ Applying cookies...';
+            statusDiv.className = 'cookie-status';
+            statusDiv.textContent = '';
+
+            try {
+                const result = await agentHub.setCookies(currentTab, cookiesJson);
+
+                if (result.success) {
+                    statusDiv.className = 'cookie-status success';
+                    statusDiv.textContent = `✅ ${result.message}`;
+
+                    // Close modal after success and update status
+                    setTimeout(async () => {
+                        closeCookieModal();
+                        await updateProviderStatus(currentTab);
+                        showToast(`${currentTab} cookies applied! Check if logged in.`);
+                    }, 1500);
+                } else {
+                    statusDiv.className = 'cookie-status error';
+                    statusDiv.textContent = `❌ ${result.error}`;
+                    loginBtn.disabled = false;
+                    loginBtn.innerHTML = '🔓 Login with Cookies';
+                }
+            } catch (e) {
+                statusDiv.className = 'cookie-status error';
+                statusDiv.textContent = `❌ Error: ${e.message}`;
+                loginBtn.disabled = false;
+                loginBtn.innerHTML = '🔓 Login with Cookies';
+            }
+        }
+
+        init();
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,6 @@
+{
+    "name": "agent-hub-electron",
+    "version": "2.1.0",
+    "main": "main.js",
+    "type": "commonjs"
+}
