@@ -31,6 +31,11 @@ Proxima is a local MCP (Model Context Protocol) server that connects multiple AI
 
 ## Getting Started
 
+### Requirements
+
+- **Windows 10/11**
+- **Node.js** (required for MCP server) → [Download Node.js](https://nodejs.org/)
+
 ### Installation
 
 <table>
