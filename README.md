@@ -10,6 +10,10 @@ Connect ChatGPT, Claude, Gemini & Perplexity to your AI coding tools via MCP
 
 ---
 
+![Proxima Settings](screenshots/proxima-settings.png)
+
+![Proxima Provider View](screenshots/proxima-provider.png)
+
 </div>
 
 ## Overview
