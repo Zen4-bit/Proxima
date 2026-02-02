@@ -41,7 +41,7 @@ Proxima is a local MCP (Model Context Protocol) server that connects multiple AI
 
 Download the latest release and run the installer.
 
-[Download for Windows →](../../releases)
+[Download for Windows →](https://github.com/Zen4-bit/Proxima/releases)
 
 </td>
 <td width="50%">
@@ -49,7 +49,7 @@ Download the latest release and run the installer.
 **Run from Source**
 
 ```bash
-git clone https://github.com/user/proxima
+git clone https://github.com/Zen4-bit/Proxima.git
 cd proxima
 npm install
 npm start
