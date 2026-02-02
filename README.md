@@ -10,6 +10,10 @@ Connect ChatGPT, Claude, Gemini & Perplexity to your AI coding tools via MCP
 
 ---
 
+## Demo
+
+https://github.com/user-attachments/assets/proxima-demo.mp4
+
 ![Proxima Settings](screenshots/proxima-settings.png)
 
 ![Proxima Provider View](screenshots/proxima-provider.png)
@@ -235,3 +239,4 @@ See [LICENSE](LICENSE) for details.
 Made for AI-powered development
 
 </div>
+
