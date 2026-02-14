@@ -15,7 +15,7 @@ function getProviderInterceptorScript(provider) {
     const configs = {
         claude: {
             name: 'Claude',
-            urlPatterns: `url.includes('/chat_conversations') || url.includes('/completion') || url.includes('/messages') || url.includes('/chat') || url.includes('/api/') || url.includes('/retry_completion') || url.includes('/organizations') || (url.includes('claude') && method === 'POST')`,
+            urlPatterns: `url.includes('/chat_conversations') || url.includes('/completion') || url.includes('/messages') || url.includes('/chat') || url.includes('/api/') || url.includes('/retry_completion') || url.includes('/organizations') || url.includes('/v1/') || (url.includes('claude') && method === 'POST')`,
             streamTypes: `contentType.includes('text/event-stream') || contentType.includes('stream') || contentType.includes('text/plain')`,
             parser: `
                 // Claude SSE format: data: {type: "content_block_delta", delta: {text: "..."}}
@@ -46,9 +46,11 @@ function getProviderInterceptorScript(provider) {
                         if (data.completion) {
                             fullText += data.completion;
                         }
-                        // Reset blocks on message_stop
+                        // message_stop = Claude is fully done (all streams complete)
                         if (data.type === 'message_stop') {
                             window.__proxima_blocks = {};
+                            window.__proxima_is_streaming = false;
+                            window.__proxima_last_capture_time = Date.now();
                         }
                     } catch(e) {}
                 }
@@ -205,10 +207,10 @@ function getProviderInterceptorScript(provider) {
                             // Each stream gets a unique ID to prevent conflicts
                             var streamId = Date.now() + '_' + Math.random().toString(36).slice(2);
                             window.__proxima_active_stream_id = streamId;
-                            window.__proxima_captured_response = '';
+                            if ('${config.name}' !== 'Claude') { window.__proxima_captured_response = ''; }
                             window.__proxima_is_streaming = true;
                             window.__proxima_last_capture_time = Date.now();
-                            var fullText = '';
+                            var fullText = ('${config.name}' === 'Claude') ? (window.__proxima_captured_response || '') : '';
 
                             (async function() {
                                 try {
@@ -235,7 +237,8 @@ function getProviderInterceptorScript(provider) {
                                     console.log('[Proxima] Stream read error:', e.message);
                                 } finally {
                                     // Only mark streaming complete if this is the active stream
-                                    if (window.__proxima_active_stream_id === streamId) {
+                                    // Claude: skip — message_stop in parser handles this
+                                    if ('${config.name}' !== 'Claude' && window.__proxima_active_stream_id === streamId) {
                                         window.__proxima_is_streaming = false;
                                         window.__proxima_last_capture_time = Date.now();
                                     }

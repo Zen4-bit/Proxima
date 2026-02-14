@@ -1393,7 +1393,8 @@ async function getProviderResponse(provider, customSelector = null) {
             const lateCheck = await webContents.executeJavaScript(`
                 (function() {
                     var resp = window.__proxima_captured_response || '';
-                    if (resp.length > 50) {
+                    var streaming = window.__proxima_is_streaming || false;
+                    if (resp.length > 50 && !streaming) {
                         window.__proxima_captured_response = '';
                         return resp;
                     }
