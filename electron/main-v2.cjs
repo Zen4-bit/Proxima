@@ -1,13 +1,39 @@
-/**
- * Agent Hub v3.0 - Main Process
- * Uses embedded Electron browser instead of external Chrome
- */
+// Proxima main process — embedded browser + anti-detection + IPC server
 
 const { app, BrowserWindow, ipcMain, shell, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
 const BrowserManager = require('./browser-manager.cjs');
+const { initRestAPI, startRestAPI } = require('./rest-api.cjs');
+
+// Anti-detection: must run before any Electron APIs
+// These MUST be set before app is ready or any windows are created
+
+// Clean Chrome UA matching Electron 33's Chromium 130
+const CHROME_VERSION = '130.0.6723.191';
+const CHROME_UA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VERSION} Safari/537.36`;
+
+// 1. Set user agent at Chromium COMMAND LINE level 
+//    This affects the INTERNAL sec-ch-ua brand generation in Chromium
+app.commandLine.appendSwitch('user-agent', CHROME_UA);
+
+// 2. Disable automation detection flags
+app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
+
+// 3. Disable features that leak Electron identity
+app.commandLine.appendSwitch('disable-features', 'ElectronSerialChooser,OutOfBlinkCors');
+
+// 4. Set the app-wide fallback user agent
+//    This affects navigator.userAgent AND sec-ch-ua hint headers for ALL sessions
+app.userAgentFallback = CHROME_UA;
+
+// 5. On ready, also clean all session user agents
+app.on('ready', () => {
+    // Clean default session
+    session.defaultSession.setUserAgent(CHROME_UA);
+});
+
 
 // Store user settings
 const userDataPath = app.getPath('userData');
@@ -58,22 +84,130 @@ function saveEnabledProviders(settings) {
             .filter(([_, config]) => config.enabled)
             .map(([name]) => name);
 
-        // Save to user data folder
+        // Primary: Save to user data folder (AppData) — this ALWAYS works
+        // The MCP server reads from here first
         fs.writeFileSync(enabledProvidersPath, JSON.stringify({ enabled }, null, 2));
 
-        // Also save to the app's src folder for MCP server to read
-        const isDev = !app.isPackaged;
-        const resourcesPath = process.resourcesPath || path.join(__dirname, '..');
-        const mcpConfigPath = isDev
-            ? path.join(__dirname, '..', 'src', 'enabled-providers.json')
-            : path.join(resourcesPath, 'app.asar.unpacked', 'src', 'enabled-providers.json');
+        // Secondary: Also try to save to the app's src folder for MCP server fallback
+        // This may fail in packaged app if installed in Program Files (needs admin)
+        // That's OK — MCP server reads from AppData first anyway
+        try {
+            const isDev = !app.isPackaged;
+            const resourcesPath = process.resourcesPath || path.join(__dirname, '..');
+            const mcpConfigPath = isDev
+                ? path.join(__dirname, '..', 'src', 'enabled-providers.json')
+                : path.join(resourcesPath, 'app.asar.unpacked', 'src', 'enabled-providers.json');
 
-        fs.writeFileSync(mcpConfigPath, JSON.stringify({ enabled }, null, 2));
-        console.log('Saved enabled providers:', enabled);
+            fs.writeFileSync(mcpConfigPath, JSON.stringify({ enabled }, null, 2));
+        } catch (e2) {
+            // Not critical — AppData version is the primary source of truth
+            console.log('[Settings] Could not write to app directory (normal in installed mode)');
+        }
     } catch (e) {
         console.error('Error saving enabled providers:', e);
     }
 }
+
+// Cookie backup/restore — survive app restarts
+const cookieBackupDir = path.join(userDataPath, 'cookie-backups');
+
+async function backupCookies(provider, ses) {
+    try {
+        // Ensure backup directory exists
+        if (!fs.existsSync(cookieBackupDir)) {
+            fs.mkdirSync(cookieBackupDir, { recursive: true });
+        }
+
+        // Get all cookies from the session
+        const allCookies = await ses.cookies.get({});
+
+        // Save them with metadata
+        const backup = {
+            provider,
+            timestamp: Date.now(),
+            cookies: allCookies.map(c => ({
+                name: c.name,
+                value: c.value,
+                domain: c.domain,
+                path: c.path,
+                secure: c.secure,
+                httpOnly: c.httpOnly,
+                sameSite: c.sameSite || 'no_restriction',
+                expirationDate: c.expirationDate || (Math.floor(Date.now() / 1000) + 2 * 24 * 60 * 60)
+            }))
+        };
+
+        const backupPath = path.join(cookieBackupDir, `${provider}.json`);
+        fs.writeFileSync(backupPath, JSON.stringify(backup, null, 2));
+
+    } catch (e) {
+        console.error(`[Cookie Backup] Error backing up ${provider}:`, e.message);
+    }
+}
+
+async function restoreCookies(provider, ses) {
+    try {
+        const backupPath = path.join(cookieBackupDir, `${provider}.json`);
+        if (!fs.existsSync(backupPath)) {
+            return false;
+        }
+
+        const backup = JSON.parse(fs.readFileSync(backupPath, 'utf8'));
+
+        // Check if backup is too old (> 3 days)
+        const maxAge = 3 * 24 * 60 * 60 * 1000; // 3 days in ms
+        if (Date.now() - backup.timestamp > maxAge) {
+
+            fs.unlinkSync(backupPath);
+            return false;
+        }
+
+        // Check if there are already valid cookies in the session
+        const existing = await ses.cookies.get({});
+        if (existing.length > 5) {
+            // Session already has cookies, probably still valid
+
+            return true;
+        }
+
+        // Restore cookies with refreshed expiration
+        const twoDaysFromNow = Math.floor(Date.now() / 1000) + (2 * 24 * 60 * 60);
+        let restored = 0;
+
+        for (const cookie of backup.cookies) {
+            try {
+                const domain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+                const url = `http${cookie.secure !== false ? 's' : ''}://${domain}${cookie.path || '/'}`;
+
+                await ses.cookies.set({
+                    url,
+                    name: cookie.name,
+                    value: cookie.value,
+                    domain: cookie.domain,
+                    path: cookie.path || '/',
+                    secure: cookie.secure !== false,
+                    httpOnly: cookie.httpOnly === true,
+                    sameSite: cookie.sameSite || 'no_restriction',
+                    // Refresh expiration on restore
+                    expirationDate: Math.max(cookie.expirationDate || 0, twoDaysFromNow)
+                });
+                restored++;
+            } catch (e) {
+                // Skip individual failures silently
+            }
+        }
+
+        // Flush to disk
+        await ses.cookies.flushStore();
+
+        console.log(`[Cookie Restore] Restored ${restored}/${backup.cookies.length} cookies for ${provider}`);
+        return restored > 0;
+    } catch (e) {
+        console.error(`[Cookie Restore] Error restoring ${provider}:`, e.message);
+        return false;
+    }
+}
+
 
 function createWindow() {
     const settings = loadSettings();
@@ -101,6 +235,7 @@ function createWindow() {
         backgroundColor: '#0f0f23',
         icon: path.join(__dirname, '../assets/proxima-icon.png')
     });
+    mainWindow.setMaxListeners(20); // Prevent MaxListenersExceeded warning
 
     // Initialize browser manager
     browserManager = new BrowserManager(mainWindow);
@@ -134,6 +269,17 @@ function createWindow() {
             const provider = enabledProviders[i];
             try {
                 console.log(`[Agent Hub] Initializing ${provider}...`);
+
+                // Restore backed up cookies before loading
+                const providerConfig = browserManager.providers[provider];
+                if (providerConfig) {
+                    const ses = session.fromPartition(providerConfig.partition, { cache: true });
+                    const restored = await restoreCookies(provider, ses);
+                    if (restored) {
+                        console.log(`[${provider}] Cookies restored from backup`);
+                    }
+                }
+
                 const view = browserManager.createView(provider);
 
                 if (view) {
@@ -171,6 +317,23 @@ function createWindow() {
         }
 
         console.log('[Agent Hub] All providers initialized and ready!');
+
+        // Periodically backup cookies every 10 minutes
+        setInterval(async () => {
+            if (!browserManager || browserManager.isDestroyed) return;
+            for (const provider of browserManager.getInitializedProviders()) {
+                try {
+                    const config = browserManager.providers[provider];
+                    if (config) {
+                        const ses = session.fromPartition(config.partition, { cache: true });
+                        const cookies = await ses.cookies.get({});
+                        if (cookies.length > 5) {
+                            await backupCookies(provider, ses);
+                        }
+                    }
+                } catch (e) { }
+            }
+        }, 10 * 60 * 1000); // Every 10 minutes
     });
 
     mainWindow.on('closed', () => {
@@ -185,6 +348,23 @@ function createWindow() {
 
     // Start IPC server for MCP communication
     startIPCServer();
+
+    // Start REST API server
+    try {
+        const enabledList = Object.entries(loadSettings().providers)
+            .filter(([_, c]) => c.enabled).map(([n]) => n);
+        initRestAPI({
+            handleMCPRequest,
+            getEnabledProviders: () => {
+                const s = loadSettings();
+                return Object.entries(s.providers)
+                    .filter(([_, c]) => c.enabled).map(([n]) => n);
+            }
+        });
+        startRestAPI();
+    } catch (e) {
+        console.error('[REST API] Failed to start:', e.message);
+    }
 }
 
 // IPC Server for MCP Communication
@@ -194,7 +374,7 @@ function startIPCServer() {
     const port = settings.ipcPort || 19222;
 
     ipcServer = net.createServer((socket) => {
-        console.log('[IPC] MCP Server connected');
+
 
         let buffer = '';
 
@@ -208,17 +388,18 @@ function startIPCServer() {
             for (const line of lines) {
                 if (line.trim()) {
                     try {
-                        console.log('[IPC] Received:', line.substring(0, 100));
+
                         const request = JSON.parse(line);
                         const response = await handleMCPRequest(request);
                         // IMPORTANT: Include requestId in response for MCP server to match!
                         response.requestId = request.requestId;
                         const responseStr = JSON.stringify(response) + '\n';
-                        console.log('[IPC] Sending:', responseStr.substring(0, 100));
+
                         socket.write(responseStr);
                     } catch (e) {
-                        console.log('[IPC] Error:', e.message);
-                        socket.write(JSON.stringify({ error: e.message }) + '\n');
+                        console.error('[IPC] Error:', e.message);
+                        const request = (() => { try { return JSON.parse(line); } catch { return {}; } })();
+                        socket.write(JSON.stringify({ error: e.message, requestId: request.requestId }) + '\n');
                     }
                 }
             }
@@ -272,7 +453,7 @@ async function handleMCPRequest(request) {
                 // Check if file should be uploaded
                 if (data.filePath && fileReferenceEnabled) {
                     try {
-                        console.log(`[MCP] Uploading file with message: ${data.filePath}`);
+
                         const uploadResult = await uploadFileToProvider(provider, data.filePath);
                         await sleep(1000); // Wait for file to attach
                         const result = await sendMessageToProvider(provider, data.message);
@@ -298,7 +479,7 @@ async function handleMCPRequest(request) {
                     // Set flag for Perplexity file upload tracking
                     if (provider === 'perplexity') {
                         perplexityFileJustUploaded = true;
-                        console.log('[MCP] Set perplexityFileJustUploaded = true');
+
                     }
                     return { success: true, provider, ...uploadResult };
                 } catch (uploadErr) {
@@ -308,50 +489,50 @@ async function handleMCPRequest(request) {
             case 'sendMessageWithFile':
                 // Explicitly send message with file
                 if (!fileReferenceEnabled) {
-                    console.log('[MCP] File reference disabled, sending message without file');
+
                 }
                 try {
                     let fileResult = null;
                     if (data.filePath && fileReferenceEnabled) {
-                        console.log('[MCP] Starting file upload...');
+
                         fileResult = await uploadFileToProvider(provider, data.filePath);
 
                         // Set flag for Perplexity file upload tracking
                         if (provider === 'perplexity') {
                             perplexityFileJustUploaded = true;
-                            console.log('[MCP] Set perplexityFileJustUploaded = true');
+
                         }
 
                         // Wait longer and verify file is attached
-                        console.log('[MCP] File upload attempted, waiting for attachment...');
+
                         await sleep(3000);
 
                         // Retry check for file attachment (up to 3 times)
                         let retries = 0;
                         while (!fileResult.fileAttached && retries < 3) {
-                            console.log(`[MCP] Checking if file attached (attempt ${retries + 1})...`);
+
                             await sleep(2000);
 
                             // Re-check for attachment indicators
                             const attached = await checkFileAttachment(provider);
                             if (attached) {
                                 fileResult.fileAttached = true;
-                                console.log('[MCP] File confirmed attached!');
+
                                 break;
                             }
                             retries++;
                         }
 
                         if (!fileResult.fileAttached) {
-                            console.log('[MCP] Warning: File may not be attached, proceeding anyway...');
+
                         }
 
                         // Wait for send button to be ready (file upload complete)
-                        console.log('[MCP] Waiting for send button to be ready...');
+
                         await waitForSendButton(provider);
                     }
 
-                    console.log('[MCP] Sending message...');
+
                     const msgResult = await sendMessageToProvider(provider, data.message);
                     const responseData = await getResponseWithTypingStatus(provider);
                     return {
@@ -443,7 +624,7 @@ async function handleMCPRequest(request) {
                         return info;
                     })()
                 `);
-                console.log('[DEBUG DOM]', JSON.stringify(debugInfo, null, 2));
+
                 return { success: true, provider, debugInfo };
 
             // Window visibility controls (for headless mode)
@@ -502,6 +683,20 @@ async function sendMessageToProvider(provider, message) {
     const webContents = browserManager.getWebContents(provider);
     if (!webContents) {
         throw new Error(`Provider ${provider} not initialized`);
+    }
+
+    // CRITICAL: Clear the network interceptor's captured response BEFORE sending new message
+    // This prevents old conversation data from being mixed into the new response
+    try {
+        await webContents.executeJavaScript(`
+            window.__proxima_captured_response = '';
+            window.__proxima_is_streaming = false;
+            window.__proxima_last_capture_time = 0;
+            window.__proxima_active_stream_id = null;
+            if (window.__proxima_blocks) window.__proxima_blocks = {};
+        `);
+    } catch (e) {
+        // Silent — non-critical
     }
 
     switch (provider) {
@@ -992,70 +1187,237 @@ async function typeIntoPage(webContents, text) {
     await sleep(100);
 }
 
+async function getResponseWithTypingStatus(provider) {
+    console.log(`[getResponseWithTyping] Starting for ${provider}...`);
+
+    const webContents = browserManager.getWebContents(provider);
+    if (!webContents) {
+        throw new Error(`Provider ${provider} not initialized`);
+    }
+
+    // Capture OLD fingerprint BEFORE getting response (for detecting new vs old responses)
+    try {
+        if (provider === 'perplexity') {
+            const oldData = await webContents.executeJavaScript(`
+                (function() {
+                    const proseBlocks = Array.from(document.querySelectorAll('[class*="prose"]:not(.prose-sm)'))
+                        .filter(block => {
+                            const text = block.textContent.trim();
+                            return text.length > 3 && 
+                                   !text.toLowerCase().includes('perplexity pro') &&
+                                   !text.includes('Ask anything') &&
+                                   !text.includes('Ask a follow-up') &&
+                                   !text.includes('Attach');
+                        });
+                    if (proseBlocks.length > 0) {
+                        const lastBlock = proseBlocks[proseBlocks.length - 1];
+                        return {
+                            count: proseBlocks.length,
+                            fingerprint: lastBlock.textContent.substring(0, 200).trim()
+                        };
+                    }
+                    return { count: 0, fingerprint: '' };
+                })()
+            `).catch(() => ({ count: 0, fingerprint: '' }));
+            global.perplexityOldFingerprint = oldData.fingerprint;
+            global.perplexityOldBlockCount = oldData.count;
+            console.log(`[Perplexity] Captured old response fingerprint: ${oldData.fingerprint.substring(0, 50)}...`);
+        } else if (provider === 'claude') {
+            const oldFp = await webContents.executeJavaScript(`
+                (function() {
+                    const selectors = [
+                        '[data-is-streaming]', '.font-claude-message',
+                        '[class*="claude"][class*="message"]',
+                        '[class*="response"][class*="content"]',
+                        '[class*="assistant"][class*="message"]'
+                    ];
+                    for (const sel of selectors) {
+                        const els = document.querySelectorAll(sel);
+                        if (els.length > 0) {
+                            return els[els.length - 1].textContent.substring(0, 200).trim();
+                        }
+                    }
+                    const proseBlocks = document.querySelectorAll('.prose, [class*="prose"]');
+                    if (proseBlocks.length > 0) {
+                        return proseBlocks[proseBlocks.length - 1].textContent.substring(0, 200).trim();
+                    }
+                    return '';
+                })()
+            `).catch(() => '');
+            global.claudeOldFingerprint = oldFp;
+            console.log(`[Claude] Captured old response fingerprint: ${oldFp.substring(0, 50)}...`);
+        } else if (provider === 'chatgpt') {
+            const oldFp = await webContents.executeJavaScript(`
+                (function() {
+                    const msgs = document.querySelectorAll('[data-message-author-role="assistant"]');
+                    if (msgs.length > 0) {
+                        return msgs[msgs.length - 1].textContent.substring(0, 200).trim();
+                    }
+                    return '';
+                })()
+            `).catch(() => '');
+            console.log(`[ChatGPT] Captured old response fingerprint: ${oldFp.substring(0, 50)}...`);
+        } else if (provider === 'gemini') {
+            const oldFp = await webContents.executeJavaScript(`
+                (function() {
+                    const msgs = document.querySelectorAll('message-content, .message-content, [class*="response-content"]');
+                    if (msgs.length > 0) {
+                        return msgs[msgs.length - 1].textContent.substring(0, 200).trim();
+                    }
+                    return '';
+                })()
+            `).catch(() => '');
+            console.log(`[Gemini] Captured old response fingerprint: ${oldFp.substring(0, 50)}...`);
+        }
+    } catch (e) {
+        console.error(`[getResponseWithTyping] Error capturing old fingerprint for ${provider}:`, e.message);
+    }
+
+    // Now get the actual response
+    const response = await getProviderResponse(provider);
+
+    return {
+        typingStarted: true,
+        typingStopped: true,
+        response
+    };
+}
+
 async function getProviderResponse(provider, customSelector = null) {
     const webContents = browserManager.getWebContents(provider);
     if (!webContents) {
         throw new Error(`Provider ${provider} not initialized`);
     }
 
-    console.log(`[getProviderResponse] Waiting for ${provider} response...`);
+    // Fast path: grab from network interceptor instead of waiting for DOM
 
-    // Get the old fingerprint (if available) to detect when NEW response appears
-    let oldFingerprint = '';
-    let oldBlockCount = 0;
-    if (provider === 'perplexity') {
-        oldFingerprint = global.perplexityOldFingerprint || '';
-        oldBlockCount = global.perplexityOldBlockCount || 0;
-    } else if (provider === 'claude') {
-        oldFingerprint = global.claudeOldFingerprint || '';
-    }
+    const maxWaitSeconds = (provider === 'claude') ? 600 : 120; // 5 min Claude, 2 min others
+    const maxPolls = maxWaitSeconds * 2; // polling every 500ms
+    let networkGotResponse = false;
 
-    if (oldFingerprint) {
-        console.log(`[getProviderResponse] Will wait for response DIFFERENT from: "${oldFingerprint.substring(0, 50)}..." (oldBlockCount: ${oldBlockCount})`);
-    }
+    console.log(`[getProviderResponse] ⚡ ${provider}: Network interceptor polling (fast path)...`);
 
-    // STEP 1: Wait for typing to START (max 10 seconds)
-    console.log(`[getProviderResponse] Waiting for ${provider} to start typing...`);
-    let typingStarted = false;
-    for (let i = 0; i < 20; i++) { // 20 * 500ms = 10 seconds
-        const typingStatus = await isAITyping(provider);
-        if (typingStatus.isTyping) {
-            console.log(`[getProviderResponse] ${provider} started typing!`);
-            typingStarted = true;
-            break;
+    for (let i = 0; i < maxPolls; i++) {
+        try {
+            const status = await webContents.executeJavaScript(`
+                (function() {
+                    return {
+                        response: window.__proxima_captured_response || '',
+                        isStreaming: window.__proxima_is_streaming || false,
+                        lastCaptureTime: window.__proxima_last_capture_time || 0,
+                        installed: !!window.__proxima_fetch_intercepted
+                    };
+                })()
+            `);
+
+            // Interceptor not installed — skip to DOM fallback
+            if (!status.installed) {
+                console.log(`[getProviderResponse] ${provider}: Interceptor not installed, using DOM fallback`);
+                break;
+            }
+
+            // Stream started and has content
+            if (status.response.length > 0) {
+                // Stream is DONE — return immediately!
+                if (!status.isStreaming) {
+                    console.log(`[getProviderResponse] ⚡ ${provider}: Network capture COMPLETE! ${status.response.length} chars (poll #${i})`);
+                    // Clear for next use
+                    await webContents.executeJavaScript(`window.__proxima_captured_response = ''`);
+                    networkGotResponse = true;
+                    return status.response;
+                }
+
+                // Still streaming — log progress every 5 seconds
+                if (i % 10 === 0 && i > 0) {
+                    console.log(`[getProviderResponse] ${provider}: Still streaming... ${status.response.length} chars captured`);
+                }
+            }
+
+            // No content yet — waiting for stream to start
+            // If no stream activity after 2 seconds, fall back to DOM quickly
+            // (Gemini/Perplexity don't use fetch, so interceptor won't capture them)
+            // Also handles case where interceptor matched URL but parser failed (ChatGPT)
+            if (i > 3 && !status.isStreaming && status.response.length === 0) {
+                console.log(`[getProviderResponse] ${provider}: No usable stream data after ${i * 0.5}s, trying DOM fallback`);
+                break;
+            }
+
+        } catch (e) {
+            // webContents might be navigating, retry
+            if (i > 40) {
+                console.log(`[getProviderResponse] ${provider}: Interceptor error, falling back to DOM`);
+                break;
+            }
         }
+
         await sleep(500);
     }
 
-    if (!typingStarted) {
-        console.log(`[getProviderResponse] ${provider} didn't start typing, checking for existing response...`);
-    }
+    // Slow path: DOM scraping fallback (interceptor missed or not installed)
 
-    // STEP 2: Wait for typing to STOP (max 60 seconds)
-    if (typingStarted) {
-        console.log(`[getProviderResponse] Waiting for ${provider} to finish typing...`);
-        for (let i = 0; i < 120; i++) { // 120 * 500ms = 60 seconds
-            const typingStatus = await isAITyping(provider);
-            if (!typingStatus.isTyping) {
-                console.log(`[getProviderResponse] ${provider} stopped typing!`);
-                break;
-            }
-            await sleep(500);
+    if (!networkGotResponse) {
+        console.log(`[getProviderResponse] ${provider}: Using DOM fallback path...`);
+
+        // Get old fingerprint for detecting new responses
+        let oldFingerprint = '';
+        let oldBlockCount = 0;
+        if (provider === 'perplexity') {
+            oldFingerprint = global.perplexityOldFingerprint || '';
+            oldBlockCount = global.perplexityOldBlockCount || 0;
+        } else if (provider === 'claude') {
+            oldFingerprint = global.claudeOldFingerprint || '';
         }
-    }
 
-    // STEP 3: Small delay for DOM to settle
-    await sleep(1000);
+        // Smart typing wait — check if AI is currently typing, wait only if needed
+        try {
+            const typingNow = await isAITyping(provider);
+            if (typingNow.isTyping) {
+                console.log(`[getProviderResponse] ${provider}: AI still typing, waiting...`);
+                const maxTypingWait = (provider === 'claude') ? 600 : 120;
+                for (let i = 0; i < maxTypingWait; i++) {
+                    const ts = await isAITyping(provider);
+                    if (!ts.isTyping) break;
+                    if (i % 20 === 0 && i > 0) {
+                        console.log(`[getProviderResponse] ${provider}: Still typing (${i * 0.5}s)...`);
+                    }
+                    await sleep(500);
+                }
+            }
+        } catch (e) { }
 
-    let lastText = '';
-    let stableCount = 0;
-    const STABLE_THRESHOLD = 3; // Need 3 consecutive same responses to confirm
-    const MAX_POLLS = 20; // 10 seconds max (20 * 500ms) for stabilization
-    let foundNewResponse = false; // Track if we've seen a different response
+        // Small delay for DOM to settle (Perplexity needs more time for math/LaTeX rendering)
+        await sleep((provider === 'claude' || provider === 'perplexity') ? 1500 : 500);
 
-    // Poll for stable response
-    for (let i = 0; i < MAX_POLLS; i++) {
-        const text = await webContents.executeJavaScript(`
+        // One more try — maybe interceptor caught it while DOM was settling
+        try {
+            const lateCheck = await webContents.executeJavaScript(`
+                (function() {
+                    var resp = window.__proxima_captured_response || '';
+                    if (resp.length > 50) {
+                        window.__proxima_captured_response = '';
+                        return resp;
+                    }
+                    return '';
+                })()
+            `);
+            if (lateCheck && lateCheck.length > 50) {
+                console.log(`[getProviderResponse] ✅ ${provider}: Late network capture (${lateCheck.length} chars)`);
+                return lateCheck;
+            }
+        } catch (e) { }
+
+        // STEP 4: DOM polling for response text
+        let lastText = '';
+        let stableCount = 0;
+        // Perplexity math/LaTeX renders in stages — need more stability checks
+        const STABLE_THRESHOLD = provider === 'perplexity' ? 5 : 3;
+        const MAX_POLLS = (provider === 'claude' || provider === 'perplexity') ? 60 : 40;
+        let foundNewResponse = false;
+
+
+        // Poll for stable response
+        for (let i = 0; i < MAX_POLLS; i++) {
+            const text = await webContents.executeJavaScript(`
             (function() {
                 const host = window.location.host;
                 
@@ -1312,44 +1674,252 @@ async function getProviderResponse(provider, customSelector = null) {
                     return '';
                 }
                 
-                // Claude specific - updated selectors for current Claude UI
+                // Claude specific - handles normal text AND artifact/code responses
+                // Claude has TWO panels: left=chat text, right=artifact code panel
                 if (host.includes('claude')) {
-                    // Try multiple selectors for Claude responses
-                    // 1. Look for assistant message containers
-                    const assistantMsgs = document.querySelectorAll('[data-is-streaming], .font-claude-message, [class*="claude"][class*="message"]');
-                    if (assistantMsgs.length > 0) {
-                        const lastMsg = assistantMsgs[assistantMsgs.length - 1];
-                        const markdown = cleanMarkdown(domToMarkdown(lastMsg));
-                        if (markdown && markdown.length > 0) return markdown;
-                    }
+                    let chatResponse = '';
+                    let artifactCode = '';
                     
-                    // 2. Try prose blocks
-                    const proseBlocks = document.querySelectorAll('.prose, [class*="prose"]');
-                    if (proseBlocks.length > 0) {
-                        const lastBlock = proseBlocks[proseBlocks.length - 1];
-                        const markdown = cleanMarkdown(domToMarkdown(lastBlock));
-                        if (markdown && markdown.length > 0) return markdown;
-                    }
+                    // === PART A: Capture chat text (left panel) ===
                     
-                    // 3. Try grid content areas
-                    const gridContent = document.querySelectorAll('[class*="grid"] [class*="content"], [class*="message-content"]');
-                    if (gridContent.length > 0) {
-                        const lastContent = gridContent[gridContent.length - 1];
-                        const markdown = cleanMarkdown(domToMarkdown(lastContent));
-                        if (markdown && markdown.length > 0) return markdown;
-                    }
+                    // A0: Try to find individual turn/message containers first
+                    // Claude 2026 uses individual turn containers for each message
+                    const turnSelectors = [
+                        '[data-testid="chat-message-turn"]',
+                        '[data-testid="assistant-turn"]',
+                        '[data-testid="ai-message"]',
+                        'div[data-turn-role="assistant"]',
+                        'div[data-role="assistant"]',
+                        'div[data-message-role="assistant"]'
+                    ];
                     
-                    // 4. Fallback - look for any div with substantial text after user message
-                    const allDivs = document.querySelectorAll('div[class]');
-                    let bestMatch = '';
-                    for (const div of allDivs) {
-                        const text = div.innerText || '';
-                        if (text.length > 100 && text.length > bestMatch.length && 
-                            !text.includes('New chat') && !text.includes('Claude can make mistakes')) {
-                            bestMatch = text;
+                    for (const sel of turnSelectors) {
+                        const turns = document.querySelectorAll(sel);
+                        if (turns.length > 0) {
+                            const lastTurn = turns[turns.length - 1];
+                            const md = cleanMarkdown(domToMarkdown(lastTurn));
+                            if (md && md.length > chatResponse.length) {
+                                chatResponse = md;
+                            }
                         }
                     }
-                    if (bestMatch) return cleanMarkdown(bestMatch);
+                    
+                    // A1: Try modern Claude UI selectors for chat messages
+                    if (chatResponse.length < 50) {
+                        const chatSelectors = [
+                            '[data-is-streaming]',
+                            '.font-claude-message',
+                            '[class*="claude"][class*="message"]',
+                            '[class*="response"][class*="content"]',
+                            '[class*="assistant"][class*="message"]'
+                        ];
+                        
+                        for (const sel of chatSelectors) {
+                            const elements = document.querySelectorAll(sel);
+                            if (elements.length > 0) {
+                                const lastEl = elements[elements.length - 1];
+                                const md = cleanMarkdown(domToMarkdown(lastEl));
+                                if (md && md.length > chatResponse.length) {
+                                    chatResponse = md;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // A2: Try prose blocks for chat
+                    if (chatResponse.length < 50) {
+                        const proseBlocks = document.querySelectorAll('.prose, [class*="prose"]');
+                        if (proseBlocks.length > 0) {
+                            const lastBlock = proseBlocks[proseBlocks.length - 1];
+                            const md = cleanMarkdown(domToMarkdown(lastBlock));
+                            if (md && md.length > chatResponse.length) {
+                                chatResponse = md;
+                            }
+                        }
+                    }
+
+                    // A3: Fallback for chat - find message-like containers
+                    // IMPORTANT: Never grab the full conversation container
+                    if (chatResponse.length < 50) {
+                        const allDivs = document.querySelectorAll('div[class]');
+                        let candidates = [];
+                        for (const div of allDivs) {
+                            const text = div.innerText || '';
+                            if (text.length < 100) continue;
+                            
+                            // Skip sidebar/navigation content
+                            const sidebarKeywords = ['New chat', 'Chats', 'Projects', 'Recents', 'All chats', 'Free plan', 'Artifacts', 'Hide', 'Code'];
+                            let sidebarScore = 0;
+                            for (const kw of sidebarKeywords) {
+                                if (text.includes(kw)) sidebarScore++;
+                            }
+                            if (sidebarScore >= 3) continue;
+                            
+                            if (div.closest('nav, header, footer, aside, [class*="sidebar"], [class*="nav"], [class*="menu"], [class*="drawer"], [class*="panel"][class*="left"]')) continue;
+                            const className = div.className || '';
+                            if (className.includes('sidebar') || className.includes('nav') || className.includes('menu') || className.includes('drawer') || className.includes('conversation-list')) continue;
+                            if (div.querySelector('textarea, input[type="text"]')) continue;
+                            if (text.includes('Claude can make mistakes') && text.length < 200) continue;
+                            
+                            candidates.push({ el: div, text: text, len: text.length });
+                        }
+                        
+                        // Sort by length, pick a reasonable-sized candidate (not the mega-container)
+                        candidates.sort((a, b) => a.len - b.len);
+                        // Pick the SMALLEST candidate that is > 100 chars - more likely to be a single message
+                        for (const c of candidates) {
+                            if (c.len > 100 && c.len < 5000) {
+                                chatResponse = cleanMarkdown(c.text);
+                                break;
+                            }
+                        }
+                        // If nothing small found, use last candidate but clean it
+                        if (chatResponse.length < 50 && candidates.length > 0) {
+                            chatResponse = candidates[candidates.length - 1].text;
+                            chatResponse = cleanMarkdown(chatResponse);
+                        }
+                    }
+                    
+                    // A4: POST-PROCESSING - Detect and clean full conversation captures
+                    // If response includes timestamps like "4:43 AM" or "10:30 PM", 
+                    // it means we grabbed the full conversation. Extract only the last response.
+                    if (chatResponse.length > 0) {
+                        const tsPattern = new RegExp('\\d{1,2}:\\d{2}\\s*(AM|PM)', 'gi');
+                        const hasTimestamps = tsPattern.test(chatResponse);
+                        
+                        if (hasTimestamps) {
+                            // Split by timestamp pattern to get individual messages
+                            const splitPattern = new RegExp('\\d{1,2}:\\d{2}\\s*(AM|PM)', 'gi');
+                            const parts = chatResponse.split(splitPattern);
+                            
+                            // Filter out short parts (user messages are typically short)
+                            // and take the LAST substantial part (the latest AI response)
+                            let lastResponse = '';
+                            for (let i = parts.length - 1; i >= 0; i--) {
+                                const part = (parts[i] || '').trim();
+                                // Skip empty, very short (user msgs), and AM/PM artifacts
+                                if (!part || part.length < 20) continue;
+                                if (part === 'AM' || part === 'PM') continue;
+                                lastResponse = part;
+                                break;
+                            }
+                            
+                            if (lastResponse.length > 20) {
+                                chatResponse = cleanMarkdown(lastResponse);
+                            }
+                        }
+                    }
+                    
+                    // === PART B: Capture artifact code (right side panel) ===
+                    // Claude opens artifacts in a side panel with code/preview
+                    
+                    // B1: Look for the artifact viewer panel
+                    // Artifact panel selectors - it's a separate panel from the chat
+                    const artifactSelectors = [
+                        '[data-testid="artifact-view"]',
+                        '[class*="artifact-renderer"]', 
+                        '[class*="artifact-content"]',
+                        '[class*="artifact"][class*="panel"]',
+                        '[class*="artifact"][class*="viewer"]',
+                        '[class*="code-editor"]',
+                        '[class*="artifact"]'
+                    ];
+                    
+                    let artifactPanel = null;
+                    let artifactTitle = '';
+                    
+                    for (const sel of artifactSelectors) {
+                        const panels = document.querySelectorAll(sel);
+                        if (panels.length > 0) {
+                            // Use the last/most recent artifact panel
+                            artifactPanel = panels[panels.length - 1];
+                            // Try to get artifact title
+                            const titleEl = artifactPanel.querySelector('[class*="title"], [class*="name"], [class*="header"] span, h1, h2, h3');
+                            if (titleEl) artifactTitle = titleEl.textContent.trim();
+                            break;
+                        }
+                    }
+                    
+                    // B2: Extract code from artifact panel
+                    if (artifactPanel) {
+                        // Look for code elements in the artifact panel
+                        const codeElements = artifactPanel.querySelectorAll('pre code, pre, code, [class*="code-block"], [class*="CodeMirror"], [class*="monaco"]');
+                        for (const codeEl of codeElements) {
+                            const codeText = codeEl.innerText || codeEl.textContent || '';
+                            if (codeText.trim().length > artifactCode.length) {
+                                artifactCode = codeText.trim();
+                            }
+                        }
+                        
+                        // If no code elements found, try innerText of the whole panel
+                        if (artifactCode.length < 10) {
+                            const panelText = artifactPanel.innerText || '';
+                            if (panelText.length > 50) {
+                                artifactCode = panelText;
+                            }
+                        }
+                    }
+                    
+                    // B3: If no artifact panel found, search ENTIRE page for big code blocks
+                    // that aren't in the chat area
+                    if (artifactCode.length < 10) {
+                        const allPres = document.querySelectorAll('pre, code');
+                        let biggestCode = '';
+                        for (const pre of allPres) {
+                            const text = pre.innerText || '';
+                            // Only grab substantial code blocks (likely artifacts)
+                            if (text.length > 100 && text.length > biggestCode.length) {
+                                biggestCode = text;
+                            }
+                        }
+                        if (biggestCode.length > 100) {
+                            artifactCode = biggestCode;
+                        }
+                    }
+                    
+                    // B4: Also try to find ALL artifact cards/buttons in the chat
+                    // and extract their titles (even if code is in side panel)
+                    const artifactButtons = document.querySelectorAll('button[class*="artifact"], [class*="artifact-block"], [data-component-name*="Artifact"]');
+                    let artifactTitles = [];
+                    artifactButtons.forEach(btn => {
+                        const title = btn.textContent.trim();
+                        if (title && title.length > 2 && title.length < 200) {
+                            artifactTitles.push(title);
+                        }
+                    });
+                    
+                    // === PART C: Combine chat text + artifact code ===
+                    let fullResponse = chatResponse;
+                    
+                    if (artifactCode && artifactCode.length > 10) {
+                        // Detect language from title
+                        let lang = '';
+                        const titleLower = (artifactTitle || '').toLowerCase();
+                        if (titleLower.includes('.jsx') || titleLower.includes('.tsx') || titleLower.includes('react')) lang = 'jsx';
+                        else if (titleLower.includes('.js')) lang = 'javascript';
+                        else if (titleLower.includes('.ts')) lang = 'typescript';
+                        else if (titleLower.includes('.py')) lang = 'python';
+                        else if (titleLower.includes('.html')) lang = 'html';
+                        else if (titleLower.includes('.css')) lang = 'css';
+                        else if (titleLower.includes('.json')) lang = 'json';
+                        else if (titleLower.includes('.md')) lang = 'markdown';
+                        
+                        // Add artifact code to response
+                        if (artifactTitle) {
+                            fullResponse += NL + NL + '**Artifact: ' + artifactTitle + '**' + NL;
+                        }
+                        fullResponse += NL + '\`\`\`' + lang + NL + artifactCode + NL + '\`\`\`' + NL;
+                    }
+                    
+                    // Add artifact title list if we found buttons but no code
+                    if (artifactTitles.length > 0 && artifactCode.length < 10) {
+                        fullResponse += NL + NL + '**Artifacts created:**' + NL;
+                        artifactTitles.forEach(t => {
+                            fullResponse += '- ' + t + NL;
+                        });
+                    }
+                    
+                    if (fullResponse && fullResponse.length > 0) return cleanMarkdown(fullResponse);
                 }
                 
                 // Gemini specific - updated selectors
@@ -1392,11 +1962,11 @@ async function getProviderResponse(provider, customSelector = null) {
         `);
 
 
-        if (text && text.length > 0) {
-            // For Perplexity: Check if this is actually a NEW response (not the old one)
-            if (provider === 'perplexity' && !foundNewResponse) {
-                // Get current block count and fingerprint
-                const currentData = await webContents.executeJavaScript(`
+            if (text && text.length > 0) {
+                // For Perplexity: Check if this is actually a NEW response (not the old one)
+                if (provider === 'perplexity' && !foundNewResponse) {
+                    // Get current block count and fingerprint
+                    const currentData = await webContents.executeJavaScript(`
                     (function() {
                         const proseBlocks = Array.from(document.querySelectorAll('[class*="prose"]:not(.prose-sm)'))
                             .filter(block => {
@@ -1418,70 +1988,72 @@ async function getProviderResponse(provider, customSelector = null) {
                     })()
                 `).catch(() => ({ count: 0, fingerprint: '' }));
 
-                const currentBlockCount = currentData.count;
-                const currentFingerprint = currentData.fingerprint;
+                    const currentBlockCount = currentData.count;
+                    const currentFingerprint = currentData.fingerprint;
 
-                // NEW response detected if block count increased OR fingerprint changed
-                const blockCountIncreased = oldBlockCount > 0 && currentBlockCount > oldBlockCount;
-                const fingerprintChanged = oldFingerprint &&
-                    currentFingerprint !== oldFingerprint &&
-                    !oldFingerprint.startsWith(currentFingerprint.substring(0, 100)) &&
-                    !currentFingerprint.startsWith(oldFingerprint.substring(0, 100));
+                    // NEW response detected if block count increased OR fingerprint changed
+                    const blockCountIncreased = oldBlockCount > 0 && currentBlockCount > oldBlockCount;
+                    const fingerprintChanged = oldFingerprint &&
+                        currentFingerprint !== oldFingerprint &&
+                        !oldFingerprint.startsWith(currentFingerprint.substring(0, 100)) &&
+                        !currentFingerprint.startsWith(oldFingerprint.substring(0, 100));
 
-                if (blockCountIncreased || fingerprintChanged) {
-                    console.log(`[getProviderResponse] Perplexity: NEW response detected! (blocks: ${oldBlockCount} -> ${currentBlockCount}, fingerprint changed: ${fingerprintChanged})`);
-                    foundNewResponse = true;
-                } else if (oldFingerprint || oldBlockCount > 0) {
-                    console.log(`[getProviderResponse] Perplexity: Still showing OLD response (blocks: ${currentBlockCount}/${oldBlockCount}), waiting...`);
-                    await sleep(500);
-                    continue;
-                } else {
-                    // No old fingerprint/count means this is first response
-                    foundNewResponse = true;
-                }
-            }
+                    if (blockCountIncreased || fingerprintChanged) {
 
-            // For Claude: Check if this is actually a NEW response (not the old one)
-            if (provider === 'claude' && oldFingerprint && !foundNewResponse) {
-                const currentFingerprint = text.substring(0, 200).trim();
-                if (currentFingerprint === oldFingerprint ||
-                    oldFingerprint.startsWith(currentFingerprint.substring(0, 100)) ||
-                    currentFingerprint.startsWith(oldFingerprint.substring(0, 100))) {
-                    console.log(`[getProviderResponse] Claude: Still showing OLD response, waiting...`);
-                    await sleep(500);
-                    continue;
-                } else {
-                    console.log(`[getProviderResponse] Claude: NEW response detected!`);
-                    foundNewResponse = true;
-                }
-            }
+                        foundNewResponse = true;
+                    } else if (oldFingerprint || oldBlockCount > 0) {
 
-            if (text === lastText) {
-                stableCount++;
-                if (stableCount >= STABLE_THRESHOLD) {
-                    console.log('[getProviderResponse] ✓ Captured (' + text.length + ' chars)');
-                    // Clear the old fingerprint after successful capture
-                    if (provider === 'perplexity') {
-                        global.perplexityOldFingerprint = '';
-                        global.perplexityOldBlockCount = 0;
+                        await sleep(500);
+                        continue;
+                    } else {
+                        // No old fingerprint/count means this is first response
+                        foundNewResponse = true;
                     }
-                    if (provider === 'claude') {
-                        global.claudeOldFingerprint = '';
-                    }
-                    return text;
                 }
-            } else {
-                stableCount = 0;
-                lastText = text;
+
+                // For Claude: Check if this is actually a NEW response (not the old one)
+                if (provider === 'claude' && oldFingerprint && !foundNewResponse) {
+                    const currentFingerprint = text.substring(0, 200).trim();
+                    if (currentFingerprint === oldFingerprint ||
+                        oldFingerprint.startsWith(currentFingerprint.substring(0, 100)) ||
+                        currentFingerprint.startsWith(oldFingerprint.substring(0, 100))) {
+
+                        await sleep(500);
+                        continue;
+                    } else {
+
+                        foundNewResponse = true;
+                    }
+                }
+
+                if (text === lastText) {
+                    stableCount++;
+                    if (stableCount >= STABLE_THRESHOLD) {
+                        console.log('[getProviderResponse] ✓ Captured (' + text.length + ' chars)');
+                        // Clear the old fingerprint after successful capture
+                        if (provider === 'perplexity') {
+                            global.perplexityOldFingerprint = '';
+                            global.perplexityOldBlockCount = 0;
+                        }
+                        if (provider === 'claude') {
+                            global.claudeOldFingerprint = '';
+                        }
+                        return text;
+                    }
+                } else {
+                    stableCount = 0;
+                    lastText = text;
+                }
             }
+
+            await sleep(500);
         }
 
-        await sleep(500);
-    }
+        return lastText || 'No response captured';
+    } // end DOM fallback
 
-    return lastText || 'No response captured';
+    return 'No response captured';
 }
-
 async function startNewConversation(provider) {
     const config = browserManager.providers[provider];
     if (config) {
@@ -1515,18 +2087,25 @@ async function isAITyping(provider) {
                     }
                 }
                 
-                // Claude typing detection
+                // Claude typing detection - must detect ALL generation states
+                // including artifact creation which can take 2-5 minutes
                 if (host.includes('claude')) {
-                    // Check for stop button that appears during generation
+                    // Check for stop button (appears during ALL generation)
                     const stopButton = document.querySelector('button[aria-label="Stop generating"], button[aria-label="Stop Response"], button[aria-label="Stop"]');
                     
                     // Check for streaming indicator attribute
                     const streamingIndicator = document.querySelector('[data-is-streaming="true"]');
                     
                     // Check for the orange loading spinner (claude's thinking indicator)
-                    const loadingSpinner = document.querySelector('.animate-spin, [class*="loading-spinner"]');
+                    const loadingSpinner = document.querySelector('.animate-spin, [class*="loading-spinner"], [class*="animate-pulse"]');
                     
-                    // Check if stop button is actually visible
+                    // Check for artifact creation in progress - the dotted orange circle
+                    const artifactProgress = document.querySelector('[class*="artifact"][class*="loading"], [class*="artifact"][class*="progress"], [class*="generating"]');
+                    
+                    // Check for "thinking" or "writing" status text
+                    const statusText = document.querySelector('[class*="status"], [class*="thinking"]');
+                    const isThinking = statusText && (statusText.textContent.includes('thinking') || statusText.textContent.includes('writing') || statusText.textContent.includes('Generating'));
+                    
                     if (stopButton && stopButton.offsetParent !== null) {
                         return { isTyping: true, provider: 'claude' };
                     }
@@ -1536,21 +2115,55 @@ async function isAITyping(provider) {
                     if (loadingSpinner && loadingSpinner.offsetParent !== null) {
                         return { isTyping: true, provider: 'claude' };
                     }
+                    if (artifactProgress) {
+                        return { isTyping: true, provider: 'claude' };
+                    }
+                    if (isThinking) {
+                        return { isTyping: true, provider: 'claude' };
+                    }
                 }
                 
                 // Perplexity typing detection
                 if (host.includes('perplexity')) {
-                    // Only check for SPECIFIC stop/loading indicators
+                    // 1. Stop button (appears during ALL generation)
                     const stopButton = document.querySelector('button[aria-label="Stop"]');
-                    
-                    // Check for "Searching" text specifically in the response area
-                    const searchingIndicator = document.querySelector('[data-testid*="searching"], [class*="searching"]');
-                    
-                    // Check if there's an active generation (stop button visible)
                     if (stopButton && stopButton.offsetParent !== null) {
                         return { isTyping: true, provider: 'perplexity' };
                     }
+                    
+                    // 2. "Searching" text/indicator
+                    const searchingIndicator = document.querySelector('[data-testid*="searching"], [class*="searching"]');
                     if (searchingIndicator) {
+                        return { isTyping: true, provider: 'perplexity' };
+                    }
+                    
+                    // 3. Loading spinners & animated progress indicators
+                    const spinners = document.querySelectorAll('.animate-spin, [class*="animate-pulse"], [class*="loading"], [class*="spinner"], [class*="progress"]');
+                    for (const sp of spinners) {
+                        // Only count spinners inside the main content area (not nav/sidebar)
+                        if (sp.offsetParent !== null && !sp.closest('nav, header, [class*="sidebar"], [class*="nav"]')) {
+                            return { isTyping: true, provider: 'perplexity' };
+                        }
+                    }
+                    
+                    // 4. Streaming/thinking dots (pulsing circles or dots animation)
+                    const thinkingDots = document.querySelector('[class*="thinking"], [class*="typing"], [class*="generating"], [class*="streaming"]');
+                    if (thinkingDots && thinkingDots.offsetParent !== null) {
+                        return { isTyping: true, provider: 'perplexity' };
+                    }
+                    
+                    // 5. Step counter still in-progress (e.g., "Searching 3 sources" text visible)
+                    const stepIndicators = document.querySelectorAll('[class*="step"], [class*="source"]');
+                    for (const si of stepIndicators) {
+                        const text = si.textContent || '';
+                        if ((text.includes('Searching') || text.includes('Reading') || text.includes('Analyzing') || text.includes('Thinking')) && si.offsetParent !== null) {
+                            return { isTyping: true, provider: 'perplexity' };
+                        }
+                    }
+                    
+                    // 6. SVG animation (Perplexity uses animated SVG rings during generation)
+                    const animatedSvg = document.querySelector('svg[class*="animate"], circle[class*="animate"], svg.animate-spin');
+                    if (animatedSvg && animatedSvg.closest('[class*="prose"], [class*="answer"], [class*="response"], main') && animatedSvg.offsetParent !== null) {
                         return { isTyping: true, provider: 'perplexity' };
                     }
                 }
@@ -1580,24 +2193,8 @@ async function isAITyping(provider) {
     }
 }
 
-// Smart response capture with typing detection
-async function getResponseWithTypingStatus(provider) {
-    const webContents = browserManager.getWebContents(provider);
-    if (!webContents) {
-        throw new Error(`Provider ${provider} not initialized`);
-    }
-
-    console.log(`[getResponseWithTyping] Starting for ${provider}...`);
-
-    // Just call getProviderResponse - it has its own waiting and polling logic
-    const response = await getProviderResponse(provider);
-
-    return {
-        typingStarted: true,
-        typingStopped: true,
-        response: response || 'No response captured'
-    };
-}
+// NOTE: getResponseWithTypingStatus is defined above (near line 1193)
+// with full fingerprint capture logic. Do NOT redefine it here.
 
 
 function sleep(ms) {
@@ -1623,6 +2220,16 @@ ipcMain.handle('save-enabled-providers', () => {
 
 ipcMain.handle('init-provider', async (event, provider) => {
     try {
+        // Restore backed up cookies before creating the view
+        const config = browserManager.providers[provider];
+        if (config) {
+            const ses = session.fromPartition(config.partition, { cache: true });
+            const restored = await restoreCookies(provider, ses);
+            if (restored) {
+                console.log(`[${provider}] Cookies restored from backup`);
+            }
+        }
+
         browserManager.createView(provider);
         return { success: true, provider };
     } catch (e) {
@@ -1762,6 +2369,9 @@ ipcMain.handle('set-cookies', async (event, provider, cookiesJson) => {
             }
         }
 
+        // Calculate default expiration: 2 days from now (in seconds since epoch)
+        const twoDaysFromNow = Math.floor(Date.now() / 1000) + (2 * 24 * 60 * 60);
+
         // Set the new cookies
         let setCount = 0;
         let errorCount = 0;
@@ -1783,9 +2393,13 @@ ipcMain.handle('set-cookies', async (event, provider, cookiesJson) => {
                     sameSite: cookie.sameSite || 'no_restriction'
                 };
 
-                // Set expiration if present
-                if (cookie.expirationDate) {
+                // IMPORTANT: Always set an expirationDate!
+                // Without it, cookies become "session cookies" and get deleted on app close
+                if (cookie.expirationDate && cookie.expirationDate > Date.now() / 1000) {
                     cookieDetails.expirationDate = cookie.expirationDate;
+                } else {
+                    // Default: expire in 2 days
+                    cookieDetails.expirationDate = twoDaysFromNow;
                 }
 
                 await ses.cookies.set(cookieDetails);
@@ -1797,6 +2411,12 @@ ipcMain.handle('set-cookies', async (event, provider, cookiesJson) => {
         }
 
         console.log(`[Cookie] Set ${setCount} cookies for ${provider}, ${errorCount} failed`);
+
+        // Backup cookies to file for restoration on next app start
+        await backupCookies(provider, ses);
+
+        // Flush cookies to disk immediately
+        await ses.cookies.flushStore();
 
         // Reload the provider view to apply cookies
         const view = browserManager.views.get(provider);
@@ -1860,6 +2480,7 @@ ipcMain.handle('set-file-reference-enabled', (event, enabled) => {
 ipcMain.handle('get-file-reference-enabled', () => {
     return { success: true, enabled: fileReferenceEnabled };
 });
+
 
 // Check if file is attached in chat
 async function checkFileAttachment(provider) {
@@ -1958,6 +2579,13 @@ async function uploadFileToProvider(provider, filePath) {
         throw new Error(`File not found: ${filePath}`);
     }
 
+    // Check file size limit (25MB max to avoid memory issues with base64)
+    const fileStats = fs.statSync(filePath);
+    const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
+    if (fileStats.size > MAX_FILE_SIZE) {
+        throw new Error(`File too large: ${(fileStats.size / 1024 / 1024).toFixed(1)}MB. Maximum is 25MB.`);
+    }
+
     const fileName = path.basename(filePath);
     const fileBuffer = fs.readFileSync(filePath);
     const fileBase64 = fileBuffer.toString('base64');
@@ -1972,7 +2600,7 @@ async function uploadFileToProvider(provider, filePath) {
             const fileBase64 = ${JSON.stringify(fileBase64)};
             const fileMimeType = ${JSON.stringify(fileMimeType)};
             
-            console.log('[FileUpload] Starting file input method for:', fileName);
+
             
             // Convert base64 to File
             function base64ToFile(base64, filename, mimeType) {
@@ -1987,7 +2615,7 @@ async function uploadFileToProvider(provider, filePath) {
             }
             
             const file = base64ToFile(fileBase64, fileName, fileMimeType);
-            console.log('[FileUpload] File created:', file.name, file.size, 'bytes');
+
             
             // Create DataTransfer with file
             const dataTransfer = new DataTransfer();
@@ -2002,7 +2630,7 @@ async function uploadFileToProvider(provider, filePath) {
                 // Claude: Look for attach button first
                 attachButton = document.querySelector('button[aria-label*="Attach"], button[aria-label*="attach"], button[aria-label*="Add"]');
                 if (attachButton) {
-                    console.log('[FileUpload] Found Claude attach button, clicking...');
+
                     attachButton.click();
                     await new Promise(r => setTimeout(r, 500));
                 }
@@ -2010,21 +2638,21 @@ async function uploadFileToProvider(provider, filePath) {
             } else if (host.includes('chatgpt')) {
                 attachButton = document.querySelector('button[aria-label*="Attach"], button[data-testid*="attach"]');
                 if (attachButton) {
-                    console.log('[FileUpload] Found ChatGPT attach button, clicking...');
+
                     attachButton.click();
                     await new Promise(r => setTimeout(r, 500));
                 }
                 fileInput = document.querySelector('input[type="file"]');
             } else if (host.includes('gemini')) {
                 // Gemini: Use clipboard paste (Ctrl+V) since no hidden file input exists
-                console.log('[FileUpload] Gemini: Using clipboard paste method...');
+
                 
                 // Focus the input area first
                 const inputArea = document.querySelector('rich-textarea, .ql-editor, [contenteditable="true"], textarea');
                 if (inputArea) {
                     inputArea.focus();
                     inputArea.click();
-                    console.log('[FileUpload] Gemini input focused');
+
                     
                     // Create clipboard data with file
                     const clipboardData = new DataTransfer();
@@ -2038,7 +2666,7 @@ async function uploadFileToProvider(provider, filePath) {
                     });
                     
                     inputArea.dispatchEvent(pasteEvent);
-                    console.log('[FileUpload] Paste event dispatched to Gemini');
+
                     
                     // Wait 2 seconds for file to be ready (simple and reliable)
                     await new Promise(r => setTimeout(r, 2000));
@@ -2055,27 +2683,34 @@ async function uploadFileToProvider(provider, filePath) {
                         method: 'clipboard-paste'
                     };
                 } else {
-                    console.log('[FileUpload] Gemini input area not found');
+
                     return { success: false, error: 'Input area not found', fileAttached: false };
                 }
             } else if (host.includes('perplexity')) {
+                // Perplexity: Click attach button first, then find file input
+                attachButton = document.querySelector('button[aria-label*="Attach"], button[aria-label*="attach"], button[aria-label*="Upload"], button[aria-label*="Add file"], [data-testid*="attach"]');
+                if (attachButton) {
+
+                    attachButton.click();
+                    await new Promise(r => setTimeout(r, 500));
+                }
                 fileInput = document.querySelector('input[type="file"]');
             }
             
             // If no file input found, search all inputs
             if (!fileInput) {
-                console.log('[FileUpload] Searching for any file input...');
+
                 const allInputs = document.querySelectorAll('input[type="file"]');
-                console.log('[FileUpload] Found', allInputs.length, 'file inputs');
+
                 fileInput = allInputs[0];
             }
             
             if (!fileInput) {
-                console.log('[FileUpload] No file input found!');
+
                 return { success: false, error: 'No file input found', fileAttached: false };
             }
             
-            console.log('[FileUpload] Setting files on input...');
+
             
             // Set files on input
             fileInput.files = dataTransfer.files;
@@ -2084,7 +2719,7 @@ async function uploadFileToProvider(provider, filePath) {
             fileInput.dispatchEvent(new Event('input', { bubbles: true }));
             fileInput.dispatchEvent(new Event('change', { bubbles: true }));
             
-            console.log('[FileUpload] Events dispatched, waiting...');
+
             
             // Wait for upload
             await new Promise(r => setTimeout(r, 2000));
@@ -2105,7 +2740,7 @@ async function uploadFileToProvider(provider, filePath) {
             let fileAttached = false;
             for (const sel of indicators) {
                 if (document.querySelector(sel)) {
-                    console.log('[FileUpload] Found attachment:', sel);
+
                     fileAttached = true;
                     break;
                 }
@@ -2121,7 +2756,7 @@ async function uploadFileToProvider(provider, filePath) {
         })()
     `);
 
-    console.log(`[FileReference] Upload result:`, uploadResult);
+
     return uploadResult;
 }
 
@@ -2161,6 +2796,25 @@ function getMimeType(filePath) {
 // App Lifecycle
 
 app.whenReady().then(createWindow);
+
+// Backup all cookies before quitting
+app.on('before-quit', async (event) => {
+    if (browserManager && !browserManager.isDestroyed) {
+        for (const provider of browserManager.getInitializedProviders()) {
+            try {
+                const config = browserManager.providers[provider];
+                if (config) {
+                    const ses = session.fromPartition(config.partition, { cache: true });
+                    await ses.cookies.flushStore();
+                    await backupCookies(provider, ses);
+                }
+            } catch (e) {
+                console.error(`[Quit] Cookie backup failed for ${provider}:`, e.message);
+            }
+        }
+        console.log('[Quit] All cookies backed up');
+    }
+});
 
 app.on('window-all-closed', () => {
     if (ipcServer) {

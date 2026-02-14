@@ -1,6 +1,4 @@
-/**
- * Preload Script v2 - Exposes safe IPC methods to renderer
- */
+// Preload — bridge between renderer and main process
 
 const { contextBridge, ipcRenderer } = require('electron');
 
@@ -22,7 +20,7 @@ contextBridge.exposeInMainWorld('agentHub', {
     getMcpConfig: () => ipcRenderer.invoke('get-mcp-config'),
     getIpcPort: () => ipcRenderer.invoke('get-ipc-port'),
 
-    // Cookie Login (for providers that block OAuth in embedded browser)
+    // Cookie Login (manual fallback if needed)
     setCookies: (provider, cookiesJson) => ipcRenderer.invoke('set-cookies', provider, cookiesJson),
     getCookies: (provider) => ipcRenderer.invoke('get-cookies', provider),
 

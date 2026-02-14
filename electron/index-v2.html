@@ -991,22 +991,22 @@
     <!-- Tab Navigation -->
     <div class="tab-nav">
         <div class="tab" data-provider="perplexity" onclick="switchTab('perplexity')">
-            <img src="../images/gcMkPKyj2RX8EOEja8A1GWvCb7E.png" class="tab-icon-img" alt="Perplexity">
+            <img src="../assets/perplexity.png" class="tab-icon-img" alt="Perplexity">
             <span class="tab-name">Perplexity</span>
             <div class="tab-status offline" id="status-dot-perplexity"></div>
         </div>
         <div class="tab" data-provider="chatgpt" onclick="switchTab('chatgpt')">
-            <img src="../images/1702059841openai-icon-png.png" class="tab-icon-img" alt="ChatGPT">
+            <img src="../assets/chatgpt.png" class="tab-icon-img" alt="ChatGPT">
             <span class="tab-name">ChatGPT</span>
             <div class="tab-status offline" id="status-dot-chatgpt"></div>
         </div>
         <div class="tab" data-provider="claude" onclick="switchTab('claude')">
-            <img src="../images/claude-ai-icon.svg" class="tab-icon-img" alt="Claude">
+            <img src="../assets/claude.svg" class="tab-icon-img" alt="Claude">
             <span class="tab-name">Claude</span>
             <div class="tab-status offline" id="status-dot-claude"></div>
         </div>
         <div class="tab" data-provider="gemini" onclick="switchTab('gemini')">
-            <img src="../images/google-gemini-icon.png" class="tab-icon-img" alt="Gemini">
+            <img src="../assets/gemini.png" class="tab-icon-img" alt="Gemini">
             <span class="tab-name">Gemini</span>
             <div class="tab-status offline" id="status-dot-gemini"></div>
         </div>
@@ -1084,7 +1084,7 @@
                 <div class="provider-grid">
                     <div class="provider-card enabled" data-provider="perplexity">
                         <div class="provider-card-icon" style="background: transparent;">
-                            <img src="../images/gcMkPKyj2RX8EOEja8A1GWvCb7E.png"
+                            <img src="../assets/perplexity.png"
                                 style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
                         </div>
                         <div class="provider-card-info">
@@ -1096,7 +1096,7 @@
                     </div>
                     <div class="provider-card enabled" data-provider="chatgpt">
                         <div class="provider-card-icon" style="background: transparent;">
-                            <img src="../images/1702059841openai-icon-png.png"
+                            <img src="../assets/chatgpt.png"
                                 style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
                         </div>
                         <div class="provider-card-info">
@@ -1107,7 +1107,7 @@
                     </div>
                     <div class="provider-card disabled" data-provider="claude">
                         <div class="provider-card-icon" style="background: transparent;">
-                            <img src="../images/claude-ai-icon.svg"
+                            <img src="../assets/claude.svg"
                                 style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
                         </div>
                         <div class="provider-card-info">
@@ -1118,7 +1118,7 @@
                     </div>
                     <div class="provider-card enabled" data-provider="gemini">
                         <div class="provider-card-icon" style="background: transparent;">
-                            <img src="../images/google-gemini-icon.png"
+                            <img src="../assets/gemini.png"
                                 style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
                         </div>
                         <div class="provider-card-info">
@@ -1203,7 +1203,7 @@ Confirm when done</pre>
 
     <div class="toast" id="toast">Message</div>
 
-    <!-- Cookie Login Modal -->
+    <!-- Cookie Login Modal (fallback only) -->
     <div class="cookie-modal-overlay" id="cookie-modal-overlay" onclick="closeCookieModalOutside(event)">
         <div class="cookie-modal">
             <div class="cookie-modal-header">
@@ -1214,7 +1214,7 @@ Confirm when done</pre>
             </div>
 
             <div class="cookie-instructions">
-                <strong>📋 How to get cookies:</strong>
+                <strong>� How to get cookies:</strong>
                 <ol>
                     <li>Install <code>EditThisCookie</code> or <code>Cookie-Editor</code> extension in Chrome</li>
                     <li>Go to <a href="#" onclick="openGeminiInChrome(event)"
@@ -1224,17 +1224,8 @@ Confirm when done</pre>
                 </ol>
             </div>
 
-            <textarea class="cookie-textarea" id="cookie-textarea" placeholder='Paste your cookies JSON here...
-
-Example format:
-[
-  {
-    "name": "cookie_name",
-    "value": "cookie_value",
-    "domain": ".google.com",
-    ...
-  }
-]'></textarea>
+            <textarea class="cookie-textarea" id="cookie-textarea"
+                placeholder='Paste your cookies JSON here...'></textarea>
 
             <div class="cookie-modal-actions">
                 <button class="cookie-btn cookie-btn-cancel" onclick="closeCookieModal()">Cancel</button>
@@ -1266,6 +1257,8 @@ Example format:
                     switchTab(provider);
                 });
             }
+
+
 
             // Get first enabled provider
             const firstEnabled = Object.entries(settings.providers)

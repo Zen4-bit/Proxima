@@ -26,6 +26,14 @@ npm-debug.log*
 # User data (sessions, settings)
 src/enabled-providers.json
 
+# Python SDK cache
+sdk/__pycache__/
+*.pyc
+
+# Session & cookie data
+*.session
+cookies-backup/
+
 # Temporary files
 *.tmp
 *.temp

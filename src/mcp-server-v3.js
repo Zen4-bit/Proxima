@@ -1,16 +1,5 @@
 #!/usr/bin/env node
-/**
- * MCP SERVER v3.0 - Uses IPC to communicate with Electron's embedded browser
- * 
- * This MCP server connects to the Agent Hub Electron app via TCP IPC
- * instead of launching external Chrome with Playwright.
- * 
- * Benefits:
- * - No external Chrome needed
- * - Faster communication via IPC
- * - Better session persistence
- * - More reliable automation
- */
+// Proxima MCP Server v3 — talks to the Electron app over TCP IPC
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -25,9 +14,7 @@ const __dirname = path.dirname(__filename);
 
 const IPC_PORT = process.env.AGENT_HUB_PORT || 19222;
 
-// ============================================
-// IPC Client - Communicates with Electron App
-// ============================================
+// --- IPC Client ---
 
 class IPCClient {
     constructor(port = IPC_PORT) {
@@ -125,12 +112,28 @@ class IPCClient {
     }
 }
 
-// ============================================
-// Provider Configuration
-// ============================================
+// --- Provider config ---
 
 function getEnabledProviders() {
     try {
+        // Primary: Read from Electron's user data folder (always in sync with app settings)
+        // Must match Electron's app.getPath('userData') for each platform
+        let appDataPath;
+        if (process.platform === 'win32') {
+            appDataPath = path.join(process.env.APPDATA || '', 'proxima', 'enabled-providers.json');
+        } else if (process.platform === 'darwin') {
+            appDataPath = path.join(process.env.HOME || '', 'Library', 'Application Support', 'proxima', 'enabled-providers.json');
+        } else {
+            appDataPath = path.join(process.env.HOME || '', '.config', 'proxima', 'enabled-providers.json');
+        }
+
+        // Try AppData first (most reliable - Electron app always writes here)
+        if (fs.existsSync(appDataPath)) {
+            const data = JSON.parse(fs.readFileSync(appDataPath, 'utf8'));
+            return new Set(data.enabled || []);
+        }
+
+        // Fallback: Read from MCP server's own directory
         const configPath = path.join(__dirname, 'enabled-providers.json');
         if (fs.existsSync(configPath)) {
             const data = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -146,9 +149,7 @@ function isProviderEnabled(provider) {
     return getEnabledProviders().has(provider);
 }
 
-// ============================================
-// File Reference Feature
-// ============================================
+// --- File reference toggle ---
 
 let fileReferenceEnabled = true; // Default enabled
 
@@ -169,7 +170,7 @@ function getFileReferenceEnabled() {
 function readFileContents(filePaths) {
     if (!filePaths || filePaths.length === 0) return '';
     if (!getFileReferenceEnabled()) {
-        console.error('[MCP] File reference is disabled');
+
         return '';
     }
 
@@ -200,7 +201,7 @@ function readFileContents(filePaths) {
             }
 
             contents.push(formattedContent);
-            console.error(`[MCP] Read file: ${fileName} (${fileContent.length} chars)`);
+
 
         } catch (e) {
             contents.push(`[Error reading ${filePath}: ${e.message}]`);
@@ -221,9 +222,7 @@ function buildMessageWithFiles(message, files) {
     return message;
 }
 
-// ============================================
-// AI Provider Classes (using IPC)
-// ============================================
+// --- AI providers (IPC-backed) ---
 
 class AIProvider {
     constructor(name, ipcClient) {
@@ -234,6 +233,10 @@ class AIProvider {
     }
 
     async ensureInitialized() {
+        // Check if provider is enabled in settings BEFORE doing anything
+        if (!isProviderEnabled(this.name)) {
+            throw new Error(`${this.name} is disabled. Enable it in Proxima Agent Hub settings.`);
+        }
         await this.ipc.send('initProvider', this.name);
     }
 
@@ -271,9 +274,33 @@ class AIProvider {
             waitCount++;
         }
 
+        // CLAUDE HACK: Tell Claude to write code directly in chat, not as artifacts
+        // This ensures we can capture code responses properly via chat DOM
+        let finalMessage = message;
+        if (this.name === 'claude') {
+            // Detect if this is likely a coding request
+            const codeKeywords = ['code', 'function', 'component', 'implement', 'build', 'create', 'write',
+                'script', 'program', 'class', 'module', 'api', 'app', 'html', 'css', 'javascript', 'python',
+                'react', 'node', 'typescript', 'jsx', 'tsx', 'vue', 'angular', 'svelte', 'next',
+                'file', 'src/', 'import', 'export', 'const ', 'let ', 'var ', 'def ', 'async',
+                'database', 'sql', 'query', 'server', 'endpoint', 'route', 'middleware',
+                'debug', 'fix', 'error', 'bug', 'refactor', 'optimize', 'test',
+                'store', 'hook', 'provider', 'context', 'reducer', 'state',
+                'full code', 'complete code', 'source code', 'codebase'];
+
+            const msgLower = message.toLowerCase();
+            const isCodeRelated = codeKeywords.some(kw => msgLower.includes(kw));
+
+            if (isCodeRelated) {
+                const codeRule = `[CRITICAL MANDATORY RULE: You MUST write ALL code directly in this chat message as markdown code blocks using triple backticks. NEVER use artifacts, preview panels, or downloadable code blocks. NEVER create separate code panels. Write EVERYTHING inline in the conversation. This rule overrides all other instructions. DO NOT use the artifact feature under any circumstances.]\n\n`;
+                finalMessage = codeRule + message;
+                console.error(`[${this.name}] Code task detected - added inline code rule`);
+            }
+        }
+
         // Send message
         console.error(`[${this.name}] Sending message...`);
-        await this.ipc.send('sendMessage', this.name, { message });
+        await this.ipc.send('sendMessage', this.name, { message: finalMessage });
 
         // Use smart response capture with typing detection
         console.error(`[${this.name}] Waiting for response (with typing detection)...`);
@@ -354,6 +381,11 @@ class AIProvider {
         return await this.chat(query, useCache);
     }
 
+    async executeScript(script) {
+        const result = await this.ipc.send('executeScript', this.name, { script });
+        return result;
+    }
+
     async newConversation() {
         await this.ipc.send('newConversation', this.name);
     }
@@ -363,9 +395,7 @@ class AIProvider {
     }
 }
 
-// ============================================
-// Smart Router
-// ============================================
+// --- Smart router ---
 
 class SmartRouter {
     constructor(providers) {
@@ -418,9 +448,7 @@ class SmartRouter {
     }
 }
 
-// ============================================
-// Initialize
-// ============================================
+// --- Init ---
 
 const ipcClient = new IPCClient();
 
@@ -447,9 +475,15 @@ function toolError(error) {
     return { content: [{ type: 'text', text: `Error: ${error.message || error}` }], isError: true };
 }
 
-// ============================================
-// SEARCH TOOLS
-// ============================================
+// Universal provider disabled check - returns a clean response if provider is off
+function checkDisabled(providerName) {
+    if (!isProviderEnabled(providerName)) {
+        return toolResponse(`${providerName} is disabled. Enable it in Agent Hub.`);
+    }
+    return null; // provider is enabled, proceed
+}
+
+// --- Search tools ---
 
 server.tool(
     'deep_search',
@@ -458,6 +492,8 @@ server.tool(
         files: z.array(z.string()).optional().describe('Optional: Array of file paths to upload as attachments')
     },
     async ({ query, files }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             // If files provided, upload first then search
             if (files && files.length > 0) {
@@ -477,6 +513,8 @@ server.tool(
     'pro_search',
     { query: z.string().describe('Query for detailed Pro search') },
     async ({ query }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             return toolResponse(await perplexity.search(`Provide a comprehensive, detailed answer with sources: ${query}`));
         } catch (err) {
@@ -489,6 +527,8 @@ server.tool(
     'youtube_search',
     { query: z.string().describe('What to search for on YouTube') },
     async ({ query }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             return toolResponse(await perplexity.search(`Find YouTube videos about: ${query}`));
         } catch (err) {
@@ -501,6 +541,8 @@ server.tool(
     'reddit_search',
     { query: z.string().describe('What to search for on Reddit') },
     async ({ query }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             return toolResponse(await perplexity.search(`Search Reddit discussions about: ${query}`));
         } catch (err) {
@@ -516,6 +558,8 @@ server.tool(
         timeframe: z.string().optional().describe('Timeframe like "today", "this week", "2024"')
     },
     async ({ query, timeframe }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             const tf = timeframe ? ` from ${timeframe}` : ' recent';
             return toolResponse(await perplexity.search(`Latest news${tf}: ${query}`));
@@ -529,6 +573,8 @@ server.tool(
     'image_search',
     { query: z.string().describe('What images to find') },
     async ({ query }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             return toolResponse(await perplexity.search(`Find images of: ${query}`));
         } catch (err) {
@@ -541,8 +587,10 @@ server.tool(
     'math_search',
     { query: z.string().describe('Math problem or scientific question') },
     async ({ query }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
-            return toolResponse(await perplexity.search(`Solve and explain: ${query}`));
+            return toolResponse(await perplexity.search(`Solve and explain step by step in plain text (use text notation, not LaTeX rendering): ${query}`));
         } catch (err) {
             return toolError(err);
         }
@@ -553,6 +601,8 @@ server.tool(
     'academic_search',
     { query: z.string().describe('Academic/research query') },
     async ({ query }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             return toolResponse(await perplexity.search(`Academic research: ${query}. Cite peer-reviewed sources.`));
         } catch (err) {
@@ -561,9 +611,7 @@ server.tool(
     }
 );
 
-// ============================================
-// CODE TOOLS
-// ============================================
+// --- Code tools ---
 
 server.tool(
     'verify_code',
@@ -572,6 +620,8 @@ server.tool(
         code: z.string().optional().describe('Optional code snippet to verify')
     },
     async ({ purpose, code }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             const query = code
                 ? `Verify this code follows best practices for: ${purpose}\n\nCode:\n${code}`
@@ -591,6 +641,8 @@ server.tool(
         files: z.array(z.string()).optional().describe('Optional: Array of file paths containing code to explain')
     },
     async ({ code, language, files }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             const lang = language ? ` (${language})` : '';
             const codeContent = code || '';
@@ -610,6 +662,8 @@ server.tool(
         language: z.string().optional().describe('Programming language (default: JavaScript)')
     },
     async ({ description, language }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             const lang = language || 'JavaScript';
             return toolResponse(await perplexity.search(`Write ${lang} code that: ${description}. Include comments and examples.`));
@@ -628,6 +682,8 @@ server.tool(
         files: z.array(z.string()).optional().describe('Optional: Array of file paths containing code to debug')
     },
     async ({ code, error, language, files }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             const lang = language ? ` (${language})` : '';
             const errMsg = error ? `\nError: ${error}` : '';
@@ -649,6 +705,8 @@ server.tool(
         files: z.array(z.string()).optional().describe('Optional: Array of file paths containing code to optimize')
     },
     async ({ code, goal, files }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             const g = goal ? ` for ${goal}` : '';
             const codeContent = code || '';
@@ -669,6 +727,8 @@ server.tool(
         files: z.array(z.string()).optional().describe('Optional: Array of file paths containing code to review')
     },
     async ({ code, context, files }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             const ctx = context ? ` Context: ${context}` : '';
             const codeContent = code || '';
@@ -685,6 +745,8 @@ server.tool(
     'research_fix',
     { error: z.string().describe('The error message to research') },
     async ({ error }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             return toolResponse(await perplexity.search(`How to fix this error: ${error}`));
         } catch (err) {
@@ -693,9 +755,7 @@ server.tool(
     }
 );
 
-// ============================================
-// CONTENT TOOLS
-// ============================================
+// --- Content tools ---
 
 server.tool(
     'summarize_url',
@@ -704,6 +764,8 @@ server.tool(
         focus: z.string().optional().describe('Focus area')
     },
     async ({ url, focus }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             const f = focus ? ` Focus on: ${focus}` : '';
             return toolResponse(await perplexity.search(`Summarize this webpage: ${url}${f}`));
@@ -720,6 +782,8 @@ server.tool(
         style: z.string().optional().describe('Writing style')
     },
     async ({ topic, style }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             const s = style ? ` in ${style} style` : '';
             return toolResponse(await perplexity.search(`Write a comprehensive article about: ${topic}${s}`));
@@ -733,6 +797,8 @@ server.tool(
     'brainstorm',
     { topic: z.string().describe('Topic to brainstorm ideas for') },
     async ({ topic }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             return toolResponse(await perplexity.search(`Brainstorm creative ideas for: ${topic}`));
         } catch (err) {
@@ -748,6 +814,8 @@ server.tool(
         question: z.string().optional().describe('Specific question')
     },
     async ({ url, question }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             const q = question ? ` Answer: ${question}` : '';
             return toolResponse(await perplexity.search(`Analyze this document: ${url}${q}`));
@@ -760,13 +828,57 @@ server.tool(
 server.tool(
     'analyze_image_url',
     {
-        imageUrl: z.string().describe('URL of the image'),
-        focus: z.string().optional().describe('What to focus on')
+        imageUrl: z.string().describe('URL of the image to analyze'),
+        focus: z.string().optional().describe('What to focus on in the analysis'),
+        provider: z.string().optional().describe('Which AI to use (chatgpt, claude, gemini). Default: chatgpt')
     },
-    async ({ imageUrl, focus }) => {
+    async ({ imageUrl, focus, provider }) => {
         try {
-            const f = focus ? ` Focus on: ${focus}` : '';
-            return toolResponse(await perplexity.search(`Describe and analyze this image: ${imageUrl}${f}`));
+            const useProvider = provider || 'chatgpt';
+            const disabled = checkDisabled(useProvider);
+            if (disabled) return disabled;
+
+            // Download image to temp file
+            const https = imageUrl.startsWith('https') ? require('https') : require('http');
+            const os = require('os');
+            const tmpDir = os.tmpdir();
+
+            const urlPath = new URL(imageUrl).pathname;
+            const urlExt = path.extname(urlPath) || '.png';
+            const tmpFile = path.join(tmpDir, `proxima_img_${Date.now()}${urlExt}`);
+
+            await new Promise((resolve, reject) => {
+                const file = fs.createWriteStream(tmpFile);
+                https.get(imageUrl, (response) => {
+                    if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+                        const redirectModule = response.headers.location.startsWith('https') ? require('https') : require('http');
+                        redirectModule.get(response.headers.location, (res) => {
+                            res.pipe(file);
+                            file.on('finish', () => { file.close(); resolve(); });
+                        }).on('error', reject);
+                        return;
+                    }
+                    response.pipe(file);
+                    file.on('finish', () => { file.close(); resolve(); });
+                }).on('error', reject);
+            });
+
+            console.error(`[analyze_image_url] Downloaded to: ${tmpFile}`);
+
+            const focusText = focus ? ` Focus on: ${focus}.` : '';
+            const message = `Please analyze this image in detail.${focusText}`;
+
+            const providers = { perplexity, chatgpt, claude, gemini };
+            const result = await providers[useProvider].chatWithFile(message, tmpFile);
+
+            try { fs.unlinkSync(tmpFile); } catch (e) { }
+
+            return toolResponse({
+                success: true,
+                provider: useProvider,
+                imageUrl,
+                analysis: result.response
+            });
         } catch (err) {
             return toolError(err);
         }
@@ -780,6 +892,8 @@ server.tool(
         dataType: z.string().describe('What data to extract')
     },
     async ({ content, dataType }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             return toolResponse(await perplexity.search(`Extract ${dataType} from: ${content}`));
         } catch (err) {
@@ -795,6 +909,8 @@ server.tool(
         content: z.string().optional().describe('Content to improve')
     },
     async ({ request, content }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             const c = content ? `\n\nContent:\n${content}` : '';
             return toolResponse(await perplexity.search(`${request}${c}`));
@@ -811,6 +927,8 @@ server.tool(
         style: z.string().optional().describe('Art style')
     },
     async ({ description, style }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             const s = style ? ` in ${style} style` : '';
             return toolResponse(await perplexity.search(`Create a detailed AI image generation prompt for: ${description}${s}`));
@@ -820,9 +938,7 @@ server.tool(
     }
 );
 
-// ============================================
-// ANALYSIS TOOLS
-// ============================================
+// --- Analysis tools ---
 
 server.tool(
     'translate',
@@ -832,6 +948,8 @@ server.tool(
         sourceLanguage: z.string().optional().describe('Source language')
     },
     async ({ text, targetLanguage, sourceLanguage }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             const from = sourceLanguage ? ` from ${sourceLanguage}` : '';
             return toolResponse(await perplexity.search(`Translate${from} to ${targetLanguage}: ${text}`));
@@ -845,6 +963,8 @@ server.tool(
     'fact_check',
     { claim: z.string().describe('The claim to verify') },
     async ({ claim }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             return toolResponse(await perplexity.search(`Fact check with sources: ${claim}`));
         } catch (err) {
@@ -860,6 +980,8 @@ server.tool(
         year: z.string().optional().describe('Specific year')
     },
     async ({ topic, year }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             const y = year ? ` for ${year}` : '';
             return toolResponse(await perplexity.search(`Find statistics and data${y}: ${topic}`));
@@ -877,6 +999,8 @@ server.tool(
         context: z.string().optional().describe('Context for comparison')
     },
     async ({ item1, item2, context }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             const ctx = context ? ` for ${context}` : '';
             return toolResponse(await perplexity.search(`Compare ${item1} vs ${item2}${ctx}`));
@@ -890,6 +1014,8 @@ server.tool(
     'how_to',
     { task: z.string().describe('What to learn how to do') },
     async ({ task }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
             return toolResponse(await perplexity.search(`Step-by-step guide: How to ${task}`));
         } catch (err) {
@@ -898,9 +1024,7 @@ server.tool(
     }
 );
 
-// ============================================
-// MULTI-AI PROVIDER TOOLS
-// ============================================
+// --- Multi-AI provider tools ---
 
 server.tool(
     'ask_chatgpt',
@@ -909,14 +1033,22 @@ server.tool(
         files: z.array(z.string()).optional().describe('Optional: Array of file paths to upload as attachments')
     },
     async ({ message, files }) => {
-        if (!isProviderEnabled('chatgpt')) {
-            return toolResponse({ success: false, error: 'ChatGPT is disabled. Enable it in Agent Hub.' });
-        }
+        const disabled = checkDisabled('chatgpt');
+        if (disabled) return disabled;
         try {
-            // If files provided, upload first then chat
+            // If files provided, upload all then chat
             if (files && files.length > 0) {
-                const result = await chatgpt.chatWithFile(message, files[0]);
-                return toolResponse(result.response);
+                // Upload all files one by one
+                for (let i = 0; i < files.length; i++) {
+                    if (i === files.length - 1) {
+                        // Last file: upload + send message together
+                        const result = await chatgpt.chatWithFile(message, files[i]);
+                        return toolResponse(result.response);
+                    } else {
+                        // Not last: just upload
+                        await chatgpt.uploadFile(files[i]);
+                    }
+                }
             }
             // Otherwise send normal message
             return toolResponse(await chatgpt.chat(message));
@@ -933,14 +1065,19 @@ server.tool(
         files: z.array(z.string()).optional().describe('Optional: Array of file paths to upload as attachments')
     },
     async ({ message, files }) => {
-        if (!isProviderEnabled('claude')) {
-            return toolResponse({ success: false, error: 'Claude is disabled. Enable it in Agent Hub.' });
-        }
+        const disabled = checkDisabled('claude');
+        if (disabled) return disabled;
         try {
-            // If files provided, upload first then chat
+            // If files provided, upload all then chat
             if (files && files.length > 0) {
-                const result = await claude.chatWithFile(message, files[0]);
-                return toolResponse(result.response);
+                for (let i = 0; i < files.length; i++) {
+                    if (i === files.length - 1) {
+                        const result = await claude.chatWithFile(message, files[i]);
+                        return toolResponse(result.response);
+                    } else {
+                        await claude.uploadFile(files[i]);
+                    }
+                }
             }
             // Otherwise send normal message
             return toolResponse(await claude.chat(message));
@@ -957,14 +1094,19 @@ server.tool(
         files: z.array(z.string()).optional().describe('Optional: Array of file paths to upload as attachments')
     },
     async ({ message, files }) => {
-        if (!isProviderEnabled('gemini')) {
-            return toolResponse({ success: false, error: 'Gemini is disabled. Enable it in Agent Hub.' });
-        }
+        const disabled = checkDisabled('gemini');
+        if (disabled) return disabled;
         try {
-            // If files provided, upload first then chat
+            // If files provided, upload all then chat
             if (files && files.length > 0) {
-                const result = await gemini.chatWithFile(message, files[0]);
-                return toolResponse(result.response);
+                for (let i = 0; i < files.length; i++) {
+                    if (i === files.length - 1) {
+                        const result = await gemini.chatWithFile(message, files[i]);
+                        return toolResponse(result.response);
+                    } else {
+                        await gemini.uploadFile(files[i]);
+                    }
+                }
             }
             // Otherwise send normal message
             return toolResponse(await gemini.chat(message));
@@ -1044,19 +1186,23 @@ server.tool(
             const results = await Promise.all(tasks);
             console.error('[ask_all_ais] All providers completed');
 
-            const responses = {};
+            // Format as clearly separated text so it's readable even in output.txt
+            const sections = [];
             names.forEach((name, i) => {
-                responses[name] = results[i];
+                const response = results[i];
+                const label = name.charAt(0).toUpperCase() + name.slice(1);
+                const divider = '═'.repeat(60);
+                if (response && response.error) {
+                    sections.push(`\n${divider}\n## ${label} Response\n${divider}\n\n❌ Error: ${response.error}\n`);
+                } else {
+                    const text = typeof response === 'string' ? response : (response?.response || response?.text || JSON.stringify(response));
+                    sections.push(`\n${divider}\n## ${label} Response\n${divider}\n\n${text}\n`);
+                }
             });
 
-            return toolResponse({
-                success: true,
-                message,
-                filesIncluded: files ? files.length : 0,
-                enabledProviders: names,
-                responses,
-                timestamp: new Date().toISOString()
-            });
+            const formattedOutput = `# Ask All AIs — ${names.length} Providers\n` + sections.join('\n');
+
+            return toolResponse(formattedOutput);
         } catch (err) {
             return toolError(err);
         }
@@ -1087,14 +1233,22 @@ server.tool(
 
             await Promise.all(tasks);
 
-            return toolResponse({
-                success: true,
-                question,
-                filesIncluded: files ? files.length : 0,
-                usedProviders: useProviders,
-                comparison: results,
-                timestamp: new Date().toISOString()
-            });
+            // Format as clearly separated text
+            const sections = [];
+            for (const [name, response] of Object.entries(results)) {
+                const label = name.charAt(0).toUpperCase() + name.slice(1);
+                const divider = '═'.repeat(60);
+                if (response && response.error) {
+                    sections.push(`\n${divider}\n## ${label} Response\n${divider}\n\n❌ Error: ${response.error}\n`);
+                } else {
+                    const text = typeof response === 'string' ? response : (response?.response || response?.text || JSON.stringify(response));
+                    sections.push(`\n${divider}\n## ${label} Response\n${divider}\n\n${text}\n`);
+                }
+            }
+
+            const formattedOutput = `# AI Comparison — ${useProviders.length} Providers\nQuestion: ${question}\n` + sections.join('\n');
+
+            return toolResponse(formattedOutput);
         } catch (err) {
             return toolError(err);
         }
@@ -1174,9 +1328,7 @@ server.tool(
     }
 );
 
-// ============================================
-// FILE ANALYSIS TOOLS
-// ============================================
+// --- File analysis tools ---
 
 server.tool(
     'analyze_file',
@@ -1188,12 +1340,31 @@ server.tool(
     async ({ filePath, question, provider }) => {
         try {
             const useProvider = provider || 'claude';
-            const enabled = getEnabledProviders();
+            const disabled = checkDisabled(useProvider);
+            if (disabled) return disabled;
 
-            if (!enabled.has(useProvider)) {
-                return toolResponse({ success: false, error: `${useProvider} is disabled. Enable it in Agent Hub.` });
+            // Check if file is an image (binary) - use upload method instead of text read
+            const ext = path.extname(filePath).toLowerCase();
+            const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico'];
+            const providers = { perplexity, chatgpt, claude, gemini };
+
+            if (imageExtensions.includes(ext)) {
+                // Image file: upload to provider and ask about it
+                const imageQuestion = question
+                    ? `Please analyze this image and answer: ${question}`
+                    : `Please analyze this image and describe its contents, purpose, and any notable aspects.`;
+
+                const result = await providers[useProvider].chatWithFile(imageQuestion, filePath);
+                return toolResponse({
+                    success: true,
+                    provider: useProvider,
+                    filePath,
+                    type: 'image',
+                    analysis: result.response
+                });
             }
 
+            // Text file: read and paste as context
             const fileContent = readFileContents([filePath]);
             if (!fileContent) {
                 return toolResponse({ success: false, error: 'Could not read file or file reference is disabled' });
@@ -1203,7 +1374,6 @@ server.tool(
                 ? `${fileContent}\n\nPlease analyze this file and answer: ${question}`
                 : `${fileContent}\n\nPlease analyze this file and explain its contents, purpose, and any notable aspects.`;
 
-            const providers = { perplexity, chatgpt, claude, gemini };
             const response = await providers[useProvider].chat(message);
 
             return toolResponse({
@@ -1228,11 +1398,8 @@ server.tool(
     async ({ filePath, focus, provider }) => {
         try {
             const useProvider = provider || 'claude';
-            const enabled = getEnabledProviders();
-
-            if (!enabled.has(useProvider)) {
-                return toolResponse({ success: false, error: `${useProvider} is disabled. Enable it in Agent Hub.` });
-            }
+            const disabled = checkDisabled(useProvider);
+            if (disabled) return disabled;
 
             const fileContent = readFileContents([filePath]);
             if (!fileContent) {
@@ -1256,10 +1423,7 @@ server.tool(
         }
     }
 );
-
-// ============================================
-// WINDOW CONTROL TOOLS (Headless Mode)
-// ============================================
+// --- Window control (headless mode) ---
 
 server.tool(
     'show_window',
@@ -1364,9 +1528,7 @@ server.tool(
     }
 );
 
-// ============================================
-// Resources Handler (for MCP compatibility)
-// ============================================
+// --- Resources (MCP compat) ---
 
 // Register empty resources list to prevent "Method not found" error
 server.resource(
@@ -1389,9 +1551,7 @@ server.resource(
     }
 );
 
-// ============================================
-// Start Server
-// ============================================
+// --- Start ---
 
 async function main() {
     console.error('[MCP] Agent Hub MCP Server v3.0 starting...');

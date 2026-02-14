@@ -1,7 +1,4 @@
-/**
- * Provider Preload Script
- * Injected into AI provider pages for enhanced interaction
- */
+// Provider preload — injected into AI provider pages
 
 const { contextBridge, ipcRenderer } = require('electron');
 
@@ -18,29 +15,38 @@ contextBridge.exposeInMainWorld('agentHubBridge', {
     }
 });
 
-// Monitor for response completion
+// Monitor for response completion (optimized — debounced, less CPU usage)
 let lastResponseCheck = null;
+let observer = null;
 
-// Helper to detect when AI response is complete
 function setupResponseMonitor() {
-    const observer = new MutationObserver((mutations) => {
-        // Check if a response just completed
+    // Debounced observer — only fires IPC after 1.5s of DOM stability
+    observer = new MutationObserver(() => {
         clearTimeout(lastResponseCheck);
         lastResponseCheck = setTimeout(() => {
             ipcRenderer.send('response-may-be-complete');
-        }, 1000);
+        }, 1500);
     });
 
-    // Observe the main content area for changes
-    const targetNode = document.body;
+    // Observe main content area — childList only (skip characterData for perf)
+    const targetNode = document.querySelector('main') || document.querySelector('#__next') || document.body;
     if (targetNode) {
         observer.observe(targetNode, {
             childList: true,
             subtree: true,
-            characterData: true
+            characterData: false  // Skip character-level changes for performance
         });
     }
 }
+
+// Cleanup on page unload to prevent memory leaks
+window.addEventListener('beforeunload', () => {
+    if (observer) {
+        observer.disconnect();
+        observer = null;
+    }
+    clearTimeout(lastResponseCheck);
+});
 
 // Initialize when DOM is ready
 if (document.readyState === 'loading') {
