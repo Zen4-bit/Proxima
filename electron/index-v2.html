@@ -1385,11 +1385,16 @@ Confirm when done</pre>
         let cookieModalProvider = null;
         const providerNavigationState = {};
         const localStorageDumpSnippet = `(() => {
-  const out = { localStorage: {} };
+  const out = { localStorage: {}, sessionStorage: {} };
 
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
     out.localStorage[key] = localStorage.getItem(key);
+  }
+
+  for (let i = 0; i < sessionStorage.length; i++) {
+    const key = sessionStorage.key(i);
+    out.sessionStorage[key] = sessionStorage.getItem(key);
   }
 
   const json = JSON.stringify(out, null, 2);
@@ -1410,12 +1415,13 @@ Confirm when done</pre>
 })();`;
         const providerStorageSnippets = {
             zai: localStorageDumpSnippet,
-            copilot: localStorageDumpSnippet
+            copilot: localStorageDumpSnippet,
+            qwen: localStorageDumpSnippet
         };
         const providerStorageGuidance = {
             default: {
                 title: 'Cookies only for this provider:',
-                body: 'This provider should work with cookies only. Leave the browser storage box empty. Only <code>DeepSeek</code>, <code>Z.ai</code>, and <code>Copilot</code> currently need localStorage in addition to cookies.',
+                body: 'This provider should work with cookies only. Leave the browser storage box empty. Only <code>DeepSeek</code>, <code>Z.ai</code>, <code>Copilot</code>, and <code>Qwen</code> currently need browser storage in addition to cookies.',
                 placeholder: 'Leave this empty for this provider — cookies are enough'
             },
             deepseek: {
@@ -1432,6 +1438,11 @@ Confirm when done</pre>
                 title: 'Copilot localStorage required:',
                 body: 'Copilot may need browser storage in addition to cookies. In your normal browser on <code>copilot.microsoft.com</code>, run the snippet below in the console and paste the JSON output here. If DevTools still shows escaped text with <code>\\n</code> or outer quotes, paste it anyway and Proxima will normalize it.',
                 placeholder: 'Required for Copilot when cookies alone are not enough: paste {"localStorage":{...}}'
+            },
+            qwen: {
+                title: 'Qwen browser storage required:',
+                body: 'Qwen stores auth state in browser storage in addition to cookies. In your normal browser on <code>chat.qwen.ai</code>, run the snippet below in the console and paste the JSON output here. If you only have the token value, you can also paste <code>{"token":"..."}</code> or the raw token string and Proxima will normalize it.',
+                placeholder: 'Required for Qwen: paste {"localStorage":{...}}, {"token":"..."}, or the raw token string'
             }
         };
 
@@ -1778,6 +1789,15 @@ Confirm when done</pre>
                 };
             }
 
+            if (providerId === 'qwen' && !/^[\[{"]/.test(raw)) {
+                return {
+                    localStorage: {
+                        token: raw
+                    },
+                    sessionStorage: {}
+                };
+            }
+
             let parsed;
             try {
                 parsed = parseStorageImportJson(raw);
@@ -1804,6 +1824,18 @@ Confirm when done</pre>
                     return {
                         localStorage: {
                             userToken: typeof tokenValue === 'string' ? tokenValue : JSON.stringify(tokenValue)
+                        },
+                        sessionStorage: {}
+                    };
+                }
+            }
+
+            if (providerId === 'qwen' && parsed && typeof parsed === 'object') {
+                if ('token' in parsed && !('localStorage' in parsed) && !('sessionStorage' in parsed)) {
+                    const tokenValue = parsed.token;
+                    return {
+                        localStorage: {
+                            token: typeof tokenValue === 'string' ? tokenValue : JSON.stringify(tokenValue)
                         },
                         sessionStorage: {}
                     };

@@ -1,0 +1,30 @@
+- generic [ref=e4]:
+  - button "?" [ref=e7] [cursor=pointer]:
+    - generic [ref=e8]: "?"
+  - button
+  - generic [ref=e12]:
+    - banner [ref=e13]:
+      - generic [ref=e14]:
+        - generic [ref=e15]:
+          - img [ref=e19] [cursor=pointer]
+          - generic [ref=e23] [cursor=pointer]:
+            - generic [ref=e24]: Qwen3.6-Plus
+            - img [ref=e26]
+        - generic [ref=e29]:
+          - generic [ref=e31] [cursor=pointer]: Log in
+          - generic [ref=e33] [cursor=pointer]: Sign up
+    - generic [ref=e34]:
+      - generic [ref=e35]:
+        - generic [ref=e38]: What are you working on?
+        - generic [ref=e44]:
+          - img [ref=e50] [cursor=pointer]
+          - textbox "How can I help you today?" [active] [ref=e52]
+          - generic [ref=e53]:
+            - generic [ref=e57] [cursor=pointer]:
+              - combobox [ref=e59]
+              - generic [ref=e61]:
+                - generic [ref=e62]: Auto
+                - generic:
+                  - img
+            - img [ref=e67] [cursor=pointer]
+      - generic [ref=e69]: By using Qwen Studio, you agree to our Terms of Service and Privacy Policy.

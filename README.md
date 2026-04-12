@@ -7,11 +7,11 @@
 [![Version](https://img.shields.io/badge/version-3.5.0-blue.svg)](https://github.com/Zen4-bit/Proxima/releases)
 [![License](https://img.shields.io/badge/license-Personal%20Use-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey.svg)]()
-[![MCP Tools](https://img.shields.io/badge/MCP%20Tools-54-orange.svg)]()
-[![Providers](https://img.shields.io/badge/AI%20Providers-9-purple.svg)]()
+[![MCP Tools](https://img.shields.io/badge/MCP%20Tools-55-orange.svg)]()
+[![Providers](https://img.shields.io/badge/AI%20Providers-10-purple.svg)]()
 
 Proxima turns logged-in browser AI sessions into a local MCP server and OpenAI-compatible API.
-ChatGPT, Claude, Gemini, Perplexity, DeepSeek, Grok, Z.AI, Copilot, and Meta AI are all available through the same Proxima instance. Just log in to each provider inside the Proxima browser shell. No API keys needed.
+ChatGPT, Claude, Gemini, Perplexity, DeepSeek, Grok, Z.AI, Copilot, Meta AI, and Qwen are all available through the same Proxima instance. Just log in to each provider inside the Proxima browser shell. No API keys needed.
 
 [Getting Started](#getting-started) · [API Usage](#api-usage) · [SDKs](#sdks) · [MCP Tools](#mcp-tools) · [Configuration](#configuration)
 
@@ -50,8 +50,8 @@ POST /v1/chat/completions
 | Feature | Description |
 |---------|-------------|
 | **One Endpoint** | Everything through `/v1/chat/completions` — no separate URLs |
-| **9 AI Providers** | ChatGPT, Claude, Gemini, Perplexity, DeepSeek, Grok, Z.AI, Copilot, Meta AI |
-| **54 MCP Tools** | Search, code, translate, analyze, provider control, file workflows |
+| **10 AI Providers** | ChatGPT, Claude, Gemini, Perplexity, DeepSeek, Grok, Z.AI, Copilot, Meta AI, Qwen |
+| **55 MCP Tools** | Search, code, translate, analyze, provider control, file workflows |
 | **REST API** | OpenAI-compatible API on `localhost:3210` |
 | **SDKs** | Python & JavaScript — one function each |
 | **No API Keys** | Use your existing account logins |
@@ -62,7 +62,7 @@ POST /v1/chat/completions
 
 ## What's New in v3.5.0
 
-- 🆕 **5 additional providers** — DeepSeek, Grok, Z.AI, Copilot, Meta AI
+- 🆕 **6 additional providers** — DeepSeek, Grok, Z.AI, Copilot, Meta AI, Qwen
 - 🆕 **27 new MCP tools** — content, analysis, file analysis, window control, session management
 - 🆕 **Provider inspection tools** — `init_provider`, `provider_status`, `navigate_provider`, `debug_provider_dom`, `execute_provider_script`
 - 🆕 **REST API** — OpenAI-compatible endpoint at `localhost:3210`
@@ -129,7 +129,7 @@ npm start
 
 1. **Open Proxima**, enable the providers you want, and log in to each one
 2. **Copy MCP config** from the Settings panel so the path matches your current source or packaged install
-3. **Connect your MCP client** and start using provider tools like `ask_deepseek`, `ask_grok`, `ask_zai`, `ask_copilot`, or `ask_metaai`
+3. **Connect your MCP client** and start using provider tools like `ask_deepseek`, `ask_grok`, `ask_zai`, `ask_copilot`, `ask_metaai`, or `ask_qwen`
 4. **API is live** at `http://localhost:3210`
 
 ---
@@ -147,8 +147,11 @@ npm start
 | Z.AI | `zai` | No | `chat` |
 | Copilot | `copilot` | No | `chat` |
 | Meta AI | `metaai` | No | `chat` |
+| Qwen | `qwen` | No | `chat` |
 
 > **Note:** Perplexity is search-first for shared tools. All other providers default to chat behavior.
+>
+> **Image responses:** ChatGPT, Gemini, Grok, Copilot, Meta AI, and Qwen can return image responses. When they do, Proxima downloads the generated images locally and returns file paths through the MCP response.
 
 ### Model Aliases
 
@@ -165,6 +168,7 @@ You can use familiar names — they all resolve to the right provider:
 | Z.AI | `zai`, `z.ai`, `z ai`, `z-ai`, `glm`, `glm-5`, `glm-5.1` |
 | Copilot | `copilot`, `microsoft copilot`, `ms copilot` |
 | Meta AI | `metaai`, `meta ai`, `meta.ai` |
+| Qwen | `qwen`, `qwen-chat`, `qwen3`, `qwen-max`, `qwen studio` |
 | Auto | `auto` — picks the best available |
 
 ### Provider-Specific MCP Tools
@@ -181,6 +185,7 @@ Each provider also has a direct MCP tool path for targeted calls. These tools ac
 | Z.AI | `ask_zai` |
 | Copilot | `ask_copilot` |
 | Meta AI | `ask_metaai` |
+| Qwen | `ask_qwen` |
 
 Perplexity is exposed through the search-oriented MCP tools such as `deep_search`, `pro_search`, `news_search`, `reddit_search`, and `academic_search` rather than a dedicated `ask_perplexity` tool.
 
@@ -362,7 +367,7 @@ const stats = await client.getStats();
 
 Works with Node.js 18+ (uses native `fetch`).
 
-Any supported provider ID or alias can be used from the SDKs, including `deepseek`, `grok`, `zai`, `copilot`, and `metaai`.
+Any supported provider ID or alias can be used from the SDKs, including `deepseek`, `grok`, `zai`, `copilot`, `metaai`, and `qwen`.
 
 ### SDK Configuration
 
@@ -443,7 +448,7 @@ Proxima generates the correct JSON for the current install in the Settings panel
 | `verify_code` | Verify code follows standards |
 | `research_fix` | Research how to fix specific errors |
 
-### 🤖 AI Provider Tools (16)
+### 🤖 AI Provider Tools (17)
 
 | Tool | Description |
 |------|-------------|
@@ -455,6 +460,7 @@ Proxima generates the correct JSON for the current install in the Settings panel
 | `ask_zai` | Direct query to Z.AI (with file support) |
 | `ask_copilot` | Direct query to Microsoft Copilot (with file support) |
 | `ask_metaai` | Direct query to Meta AI (with file support) |
+| `ask_qwen` | Direct query to Qwen (with file support) |
 | `ask_all_ais` | Query ALL enabled AIs simultaneously |
 | `compare_ais` | Compare responses from multiple AIs side-by-side |
 | `smart_query` | Auto-route to best AI via Smart Router |
@@ -532,7 +538,7 @@ proxima/
 │   ├── preload.cjs             # Renderer preload bridge
 │   └── provider-preload.cjs    # Provider page preload
 ├── src/
-│   ├── mcp-server-v3.js        # MCP server (54 tools)
+│   ├── mcp-server-v3.js        # MCP server (55 tools)
 │   ├── provider-catalog.cjs    # Provider IDs, aliases, URLs, defaults
 │   └── provider-automation.cjs # Typing and response extraction logic
 ├── sdk/
@@ -561,7 +567,7 @@ Click the provider tab and login in the embedded browser. Session will be saved.
 <details>
 <summary><strong>MCP says a provider is disabled</strong></summary>
 
-Enable that provider in Proxima Settings first. The direct provider tools (`ask_deepseek`, `ask_grok`, `ask_zai`, `ask_copilot`, `ask_metaai`, etc.) only work when the provider is enabled.
+Enable that provider in Proxima Settings first. The direct provider tools (`ask_deepseek`, `ask_grok`, `ask_zai`, `ask_copilot`, `ask_metaai`, `ask_qwen`, etc.) only work when the provider is enabled.
 </details>
 
 <details>

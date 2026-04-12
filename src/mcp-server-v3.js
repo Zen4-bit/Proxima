@@ -481,7 +481,7 @@ const providersById = Object.fromEntries(
     providerIds.map((providerId) => [providerId, new AIProvider(providerId, ipcClient)])
 );
 
-const { perplexity, chatgpt, claude, gemini, deepseek, grok, zai, copilot, metaai } = providersById;
+const { perplexity, chatgpt, claude, gemini, deepseek, grok, zai, copilot, metaai, qwen } = providersById;
 
 const router = new SmartRouter(providersById);
 
@@ -1311,6 +1311,33 @@ server.tool(
                 }
             }
             return toolResponse(await metaai.chat(message));
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+server.tool(
+    'ask_qwen',
+    {
+        message: z.string().describe('Message to send to Qwen'),
+        files: z.array(z.string()).optional().describe('Optional: Array of file paths to upload as attachments')
+    },
+    async ({ message, files }) => {
+        const disabled = checkDisabled('qwen');
+        if (disabled) return disabled;
+        try {
+            if (files && files.length > 0) {
+                for (let i = 0; i < files.length; i++) {
+                    if (i === files.length - 1) {
+                        const result = await qwen.chatWithFile(message, files[i]);
+                        return toolResponse(result.response);
+                    } else {
+                        await qwen.uploadFile(files[i]);
+                    }
+                }
+            }
+            return toolResponse(await qwen.chat(message));
         } catch (err) {
             return toolError(err);
         }

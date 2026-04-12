@@ -24,6 +24,7 @@ const sendToGemini = require('./provider-senders/gemini.cjs');
 const sendToGrok = require('./provider-senders/grok.cjs');
 const sendToMetaAI = require('./provider-senders/metaai.cjs');
 const sendToPerplexity = require('./provider-senders/perplexity.cjs');
+const sendToQwen = require('./provider-senders/qwen.cjs');
 const sendToZAI = require('./provider-senders/zai.cjs');
 
 const senderMap = {
@@ -35,6 +36,7 @@ const senderMap = {
     grok: sendToGrok,
     metaai: sendToMetaAI,
     perplexity: sendToPerplexity,
+    qwen: sendToQwen,
     zai: sendToZAI
 };
 
@@ -431,7 +433,7 @@ class ProviderRuntime {
         const webContents = this.getWebContents(provider);
         const responseOptions = getResponseOptions(provider);
         const maxPolls = responseOptions.maxWaitSeconds * 2;
-        const imageCapableProviders = new Set(['chatgpt', 'gemini', 'grok', 'copilot', 'metaai']);
+        const imageCapableProviders = new Set(['chatgpt', 'gemini', 'grok', 'copilot', 'metaai', 'qwen']);
         let networkTextCandidate = '';
 
         console.log(`[getProviderResponse] ⚡ ${provider}: Network interceptor polling (fast path)...`);

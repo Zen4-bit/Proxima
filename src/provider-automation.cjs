@@ -395,6 +395,23 @@ const RESPONSE_CAPTURE_SCRIPTS = {
 
             return '';
         })()
+    `,
+    qwen: `
+        (function() {
+            const assistantMessages = Array.from(document.querySelectorAll('.qwen-chat-message-assistant'));
+
+            for (let i = assistantMessages.length - 1; i >= 0; i--) {
+                const markdownBlock = assistantMessages[i].querySelector(
+                    '.response-message-content .custom-qwen-markdown, .response-message-content .qwen-markdown, .response-message-content'
+                );
+                const text = (markdownBlock?.innerText || markdownBlock?.textContent || '').trim();
+                if (text.length > 0 && !/^thinking\\.{0,3}$/i.test(text)) {
+                    return text.substring(0, 200);
+                }
+            }
+
+            return '';
+        })()
     `
 };
 
@@ -813,6 +830,30 @@ const RESPONSE_EXTRACTION_BODIES = {
         }
 
         return '';
+    `,
+    qwen: `
+        const assistantMessages = Array.from(document.querySelectorAll('.qwen-chat-message-assistant'));
+
+        for (let i = assistantMessages.length - 1; i >= 0; i--) {
+            const clone = assistantMessages[i].cloneNode(true);
+            const hasImageCard = !!clone.querySelector('.chat-response-media-render img.qwen-image, img[src*="/t2i/"], img[src*="/image_gen/"]');
+            clone.querySelectorAll(
+                '.qwen-chat-thinking-tool-status-card-wraper, .qwen-chat-status-card, .response-message-footer, .qwen-chat-package-comp-new-action-control, button, [role="button"]'
+            ).forEach((element) => element.remove());
+
+            const markdownBlock = clone.querySelector(
+                '.response-message-content .custom-qwen-markdown, .response-message-content .qwen-markdown, .response-message-content'
+            );
+            if (!markdownBlock && hasImageCard) {
+                return '';
+            }
+            const markdown = cleanMarkdown(domToMarkdown(markdownBlock || clone));
+            if (markdown && markdown.length > 0 && !/^thinking\\.{0,3}$/i.test(markdown)) {
+                return markdown;
+            }
+        }
+
+        return '';
     `
 };
 
@@ -859,6 +900,11 @@ const RESPONSE_MEDIA_ROOT_SELECTORS = {
     metaai: [
         '[data-testid="assistant-message"]'
     ],
+    qwen: [
+        '.qwen-chat-message-assistant',
+        '.chat-response-message',
+        '.response-message-content'
+    ],
     perplexity: [
         'main [class*="prose"]:not(.prose-sm)',
         '[class*="prose"]:not(.prose-sm)'
@@ -868,6 +914,11 @@ const RESPONSE_MEDIA_ROOT_SELECTORS = {
 const RESPONSE_MEDIA_IMAGE_SELECTORS = {
     metaai: [
         'img[data-testid="generated-image"]'
+    ],
+    qwen: [
+        '#chat-message-container > .qwen-chat-message-assistant:last-child .chat-response-media-render img.qwen-image',
+        '#chat-message-container > .qwen-chat-message-assistant:last-child img[src*="/t2i/"]',
+        '#chat-message-container > .qwen-chat-message-assistant:last-child img[src*="/image_gen/"]'
     ]
 };
 
@@ -914,6 +965,7 @@ const STRUCTURED_RESPONSE_HELPERS = `
             zai: 'Z.ai',
             copilot: 'Copilot',
             metaai: 'Meta AI',
+            qwen: 'Qwen',
             perplexity: 'Perplexity'
         };
 
@@ -988,6 +1040,10 @@ const STRUCTURED_RESPONSE_HELPERS = `
             return false;
         }
 
+        if (alt.includes('loading') || className.includes('loading') || className.includes('spinner')) {
+            return false;
+        }
+
         if (className.includes('avatar') || className.includes('icon') || className.includes('emoji')) {
             return false;
         }
@@ -1001,7 +1057,7 @@ const STRUCTURED_RESPONSE_HELPERS = `
             .map(normalizeImageNode);
 
         if (explicitImages.length > 0) {
-            return explicitImages.slice(0, 8);
+            return explicitImages.slice(-8);
         }
 
         const roots = getMediaRoots(providerId);
@@ -1328,6 +1384,63 @@ const TYPING_DETECTION_BODIES = {
         }
 
         return { isTyping: false };
+    `,
+    qwen: `
+        const isVisible = (element) => {
+            if (!element) return false;
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' &&
+                style.visibility !== 'hidden' &&
+                (element.offsetWidth > 0 || element.offsetHeight > 0 || element.getClientRects().length > 0);
+        };
+
+        if (window.__proxima_is_streaming) {
+            return { isTyping: true, provider: 'qwen' };
+        }
+
+        const stopButton = Array.from(document.querySelectorAll('button.stop-button, button, [role="button"]'))
+            .find((element) => isVisible(element) && (
+                String(element.className || '').includes('stop-button') ||
+                /stop|cancel/i.test((element.getAttribute('aria-label') || '') + ' ' + (element.innerText || element.textContent || ''))
+            ));
+        if (stopButton) {
+            return { isTyping: true, provider: 'qwen' };
+        }
+
+        const activeThinkingStatus = Array.from(document.querySelectorAll(
+            '.qwen-chat-status-card-title-animate, .qwen-chat-status-card, .qwen-chat-tool-status-card, .qwen-chat-thinking-tool-status-card-wraper, .page-loading, [class*="thinking"], [class*="loading"]'
+        )).find((element) => {
+            if (!isVisible(element)) return false;
+            const text = (element.innerText || element.textContent || '').trim();
+            if (/thinking completed/i.test(text)) return false;
+            return /thinking|generating|analyzing|reasoning|searching/i.test(text) ||
+                String(element.className || '').includes('page-loading');
+        });
+
+        if (activeThinkingStatus) {
+            return { isTyping: true, provider: 'qwen' };
+        }
+
+        const assistantMessages = Array.from(document.querySelectorAll('.qwen-chat-message-assistant'));
+        const lastAssistantMessage = assistantMessages[assistantMessages.length - 1];
+        if (lastAssistantMessage) {
+            const responseBlock = lastAssistantMessage.querySelector(
+                '.response-message-content .custom-qwen-markdown, .response-message-content .qwen-markdown, .response-message-content'
+            );
+            const responseText = (responseBlock?.innerText || responseBlock?.textContent || '').trim();
+            const pendingStatus = lastAssistantMessage.querySelector('.qwen-chat-status-card-title-animate, .qwen-chat-status-card');
+            const pendingText = (pendingStatus?.innerText || pendingStatus?.textContent || '').trim();
+
+            if ((!responseText || /^thinking\\.{0,3}$/i.test(responseText)) &&
+                pendingStatus &&
+                isVisible(pendingStatus) &&
+                /thinking|generating|analyzing|reasoning|searching/i.test(pendingText) &&
+                !/thinking completed/i.test(pendingText)) {
+                return { isTyping: true, provider: 'qwen' };
+            }
+        }
+
+        return { isTyping: false };
     `
 };
 
@@ -1365,6 +1478,10 @@ const SEND_BUTTON_SELECTORS = {
     metaai: [
         'button[aria-label="Send"]',
         'button[aria-label*="Send"]'
+    ],
+    qwen: [
+        'button.send-button',
+        'button[class*="send-button"]'
     ],
     perplexity: [
         'button[aria-label*="Submit"]',
@@ -1600,6 +1717,11 @@ function buildFileUploadScript(provider, payload) {
         metaai: [
             'button[aria-label*="Add attachment"]',
             'button[aria-label*="attachment"]'
+        ],
+        qwen: [
+            '.mode-select-open',
+            '.mode-select .ant-dropdown-trigger',
+            '.mode-select'
         ]
     }[provider] || [];
 
@@ -1656,9 +1778,9 @@ function buildFileUploadScript(provider, payload) {
 }
 
 function getResponseOptions(provider) {
-    const slowProviders = new Set(['claude', 'perplexity', 'deepseek', 'grok', 'zai']);
+    const slowProviders = new Set(['claude', 'perplexity', 'deepseek', 'grok', 'zai', 'qwen']);
     const mediumProviders = new Set(['copilot', 'metaai']);
-    const stableProviders = new Set(['perplexity', 'deepseek', 'grok', 'zai']);
+    const stableProviders = new Set(['perplexity', 'deepseek', 'grok', 'zai', 'qwen']);
 
     return {
         maxWaitSeconds: provider === 'claude' ? 600 : 120,
@@ -1703,7 +1825,7 @@ function hasNewDomResponse({ provider, previousState, currentState }) {
         );
     }
 
-    if (provider === 'deepseek' || provider === 'grok' || provider === 'zai' || provider === 'copilot' || provider === 'metaai') {
+    if (provider === 'deepseek' || provider === 'grok' || provider === 'zai' || provider === 'copilot' || provider === 'metaai' || provider === 'qwen') {
         const previousFingerprint = previousState?.fingerprint || '';
         const currentFingerprint = currentState?.fingerprint || '';
 

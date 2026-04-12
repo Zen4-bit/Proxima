@@ -398,6 +398,94 @@ const providerRuntimeConfig = {
                 return hasInput && !hasAuthPrompt && !onAuthRoute;
             })()
         `
+    },
+    qwen: {
+        loginCheckScript: `
+            (function() {
+                const hasInput = !!document.querySelector('textarea.message-input-textarea') ||
+                    !!document.querySelector('textarea[placeholder*="help you today"]') ||
+                    !!document.querySelector('textarea') ||
+                    !!document.querySelector('[contenteditable="true"]');
+                const hasLoggedInMenu = !!document.querySelector('.user-menu-btn') ||
+                    !!document.querySelector('button[aria-label*="User profile"]');
+                const authCtas = Array.from(document.querySelectorAll('button, a, [role="button"], div'))
+                    .map((el) => (el.innerText || el.textContent || '').trim())
+                    .filter((text) => text.length > 0 && text.length < 40);
+                const hasAuthPrompt = authCtas.some((text) => /log\\s*in|sign\\s*up/i.test(text));
+                const onAuthRoute = /\\/auth|login|signin|signup|oauth/i.test(window.location.pathname + window.location.href);
+                return hasInput && (hasLoggedInMenu || (!hasAuthPrompt && !onAuthRoute));
+            })()
+        `,
+        interceptor: {
+            name: 'Qwen',
+            urlPatterns: `url.includes('/api/v2/chat/completions') || url.includes('/api/v2/chats/new') || (url.includes('chat.qwen.ai/api/') && method === 'POST')`,
+            streamTypes: `contentType.includes('text/event-stream') || contentType.includes('stream') || contentType.includes('application/json') || contentType.includes('text/plain')`,
+            parser: `
+                var extractQwenText = function(payload) {
+                    if (!payload) return '';
+                    if (typeof payload === 'string') return payload;
+                    if (Array.isArray(payload)) {
+                        var combined = '';
+                        for (var i = 0; i < payload.length; i++) {
+                            combined += extractQwenText(payload[i]);
+                        }
+                        return combined;
+                    }
+                    if (typeof payload !== 'object') return '';
+
+                    if (payload.choices && Array.isArray(payload.choices) && payload.choices.length > 0) {
+                        return extractQwenText(payload.choices[0]);
+                    }
+                    if (payload.delta) return extractQwenText(payload.delta);
+                    if (payload.message) return extractQwenText(payload.message);
+                    if (payload.data) return extractQwenText(payload.data);
+
+                    var parts = [];
+                    var directKeys = ['reasoning_content', 'thinking_content', 'content', 'text', 'answer', 'output'];
+                    for (var dk = 0; dk < directKeys.length; dk++) {
+                        var value = payload[directKeys[dk]];
+                        if (typeof value === 'string') {
+                            parts.push(value);
+                        } else if (Array.isArray(value)) {
+                            parts.push(extractQwenText(value));
+                        }
+                    }
+
+                    return parts.join('');
+                };
+
+                var applyQwenPayload = function(payload) {
+                    var textValue = extractQwenText(payload);
+                    if (!textValue) return;
+
+                    var isDeltaPayload =
+                        !!payload.delta ||
+                        (payload.choices && payload.choices[0] && payload.choices[0].delta) ||
+                        typeof payload.text === 'string' ||
+                        typeof payload.content === 'string' ||
+                        typeof payload.reasoning_content === 'string' ||
+                        typeof payload.thinking_content === 'string';
+
+                    if (isDeltaPayload) {
+                        fullText += textValue;
+                    } else if (textValue.length > fullText.length) {
+                        fullText = textValue;
+                    }
+                };
+
+                if (line.startsWith('data: ') && line.slice(6).trim() !== '[DONE]') {
+                    try {
+                        var data = JSON.parse(line.slice(6));
+                        applyQwenPayload(data);
+                    } catch (e) {}
+                } else if (!line.startsWith('data:') && line.trim().length > 0) {
+                    try {
+                        var rawData = JSON.parse(line.trim());
+                        applyQwenPayload(rawData);
+                    } catch (e2) {}
+                }
+            `
+        }
     }
 };
 
@@ -536,6 +624,21 @@ const providers = [
         aliases: ['metaai', 'meta ai', 'meta.ai'],
         defaultQueryAction: 'chat',
         ...providerRuntimeConfig.metaai
+    },
+    {
+        id: 'qwen',
+        label: 'Qwen',
+        defaultEnabled: false,
+        url: 'https://chat.qwen.ai/',
+        systemBrowserUrl: 'https://chat.qwen.ai/',
+        partition: 'persist:qwen',
+        color: '#5b6cff',
+        icon: '../assets/qwen.svg',
+        cookieDomain: 'qwen.ai',
+        authCompletionDomains: ['chat.qwen.ai', 'qwen.ai'],
+        aliases: ['qwen', 'qwen-chat', 'qwen3', 'qwen-max', 'qwen studio'],
+        defaultQueryAction: 'chat',
+        ...providerRuntimeConfig.qwen
     }
 ];
 
@@ -566,8 +669,8 @@ const modelAliases = Object.fromEntries(
     )
 );
 
-const smartRouterOrder = ['chatgpt', 'claude', 'perplexity', 'gemini', 'deepseek', 'grok', 'zai', 'copilot', 'metaai'];
-const restAutoOrder = ['claude', 'chatgpt', 'gemini', 'perplexity', 'deepseek', 'grok', 'zai', 'copilot', 'metaai'];
+const smartRouterOrder = ['chatgpt', 'claude', 'perplexity', 'gemini', 'deepseek', 'grok', 'zai', 'copilot', 'metaai', 'qwen'];
+const restAutoOrder = ['claude', 'chatgpt', 'gemini', 'perplexity', 'deepseek', 'grok', 'zai', 'copilot', 'metaai', 'qwen'];
 
 function getChromeVersionFromUserAgent(userAgent = DEFAULT_BROWSER_USER_AGENT) {
     const match = String(userAgent || '').match(/Chrome\/([\d.]+)/i);

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Qwen">
+  <defs>
+    <linearGradient id="qwenGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f7cff"/>
+      <stop offset="100%" stop-color="#16c3b0"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#qwenGradient)"/>
+  <circle cx="28" cy="28" r="14" fill="none" stroke="#ffffff" stroke-width="6"/>
+  <path d="M38 38L48 48" fill="none" stroke="#ffffff" stroke-linecap="round" stroke-width="6"/>
+</svg>
