@@ -1077,9 +1077,32 @@ async function sendToGemini(webContents, message) {
     `);
     await sleep(100);
 
-    // Send with Enter key only
-    await webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' });
-    await webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' });
+   // FIX: Click the Send button using Gemini's exact Angular Material structure
+    const clicked = await webContents.executeJavaScript(`
+        (function() {
+            // Find the send button using the exact class and aria-label
+            const btn = document.querySelector('button.send-button, button[aria-label="Send message"]');
+            
+            if (btn) {
+                // Material UI uses aria-disabled instead of standard disabled attributes
+                const isDisabled = btn.disabled || btn.getAttribute('aria-disabled') === 'true';
+                
+                // Ensure it exists, isn't logically disabled, and is visible on screen
+                if (!isDisabled && btn.offsetParent !== null) {
+                    btn.click();
+                    return true;
+                }
+            }
+            return false;
+        })()
+    `);
+
+    // Fallback to Enter key ONLY if the button click failed
+    if (!clicked) {
+        console.log('[Gemini] Send button not clicked, falling back to Enter key');
+        await webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' });
+        await webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' });
+    }
 
     return { sent: true };
 }
