@@ -93,6 +93,12 @@
             border-bottom: 1px solid rgba(255, 255, 255, 0.05);
         }
 
+        .provider-tabs {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
         .tab {
             display: flex;
             align-items: center;
@@ -291,25 +297,26 @@
         /* Provider Cards in Settings */
         .provider-grid {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 18px;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
         }
 
         .provider-card {
             background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%);
-            border-radius: 16px;
-            padding: 18px 20px;
+            border-radius: 14px;
+            padding: 12px 14px;
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 10px;
             border: 2px solid transparent;
             transition: all 0.3s ease;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            min-width: 0;
         }
 
         .provider-card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
         }
 
         .provider-card.enabled {
@@ -322,30 +329,34 @@
         }
 
         .provider-card-icon {
-            width: 52px;
-            height: 52px;
-            border-radius: 14px;
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.6rem;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            font-size: 0.95rem;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
+            flex: 0 0 auto;
         }
 
         .provider-card-info {
             flex: 1;
+            min-width: 0;
         }
 
         .provider-card-name {
             font-weight: 700;
-            font-size: 1.1rem;
-            margin-bottom: 5px;
-            letter-spacing: 0.3px;
+            font-size: 0.9rem;
+            margin-bottom: 3px;
+            letter-spacing: 0.2px;
+            line-height: 1.15;
         }
 
         .provider-card-status {
-            font-size: 0.8rem;
+            font-size: 0.72rem;
             color: #888;
+            line-height: 1.2;
         }
 
         .provider-card-status.ready {
@@ -357,13 +368,14 @@
         }
 
         .toggle-switch {
-            width: 48px;
-            height: 26px;
+            width: 32px;
+            height: 18px;
             background: #333;
-            border-radius: 13px;
+            border-radius: 999px;
             position: relative;
             cursor: pointer;
             transition: background 0.3s;
+            flex: 0 0 auto;
         }
 
         .toggle-switch.active {
@@ -373,8 +385,8 @@
         .toggle-switch::after {
             content: '';
             position: absolute;
-            width: 22px;
-            height: 22px;
+            width: 14px;
+            height: 14px;
             background: white;
             border-radius: 50%;
             top: 2px;
@@ -383,7 +395,25 @@
         }
 
         .toggle-switch.active::after {
-            transform: translateX(22px);
+            transform: translateX(14px);
+        }
+
+        @media (max-width: 1400px) {
+            .provider-grid {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 1080px) {
+            .provider-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 720px) {
+            .provider-grid {
+                grid-template-columns: 1fr;
+            }
         }
 
         /* Feature Toggle Row */
@@ -419,6 +449,79 @@
             font-size: 0.85rem;
             color: #9ca3af;
             line-height: 1.4;
+        }
+
+        .settings-field {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .settings-label {
+            font-size: 0.92rem;
+            font-weight: 600;
+            color: #e5e7eb;
+        }
+
+        .settings-textarea {
+            width: 100%;
+            min-height: 96px;
+            resize: vertical;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: linear-gradient(180deg, rgba(13, 13, 26, 0.96) 0%, rgba(10, 10, 21, 0.98) 100%);
+            color: #d1d5db;
+            padding: 14px 16px;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            font-family: 'SFMono-Regular', 'Consolas', 'Monaco', monospace;
+            box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.25);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .settings-textarea:focus {
+            outline: none;
+            border-color: rgba(96, 165, 250, 0.55);
+            box-shadow:
+                inset 0 2px 10px rgba(0, 0, 0, 0.25),
+                0 0 0 3px rgba(96, 165, 250, 0.16);
+        }
+
+        .settings-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .settings-btn {
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.08);
+            color: #e5e7eb;
+            border-radius: 10px;
+            padding: 10px 16px;
+            font-size: 0.88rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+        }
+
+        .settings-btn:hover {
+            transform: translateY(-1px);
+            border-color: rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        .settings-btn.primary {
+            border-color: transparent;
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            box-shadow: 0 6px 18px rgba(37, 99, 235, 0.28);
+        }
+
+        .settings-help {
+            color: #9ca3af;
+            font-size: 0.84rem;
+            line-height: 1.5;
         }
 
         /* MCP Config */
@@ -660,14 +763,31 @@
             background: rgba(255, 255, 255, 0.2);
         }
 
+        .browser-ctrl-btn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
         .browser-url {
             flex: 1;
             background: rgba(255, 255, 255, 0.1);
             border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 6px;
             padding: 6px 12px;
-            color: #888;
+            color: #e5e7eb;
             font-size: 0.85rem;
+            min-width: 0;
+            outline: none;
+            transition: border-color 0.2s, background 0.2s;
+        }
+
+        .browser-url::placeholder {
+            color: #888;
+        }
+
+        .browser-url:focus {
+            border-color: rgba(255, 255, 255, 0.32);
+            background: rgba(255, 255, 255, 0.14);
         }
 
         .login-status {
@@ -790,6 +910,36 @@
             padding: 2px 6px;
             border-radius: 4px;
             font-family: 'Consolas', monospace;
+        }
+
+        .storage-snippet-label {
+            margin-top: 12px;
+            margin-bottom: 8px;
+            color: #bfdbfe;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .storage-snippet {
+            margin: 0;
+            padding: 14px 16px;
+            border-radius: 10px;
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid rgba(96, 165, 250, 0.25);
+            color: #a5f3fc;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.8rem;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-word;
+            cursor: pointer;
+            transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+        }
+
+        .storage-snippet:hover {
+            background: rgba(15, 23, 42, 0.95);
+            border-color: rgba(96, 165, 250, 0.45);
+            transform: translateY(-1px);
         }
 
         .cookie-textarea {
@@ -990,26 +1140,7 @@
 
     <!-- Tab Navigation -->
     <div class="tab-nav">
-        <div class="tab" data-provider="perplexity" onclick="switchTab('perplexity')">
-            <img src="../assets/perplexity.png" class="tab-icon-img" alt="Perplexity">
-            <span class="tab-name">Perplexity</span>
-            <div class="tab-status offline" id="status-dot-perplexity"></div>
-        </div>
-        <div class="tab" data-provider="chatgpt" onclick="switchTab('chatgpt')">
-            <img src="../assets/chatgpt.png" class="tab-icon-img" alt="ChatGPT">
-            <span class="tab-name">ChatGPT</span>
-            <div class="tab-status offline" id="status-dot-chatgpt"></div>
-        </div>
-        <div class="tab" data-provider="claude" onclick="switchTab('claude')">
-            <img src="../assets/claude.svg" class="tab-icon-img" alt="Claude">
-            <span class="tab-name">Claude</span>
-            <div class="tab-status offline" id="status-dot-claude"></div>
-        </div>
-        <div class="tab" data-provider="gemini" onclick="switchTab('gemini')">
-            <img src="../assets/gemini.png" class="tab-icon-img" alt="Gemini">
-            <span class="tab-name">Gemini</span>
-            <div class="tab-status offline" id="status-dot-gemini"></div>
-        </div>
+        <div class="provider-tabs" id="provider-tabs"></div>
         <div class="tab-spacer"></div>
         <div class="tab" data-tab="settings" onclick="switchTab('settings')">
             <div class="tab-icon settings">⚙️</div>
@@ -1019,15 +1150,17 @@
 
     <!-- Browser Controls -->
     <div class="browser-controls" id="browser-controls">
-        <button class="browser-ctrl-btn" onclick="goBack()" title="Back">◀</button>
-        <button class="browser-ctrl-btn" onclick="goForward()" title="Forward">▶</button>
+        <button class="browser-ctrl-btn" id="browser-back-btn" onclick="goBack()" title="Back" disabled>◀</button>
+        <button class="browser-ctrl-btn" id="browser-forward-btn" onclick="goForward()" title="Forward" disabled>▶</button>
         <button class="browser-ctrl-btn" onclick="reloadPage()" title="Reload">↻</button>
-        <div class="browser-url" id="browser-url">https://...</div>
-        <button class="header-btn" onclick="openInChrome()" title="Open in system browser for login"
+        <input class="browser-url" id="browser-url" type="text" inputmode="url" spellcheck="false"
+            autocapitalize="off" autocomplete="off" placeholder="https://chat.deepseek.com/" disabled
+            onfocus="handleBrowserUrlFocus(event)" onkeydown="handleBrowserUrlKeydown(event)">
+        <button class="header-btn" onclick="openInBrowser()" title="Open in system browser for login"
             style="background: linear-gradient(135deg, #4285f4, #34a853);">
-            <span>🌐</span> Open in Chrome
+            <span>🌐</span> Open in Browser
         </button>
-        <button class="header-btn cookie-login-btn" onclick="openCookieModal()" title="Login with cookies (for Gemini)">
+        <button class="header-btn cookie-login-btn" onclick="openCookieModal()" title="Login with cookies">
             <span>🍪</span> Cookie Login
         </button>
         <div class="login-status not-logged-in" id="login-status">Not logged in</div>
@@ -1042,8 +1175,7 @@
                 <h1 class="welcome-title">Proxima</h1>
                 <p class="welcome-subtitle">
                     Free Multi-AI MCP Server<br>
-                    <span class="welcome-sub-light">No API keys required. Connect ChatGPT, Claude, Gemini & Perplexity
-                        locally.</span>
+                    <span class="welcome-sub-light">No API keys required. Connect your enabled AI providers locally.</span>
                 </p>
                 <div class="welcome-divider"></div>
                 <h3 class="welcome-get-started">Get Started</h3>
@@ -1081,51 +1213,49 @@
             <div class="settings-section">
                 <h2 class="settings-title"><span class="section-icon"
                         style="background: linear-gradient(135deg, #a855f7, #6366f1);">AI</span> Providers</h2>
-                <div class="provider-grid">
-                    <div class="provider-card enabled" data-provider="perplexity">
-                        <div class="provider-card-icon" style="background: transparent;">
-                            <img src="../assets/perplexity.png"
-                                style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
-                        </div>
-                        <div class="provider-card-info">
-                            <div class="provider-card-name">Perplexity</div>
-                            <div class="provider-card-status not-ready" id="card-status-perplexity">Not logged in</div>
-                        </div>
-                        <div class="toggle-switch active" data-provider="perplexity" onclick="toggleProvider(this)">
-                        </div>
+                <div class="provider-grid" id="provider-grid"></div>
+            </div>
+
+            <div class="settings-section">
+                <h2 class="settings-title"><span class="section-icon"
+                        style="background: linear-gradient(135deg, #2563eb, #0f766e);">UA</span> Browser Identity</h2>
+                <p style="color: #b3b3b3; margin-bottom: 16px; font-size: 0.95rem; line-height: 1.5;">
+                    Proxima uses this browser user-agent for provider views, auth popups, and request header spoofing.
+                    Changes apply to future requests immediately, but open tabs may need a reload to fully pick up the new value.
+                </p>
+                <div class="settings-field">
+                    <label class="settings-label" for="user-agent-input">Browser User Agent</label>
+                    <textarea class="settings-textarea" id="user-agent-input" rows="3" spellcheck="false"
+                        autocapitalize="off" autocomplete="off" onkeydown="handleUserAgentKeydown(event)"
+                        placeholder="Leave blank to restore the bundled Chrome-style default."></textarea>
+                    <div class="settings-actions">
+                        <button class="settings-btn primary" onclick="saveUserAgent()">Save User Agent</button>
+                        <button class="settings-btn" onclick="resetUserAgent()">Reset Default</button>
                     </div>
-                    <div class="provider-card enabled" data-provider="chatgpt">
-                        <div class="provider-card-icon" style="background: transparent;">
-                            <img src="../assets/chatgpt.png"
-                                style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
-                        </div>
-                        <div class="provider-card-info">
-                            <div class="provider-card-name">ChatGPT</div>
-                            <div class="provider-card-status not-ready" id="card-status-chatgpt">Not logged in</div>
-                        </div>
-                        <div class="toggle-switch active" data-provider="chatgpt" onclick="toggleProvider(this)"></div>
+                    <div class="settings-help">
+                        The default stays in the provider catalog. Clear the field or use reset if you want Proxima's bundled Chrome-style identity back.
                     </div>
-                    <div class="provider-card disabled" data-provider="claude">
-                        <div class="provider-card-icon" style="background: transparent;">
-                            <img src="../assets/claude.svg"
-                                style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
-                        </div>
-                        <div class="provider-card-info">
-                            <div class="provider-card-name">Claude</div>
-                            <div class="provider-card-status not-ready" id="card-status-claude">Disabled</div>
-                        </div>
-                        <div class="toggle-switch" data-provider="claude" onclick="toggleProvider(this)"></div>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <h2 class="settings-title"><span class="section-icon"
+                        style="background: linear-gradient(135deg, #f59e0b, #ea580c);">IM</span> Captured Images</h2>
+                <p style="color: #b3b3b3; margin-bottom: 16px; font-size: 0.95rem; line-height: 1.5;">
+                    When a provider generates images, Proxima downloads them locally first and returns those local file
+                    paths in the MCP response.
+                </p>
+                <div class="settings-field">
+                    <label class="settings-label" for="captured-image-dir-input">Image Download Directory</label>
+                    <textarea class="settings-textarea" id="captured-image-dir-input" rows="2" spellcheck="false"
+                        autocapitalize="off" autocomplete="off" onkeydown="handleCapturedImageDownloadDirKeydown(event)"
+                        placeholder="Leave blank to use Proxima's temp image folder."></textarea>
+                    <div class="settings-actions">
+                        <button class="settings-btn primary" onclick="saveCapturedImageDownloadDir()">Save Image Directory</button>
+                        <button class="settings-btn" onclick="resetCapturedImageDownloadDir()">Use Temp Folder</button>
                     </div>
-                    <div class="provider-card enabled" data-provider="gemini">
-                        <div class="provider-card-icon" style="background: transparent;">
-                            <img src="../assets/gemini.png"
-                                style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
-                        </div>
-                        <div class="provider-card-info">
-                            <div class="provider-card-name">Gemini</div>
-                            <div class="provider-card-status not-ready" id="card-status-gemini">Not logged in</div>
-                        </div>
-                        <div class="toggle-switch active" data-provider="gemini" onclick="toggleProvider(this)"></div>
+                    <div class="settings-help">
+                        Absolute paths are recommended. If left blank, Proxima stores generated images in a temporary local folder and returns those absolute file paths to MCP clients.
                     </div>
                 </div>
             </div>
@@ -1156,8 +1286,7 @@
                     <button class="copy-btn" onclick="copyAIPrompt()">Copy Prompt</button>
                     <pre id="ai-prompt" style="white-space: pre-wrap; word-wrap: break-word;">Add the Proxima MCP server to this application’s MCP configuration.
 
-Proxima is a Multi-AI MCP server that connects ChatGPT, Claude, Gemini & Perplexity with local server.
-
+Proxima is a Multi-AI MCP server that connects your enabled providers through a local server.
 Here is the MCP configuration to add:
 
 <span id="ai-prompt-config"></span>
@@ -1196,7 +1325,7 @@ Confirm when done</pre>
             <!-- Version Footer -->
             <div
                 style="text-align: center; padding: 20px 0; margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.05);">
-                <span style="color: #666; font-size: 0.8rem;">Proxima v1.0 • Multi-AI MCP Server</span>
+                <span style="color: #666; font-size: 0.8rem;">Proxima v3.5.2 • Multi-AI MCP Server</span>
             </div>
         </div>
     </div>
@@ -1208,7 +1337,7 @@ Confirm when done</pre>
         <div class="cookie-modal">
             <div class="cookie-modal-header">
                 <h2 class="cookie-modal-title">
-                    <span>🍪</span> Cookie Login - <span id="cookie-modal-provider">Gemini</span>
+                    <span>🍪</span> Cookie Login - <span id="cookie-modal-provider">Provider</span>
                 </h2>
                 <button class="cookie-modal-close" onclick="closeCookieModal()">✕</button>
             </div>
@@ -1217,8 +1346,8 @@ Confirm when done</pre>
                 <strong>� How to get cookies:</strong>
                 <ol>
                     <li>Install <code>EditThisCookie</code> or <code>Cookie-Editor</code> extension in Chrome</li>
-                    <li>Go to <a href="#" onclick="openGeminiInChrome(event)"
-                            style="color: #4285f4;">gemini.google.com</a> in Chrome and login normally</li>
+                    <li>Go to <a href="#" id="cookie-login-link" onclick="openProviderInBrowserForCookies(event)"
+                            style="color: #4285f4;">provider site</a> in your browser and login normally</li>
                     <li>Click the cookie extension icon → <strong>Export</strong> (as JSON)</li>
                     <li>Paste the copied JSON below</li>
                 </ol>
@@ -1227,10 +1356,20 @@ Confirm when done</pre>
             <textarea class="cookie-textarea" id="cookie-textarea"
                 placeholder='Paste your cookies JSON here...'></textarea>
 
+            <div class="cookie-instructions" id="storage-instructions">
+                <strong id="storage-instructions-title">Optional browser storage:</strong>
+                <div id="storage-instructions-body" style="margin-top: 10px; line-height: 1.6;">
+                    Leave this empty unless a provider needs extra local or session storage in addition to cookies.
+                </div>
+            </div>
+
+            <textarea class="cookie-textarea" id="storage-textarea"
+                placeholder='Optional: paste {"localStorage":{"key":"value"}} or {"sessionStorage":{"key":"value"}}'></textarea>
+
             <div class="cookie-modal-actions">
                 <button class="cookie-btn cookie-btn-cancel" onclick="closeCookieModal()">Cancel</button>
                 <button class="cookie-btn cookie-btn-login" id="cookie-login-btn" onclick="applyCookieLogin()">
-                    🔓 Login with Cookies
+                    🔓 Apply Login Data
                 </button>
             </div>
 
@@ -1241,14 +1380,564 @@ Confirm when done</pre>
     <script>
         let settings = {};
         let currentTab = null;
-        let providerStatus = {};
+        let providerCatalog = [];
+        let providerMap = {};
+        let cookieModalProvider = null;
+        const providerNavigationState = {};
+        const localStorageDumpSnippet = `(() => {
+  const out = { localStorage: {}, sessionStorage: {} };
+
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    out.localStorage[key] = localStorage.getItem(key);
+  }
+
+  for (let i = 0; i < sessionStorage.length; i++) {
+    const key = sessionStorage.key(i);
+    out.sessionStorage[key] = sessionStorage.getItem(key);
+  }
+
+  const json = JSON.stringify(out, null, 2);
+
+  if (typeof copy === 'function') {
+    copy(json);
+    console.log('localStorage saved to your clipboard. Now paste into Proxima.');
+  } else if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(json)
+      .then(() => console.log('localStorage saved to your clipboard. Now paste into Proxima.'))
+      .catch(() => console.log('Clipboard copy failed. Copy the JSON below and paste it into Proxima.'));
+  } else {
+    console.log('Clipboard copy unavailable. Copy the JSON below and paste it into Proxima.');
+  }
+
+  console.log(out);
+  return out;
+})();`;
+        const providerStorageSnippets = {
+            zai: localStorageDumpSnippet,
+            copilot: localStorageDumpSnippet,
+            qwen: localStorageDumpSnippet
+        };
+        const providerStorageGuidance = {
+            default: {
+                title: 'Cookies only for this provider:',
+                body: 'This provider should work with cookies only. Leave the browser storage box empty. Only <code>DeepSeek</code>, <code>Z.ai</code>, <code>Copilot</code>, and <code>Qwen</code> currently need browser storage in addition to cookies.',
+                placeholder: 'Leave this empty for this provider — cookies are enough'
+            },
+            deepseek: {
+                title: 'DeepSeek localStorage required:',
+                body: 'DeepSeek needs browser storage in addition to cookies. In your normal browser on <code>chat.deepseek.com</code>, run <code>localStorage.getItem("userToken")</code> in the console and paste the result below. You can also paste <code>{"userToken":"..."}</code> or a full <code>{"localStorage":{...}}</code> object.',
+                placeholder: 'Required for DeepSeek: paste localStorage.getItem("userToken"), {"userToken":"..."}, or {"localStorage":{"userToken":"..."}}'
+            },
+            zai: {
+                title: 'Z.ai localStorage required:',
+                body: 'Z.ai needs browser storage in addition to cookies. In your normal browser on <code>chat.z.ai</code>, run the snippet below in the console and paste the JSON output here. If DevTools still shows escaped text with <code>\\n</code> or outer quotes, paste it anyway and Proxima will normalize it.',
+                placeholder: 'Required for Z.ai: paste {"localStorage":{...}}'
+            },
+            copilot: {
+                title: 'Copilot localStorage required:',
+                body: 'Copilot may need browser storage in addition to cookies. In your normal browser on <code>copilot.microsoft.com</code>, run the snippet below in the console and paste the JSON output here. If DevTools still shows escaped text with <code>\\n</code> or outer quotes, paste it anyway and Proxima will normalize it.',
+                placeholder: 'Required for Copilot when cookies alone are not enough: paste {"localStorage":{...}}'
+            },
+            qwen: {
+                title: 'Qwen browser storage required:',
+                body: 'Qwen stores auth state in browser storage in addition to cookies. In your normal browser on <code>chat.qwen.ai</code>, run the snippet below in the console and paste the JSON output here. If you only have the token value, you can also paste <code>{"token":"..."}</code> or the raw token string and Proxima will normalize it.',
+                placeholder: 'Required for Qwen: paste {"localStorage":{...}}, {"token":"..."}, or the raw token string'
+            }
+        };
+
+        function escapeHtml(value) {
+            return String(value || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function getProviderStorageSnippet(providerId) {
+            return providerStorageSnippets[providerId] || '';
+        }
+
+        function getProvider(providerId) {
+            return providerMap[providerId] || null;
+        }
+
+        function getProviderLabel(providerId) {
+            return getProvider(providerId)?.label || providerId;
+        }
+
+        function getProviderLoginUrl(providerId) {
+            return getProvider(providerId)?.systemBrowserUrl || '';
+        }
+
+        function getProviderLoginLabel(providerId) {
+            return getProviderLoginUrl(providerId).replace(/^https?:\/\//, '') || 'provider site';
+        }
+
+        function getDefaultProviderUrl(providerId) {
+            return getProvider(providerId)?.url || getProviderLoginUrl(providerId) || '';
+        }
+
+        function isProviderEnabled(providerId) {
+            return !!settings.providers?.[providerId]?.enabled;
+        }
+
+        function getEnabledProviderCatalog() {
+            return providerCatalog.filter((provider) => isProviderEnabled(provider.id));
+        }
+
+        function getFirstEnabledProviderId() {
+            return getEnabledProviderCatalog()[0]?.id || null;
+        }
+
+        function captureProviderUiState(providerId) {
+            return {
+                statusDotClass: document.getElementById(`status-dot-${providerId}`)?.className || 'tab-status offline',
+                cardStatusText: document.getElementById(`card-status-${providerId}`)?.textContent || '',
+                cardStatusClass: document.getElementById(`card-status-${providerId}`)?.className || 'provider-card-status not-ready'
+            };
+        }
+
+        function getBrowserUrlInput() {
+            return document.getElementById('browser-url');
+        }
+
+        async function showWelcomePanel() {
+            document.getElementById('settings-panel').classList.remove('active');
+            document.getElementById('browser-container').style.display = 'block';
+            document.getElementById('welcome-panel').style.display = 'flex';
+            document.getElementById('browser-controls').classList.remove('active');
+            document.querySelectorAll('.tab').forEach((tab) => tab.classList.remove('active'));
+            await agentHub.hideBrowser();
+            applyBrowserNavigationState(null);
+            currentTab = null;
+        }
+
+        function applyBrowserNavigationState(providerId, state = {}) {
+            const browserUrlInput = getBrowserUrlInput();
+            const backButton = document.getElementById('browser-back-btn');
+            const forwardButton = document.getElementById('browser-forward-btn');
+
+            if (!providerId) {
+                if (browserUrlInput) {
+                    browserUrlInput.value = '';
+                    browserUrlInput.disabled = true;
+                }
+
+                if (backButton) {
+                    backButton.disabled = true;
+                }
+
+                if (forwardButton) {
+                    forwardButton.disabled = true;
+                }
+
+                return;
+            }
+
+            const nextState = {
+                url: state.url || getDefaultProviderUrl(providerId),
+                canGoBack: !!state.canGoBack,
+                canGoForward: !!state.canGoForward
+            };
+
+            providerNavigationState[providerId] = nextState;
+
+            if (currentTab !== providerId) {
+                return;
+            }
+
+            if (browserUrlInput) {
+                browserUrlInput.disabled = false;
+                browserUrlInput.value = nextState.url || '';
+            }
+
+            if (backButton) {
+                backButton.disabled = !nextState.canGoBack;
+            }
+
+            if (forwardButton) {
+                forwardButton.disabled = !nextState.canGoForward;
+            }
+        }
+
+        async function syncBrowserNavigationState(providerId) {
+            if (!providerId || providerId === 'settings') {
+                applyBrowserNavigationState(null);
+                return;
+            }
+
+            const result = await agentHub.getProviderNavigationState(providerId);
+            if (!result?.success) {
+                applyBrowserNavigationState(providerId, {
+                    url: getDefaultProviderUrl(providerId),
+                    canGoBack: false,
+                    canGoForward: false
+                });
+                return;
+            }
+
+            applyBrowserNavigationState(providerId, result.navigationState || {});
+        }
+
+        function normalizeBrowserUrl(rawUrl) {
+            const trimmed = String(rawUrl || '').trim();
+            if (!trimmed) {
+                throw new Error('Please enter a URL');
+            }
+
+            let candidate = trimmed;
+            if (!/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(candidate)) {
+                candidate = `https://${candidate.replace(/^\/+/, '')}`;
+            }
+
+            let parsedUrl;
+            try {
+                parsedUrl = new URL(candidate);
+            } catch (error) {
+                throw new Error('Invalid URL');
+            }
+
+            if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+                throw new Error('Only http:// and https:// URLs are supported');
+            }
+
+            return parsedUrl.toString();
+        }
+
+        async function navigateFromBrowserUrl() {
+            if (!currentTab || currentTab === 'settings') {
+                showToast('Please select a provider first');
+                return;
+            }
+
+            const browserUrlInput = getBrowserUrlInput();
+            if (!browserUrlInput) {
+                return;
+            }
+
+            let normalizedUrl;
+            try {
+                normalizedUrl = normalizeBrowserUrl(browserUrlInput.value);
+            } catch (error) {
+                showToast(error.message);
+                browserUrlInput.focus();
+                browserUrlInput.select();
+                return;
+            }
+
+            const result = await agentHub.navigateProvider(currentTab, normalizedUrl);
+            if (!result?.success) {
+                showToast(result?.error || 'Navigation failed');
+                return;
+            }
+
+            applyBrowserNavigationState(currentTab, result.navigationState || {
+                url: normalizedUrl,
+                canGoBack: true,
+                canGoForward: false
+            });
+        }
+
+        function handleBrowserUrlFocus(event) {
+            event.target.select();
+        }
+
+        function handleBrowserUrlKeydown(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                navigateFromBrowserUrl();
+            }
+        }
+
+        function updateCookieModalStorageGuidance(providerId) {
+            const guidance = providerStorageGuidance[providerId] || providerStorageGuidance.default;
+            const snippet = getProviderStorageSnippet(providerId);
+            document.getElementById('storage-instructions-title').textContent = guidance.title;
+            document.getElementById('storage-instructions-body').innerHTML = guidance.body + (
+                snippet
+                    ? `
+                        <div class="storage-snippet-label">Click to copy console snippet:</div>
+                        <pre class="storage-snippet" onclick="copyStorageSnippet('${providerId}')" title="Click to copy">${escapeHtml(snippet)}</pre>
+                    `
+                    : ''
+            );
+            document.getElementById('storage-textarea').placeholder = guidance.placeholder;
+        }
+
+        async function copyStorageSnippet(providerId) {
+            const snippet = getProviderStorageSnippet(providerId);
+            if (!snippet) {
+                return;
+            }
+
+            await agentHub.copyToClipboard(snippet);
+            showToast(`${getProviderLabel(providerId)} storage snippet copied`);
+        }
+
+        function normalizeStorageMap(entries) {
+            if (!entries || typeof entries !== 'object' || Array.isArray(entries)) {
+                return {};
+            }
+
+            return Object.fromEntries(
+                Object.entries(entries)
+                    .filter(([key]) => typeof key === 'string' && key.length > 0)
+                    .map(([key, value]) => [
+                        key,
+                        typeof value === 'string' ? value : JSON.stringify(value)
+                    ])
+            );
+        }
+
+        function unwrapStoragePaste(rawValue) {
+            let current = String(rawValue || '').trim();
+
+            for (let i = 0; i < 5; i++) {
+                const fenced = current.match(/^```(?:json|javascript|js)?\s*([\s\S]*?)\s*```$/i);
+                if (fenced) {
+                    current = fenced[1].trim();
+                    continue;
+                }
+
+                if (current.length < 2) {
+                    break;
+                }
+
+                const first = current[0];
+                const last = current[current.length - 1];
+                const wrapped = (first === '"' && last === '"') ||
+                    (first === '\'' && last === '\'') ||
+                    (first === '`' && last === '`');
+
+                if (!wrapped) {
+                    break;
+                }
+
+                const inner = current.slice(1, -1).trim();
+                if (!inner) {
+                    break;
+                }
+
+                current = inner;
+            }
+
+            return current.trim();
+        }
+
+        function decodeEscapedStorageDocument(rawValue) {
+            const wrapped = `"${String(rawValue || '')
+                .replace(/"/g, '\\"')
+                .replace(/\r/g, '\\r')
+                .replace(/\n/g, '\\n')
+                .replace(/\t/g, '\\t')}"`;
+
+            return JSON.parse(wrapped);
+        }
+
+        function parseStorageImportJson(rawValue) {
+            let current = unwrapStoragePaste(rawValue);
+
+            for (let i = 0; i < 6; i++) {
+                try {
+                    const parsed = JSON.parse(current);
+                    if (typeof parsed === 'string') {
+                        const next = unwrapStoragePaste(parsed);
+                        if (!next || next === current) {
+                            return parsed;
+                        }
+                        current = next;
+                        continue;
+                    }
+
+                    return parsed;
+                } catch (error) {
+                    // Try decoding escaped console output next.
+                }
+
+                let decoded;
+                try {
+                    decoded = decodeEscapedStorageDocument(current);
+                } catch (error) {
+                    break;
+                }
+
+                const next = unwrapStoragePaste(decoded);
+                if (!next || next === current) {
+                    break;
+                }
+
+                current = next;
+            }
+
+            throw new Error('Invalid browser storage JSON');
+        }
+
+        function parseOptionalStorageImport(providerId, rawValue) {
+            const raw = unwrapStoragePaste(rawValue);
+            if (!raw) {
+                return { localStorage: {}, sessionStorage: {} };
+            }
+
+            if (providerId === 'deepseek' && !/^[\[{"]/.test(raw)) {
+                return {
+                    localStorage: {
+                        userToken: JSON.stringify({ value: raw, __version: '0' })
+                    },
+                    sessionStorage: {}
+                };
+            }
+
+            if (providerId === 'qwen' && !/^[\[{"]/.test(raw)) {
+                return {
+                    localStorage: {
+                        token: raw
+                    },
+                    sessionStorage: {}
+                };
+            }
+
+            let parsed;
+            try {
+                parsed = parseStorageImportJson(raw);
+            } catch (error) {
+                throw new Error('Invalid browser storage JSON');
+            }
+
+            if (Array.isArray(parsed)) {
+                throw new Error('Browser storage JSON must be an object');
+            }
+
+            if (providerId === 'deepseek' && parsed && typeof parsed === 'object') {
+                if ('value' in parsed && !('localStorage' in parsed) && !('sessionStorage' in parsed) && !('userToken' in parsed)) {
+                    return {
+                        localStorage: {
+                            userToken: JSON.stringify(parsed)
+                        },
+                        sessionStorage: {}
+                    };
+                }
+
+                if ('userToken' in parsed && !('localStorage' in parsed) && !('sessionStorage' in parsed)) {
+                    const tokenValue = parsed.userToken;
+                    return {
+                        localStorage: {
+                            userToken: typeof tokenValue === 'string' ? tokenValue : JSON.stringify(tokenValue)
+                        },
+                        sessionStorage: {}
+                    };
+                }
+            }
+
+            if (providerId === 'qwen' && parsed && typeof parsed === 'object') {
+                if ('token' in parsed && !('localStorage' in parsed) && !('sessionStorage' in parsed)) {
+                    const tokenValue = parsed.token;
+                    return {
+                        localStorage: {
+                            token: typeof tokenValue === 'string' ? tokenValue : JSON.stringify(tokenValue)
+                        },
+                        sessionStorage: {}
+                    };
+                }
+            }
+
+            if ('localStorage' in parsed || 'sessionStorage' in parsed) {
+                return {
+                    localStorage: normalizeStorageMap(parsed.localStorage),
+                    sessionStorage: normalizeStorageMap(parsed.sessionStorage)
+                };
+            }
+
+            return {
+                localStorage: normalizeStorageMap(parsed),
+                sessionStorage: {}
+            };
+        }
+
+        function syncUserAgentControls() {
+            const input = document.getElementById('user-agent-input');
+            if (input) {
+                input.value = settings.userAgent || '';
+            }
+        }
+
+        function syncCapturedImageDownloadDirControls() {
+            const input = document.getElementById('captured-image-dir-input');
+            if (input) {
+                input.value = settings.capturedImageDownloadDir || '';
+            }
+        }
+
+        function syncSettingsUI() {
+            updateUI();
+            loadFileReferenceState();
+            syncUserAgentControls();
+            syncCapturedImageDownloadDirControls();
+        }
+
+        async function persistSettings() {
+            const result = await agentHub.saveSettings(settings);
+            if (result?.settings) {
+                settings = result.settings;
+            }
+            return settings;
+        }
+
+        function renderProviderUI() {
+            const tabsContainer = document.getElementById('provider-tabs');
+            const grid = document.getElementById('provider-grid');
+            const enabledProviders = getEnabledProviderCatalog();
+            const providerUiState = Object.fromEntries(
+                providerCatalog.map((provider) => [provider.id, captureProviderUiState(provider.id)])
+            );
+
+            tabsContainer.innerHTML = enabledProviders.map((provider) => `
+                <div class="tab${currentTab === provider.id ? ' active' : ''}" data-provider="${provider.id}" onclick="switchTab('${provider.id}')">
+                    <img src="${provider.icon}" class="tab-icon-img" alt="${provider.label}">
+                    <span class="tab-name">${provider.label}</span>
+                    <div class="${providerUiState[provider.id]?.statusDotClass || 'tab-status offline'}" id="status-dot-${provider.id}"></div>
+                </div>
+            `).join('');
+
+            grid.innerHTML = providerCatalog.map((provider) => {
+                const enabled = isProviderEnabled(provider.id);
+                const cardClasses = enabled ? 'provider-card enabled' : 'provider-card disabled';
+                const toggleClasses = enabled ? 'toggle-switch active' : 'toggle-switch';
+                const preservedState = providerUiState[provider.id] || {};
+                const statusText = enabled
+                    ? (preservedState.cardStatusText && preservedState.cardStatusText !== 'Disabled'
+                        ? preservedState.cardStatusText
+                        : 'Not logged in')
+                    : 'Disabled';
+                const statusClass = enabled
+                    ? (preservedState.cardStatusClass || 'provider-card-status not-ready')
+                    : 'provider-card-status not-ready';
+
+                return `
+                    <div class="${cardClasses}" data-provider="${provider.id}">
+                        <div class="provider-card-icon" style="background: transparent;">
+                            <img src="${provider.icon}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
+                        </div>
+                        <div class="provider-card-info">
+                            <div class="provider-card-name">${provider.label}</div>
+                            <div class="${statusClass}" id="card-status-${provider.id}">${statusText}</div>
+                        </div>
+                        <div class="${toggleClasses}" data-provider="${provider.id}" onclick="toggleProvider(this)"></div>
+                    </div>
+                `;
+            }).join('');
+        }
 
         // Initialize
         async function init() {
+            providerCatalog = await agentHub.getProviderCatalog();
+            providerMap = Object.fromEntries(
+                providerCatalog.map((provider) => [provider.id, provider])
+            );
             settings = await agentHub.getSettings();
-            updateUI();
+            syncSettingsUI();
             loadMcpConfig();
-            loadFileReferenceState();
 
             // Listen for auto-initialization from main process
             if (agentHub.onActiveProvider) {
@@ -1258,11 +1947,37 @@ Confirm when done</pre>
                 });
             }
 
+            if (agentHub.onProviderNavigated) {
+                agentHub.onProviderNavigated((state) => {
+                    if (state?.provider) {
+                        applyBrowserNavigationState(state.provider, state);
+                    }
+                });
+            }
+
+            if (agentHub.onProviderLoaded) {
+                agentHub.onProviderLoaded((data) => {
+                    if (data?.provider) {
+                        syncBrowserNavigationState(data.provider);
+                        updateProviderStatus(data.provider);
+                    }
+                });
+            }
+
+            if (agentHub.onProviderAlert) {
+                agentHub.onProviderAlert((data) => {
+                    if (!data?.message) {
+                        return;
+                    }
+
+                    showToast(data.message);
+                });
+            }
+
 
 
             // Get first enabled provider
-            const firstEnabled = Object.entries(settings.providers)
-                .find(([_, config]) => config.enabled)?.[0];
+            const firstEnabled = getFirstEnabledProviderId();
 
             // Auto-switch to first enabled provider after short delay
             if (firstEnabled) {
@@ -1272,27 +1987,26 @@ Confirm when done</pre>
                     }
                 }, 2000);
             }
+
+            for (const delayMs of [250, 2500, 7000, 15000]) {
+                setTimeout(() => {
+                    refreshEnabledProviderStatuses();
+                }, delayMs);
+            }
         }
 
         function updateUI() {
-            // Update provider cards and tabs
-            Object.entries(settings.providers).forEach(([name, config]) => {
-                const tab = document.querySelector(`.tab[data-provider="${name}"]`);
-                const card = document.querySelector(`.provider-card[data-provider="${name}"]`);
-                const toggle = document.querySelector(`.toggle-switch[data-provider="${name}"]`);
+            renderProviderUI();
+            document.querySelectorAll('.tab').forEach((tab) => tab.classList.remove('active'));
 
-                if (config.enabled) {
-                    tab?.classList.remove('disabled');
-                    card?.classList.add('enabled');
-                    card?.classList.remove('disabled');
-                    toggle?.classList.add('active');
-                } else {
-                    tab?.classList.add('disabled');
-                    card?.classList.remove('enabled');
-                    card?.classList.add('disabled');
-                    toggle?.classList.remove('active');
-                }
-            });
+            if (currentTab === 'settings') {
+                document.querySelector('.tab[data-tab="settings"]')?.classList.add('active');
+                return;
+            }
+
+            if (currentTab && isProviderEnabled(currentTab)) {
+                document.querySelector(`.tab[data-provider="${currentTab}"]`)?.classList.add('active');
+            }
         }
 
         async function switchTab(tabName) {
@@ -1302,6 +2016,7 @@ Confirm when done</pre>
                 document.getElementById('settings-panel').classList.add('active');
                 document.getElementById('browser-controls').classList.remove('active');
                 await agentHub.hideBrowser();
+                applyBrowserNavigationState(null);
 
                 // Update tab active state
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -1311,8 +2026,8 @@ Confirm when done</pre>
             }
 
             // Check if provider is enabled
-            if (!settings.providers[tabName]?.enabled) {
-                showToast(`${tabName} is disabled. Enable it in Settings.`);
+            if (!isProviderEnabled(tabName)) {
+                showToast(`${getProviderLabel(tabName)} is disabled. Enable it in Settings.`);
                 return;
             }
 
@@ -1324,11 +2039,18 @@ Confirm when done</pre>
 
             // Update tab active state
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.querySelector(`.tab[data-provider="${tabName}"]`).classList.add('active');
+            document.querySelector(`.tab[data-provider="${tabName}"]`)?.classList.add('active');
 
             // Show the provider
-            await agentHub.showProvider(tabName);
+            const showResult = await agentHub.showProvider(tabName);
+            if (!showResult?.success) {
+                showToast(showResult?.error || `Failed to open ${getProviderLabel(tabName)}`);
+                return;
+            }
+
             currentTab = tabName;
+            applyBrowserNavigationState(tabName, showResult.navigationState || providerNavigationState[tabName] || {});
+            syncBrowserNavigationState(tabName);
 
             // Update status
             updateProviderStatus(tabName);
@@ -1339,6 +2061,10 @@ Confirm when done</pre>
             const statusDot = document.getElementById(`status-dot-${provider}`);
             const cardStatus = document.getElementById(`card-status-${provider}`);
             const loginStatus = document.getElementById('login-status');
+
+            if (!statusDot || !cardStatus) {
+                return;
+            }
 
             if (result.loggedIn) {
                 statusDot.className = 'tab-status ready';
@@ -1359,19 +2085,41 @@ Confirm when done</pre>
             }
         }
 
+        async function refreshEnabledProviderStatuses() {
+            const enabledProviders = getEnabledProviderCatalog();
+
+            for (const provider of enabledProviders) {
+                try {
+                    await updateProviderStatus(provider.id);
+                } catch (error) {
+                    console.warn(`Status refresh failed for ${provider.id}:`, error);
+                }
+            }
+        }
+
         async function toggleProvider(element) {
             const provider = element.dataset.provider;
-            settings.providers[provider].enabled = !settings.providers[provider].enabled;
+            settings.providers[provider].enabled = !isProviderEnabled(provider);
+            const enabled = isProviderEnabled(provider);
 
-            await agentHub.saveSettings(settings);
+            await persistSettings();
             await agentHub.saveEnabledProviders();
-            updateUI();
+            syncSettingsUI();
 
-            if (settings.providers[provider].enabled) {
+            if (enabled) {
                 await agentHub.initProvider(provider);
-                showToast(`${provider} enabled`);
+                await updateProviderStatus(provider);
+                showToast(`${getProviderLabel(provider)} enabled`);
             } else {
-                showToast(`${provider} disabled`);
+                showToast(`${getProviderLabel(provider)} disabled`);
+                if (currentTab === provider) {
+                    const fallbackProvider = getFirstEnabledProviderId();
+                    if (fallbackProvider) {
+                        await switchTab(fallbackProvider);
+                    } else {
+                        await showWelcomePanel();
+                    }
+                }
             }
         }
 
@@ -1390,8 +2138,9 @@ Confirm when done</pre>
                 showToast('File Reference enabled! Use filePath parameter in MCP calls.');
             }
 
-            await agentHub.saveSettings(settings);
+            await persistSettings();
             await agentHub.setFileReferenceEnabled(settings.fileReferenceEnabled);
+            syncSettingsUI();
         }
 
         function loadFileReferenceState() {
@@ -1404,6 +2153,74 @@ Confirm when done</pre>
             } else {
                 toggle.classList.remove('active');
                 info.style.display = 'none';
+            }
+        }
+
+        async function saveUserAgent() {
+            const input = document.getElementById('user-agent-input');
+            const nextValue = input?.value?.trim() || '';
+
+            settings.userAgent = nextValue;
+            await persistSettings();
+            syncSettingsUI();
+
+            if (nextValue) {
+                showToast('User agent saved. Reload open providers if needed.');
+            } else {
+                showToast('User agent reset to default. Reload open providers if needed.');
+            }
+        }
+
+        async function resetUserAgent() {
+            const input = document.getElementById('user-agent-input');
+            if (input) {
+                input.value = '';
+            }
+
+            settings.userAgent = '';
+            await persistSettings();
+            syncSettingsUI();
+            showToast('User agent reset to default. Reload open providers if needed.');
+        }
+
+        function handleUserAgentKeydown(event) {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                event.preventDefault();
+                saveUserAgent();
+            }
+        }
+
+        async function saveCapturedImageDownloadDir() {
+            const input = document.getElementById('captured-image-dir-input');
+            const nextValue = input?.value?.trim() || '';
+
+            settings.capturedImageDownloadDir = nextValue;
+            await persistSettings();
+            syncSettingsUI();
+
+            if (nextValue) {
+                showToast('Captured image directory saved.');
+            } else {
+                showToast("Captured images will use Proxima's temp folder.");
+            }
+        }
+
+        async function resetCapturedImageDownloadDir() {
+            const input = document.getElementById('captured-image-dir-input');
+            if (input) {
+                input.value = '';
+            }
+
+            settings.capturedImageDownloadDir = '';
+            await persistSettings();
+            syncSettingsUI();
+            showToast("Captured images will use Proxima's temp folder.");
+        }
+
+        function handleCapturedImageDownloadDirKeydown(event) {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                event.preventDefault();
+                saveCapturedImageDownloadDir();
             }
         }
 
@@ -1428,7 +2245,7 @@ Confirm when done</pre>
         async function reloadPage() {
             if (currentTab && currentTab !== 'settings') {
                 await agentHub.reloadProvider(currentTab);
-                showToast(`Reloading ${currentTab}...`);
+                showToast(`Reloading ${getProviderLabel(currentTab)}...`);
             }
         }
 
@@ -1482,25 +2299,27 @@ Confirm when done</pre>
         }
 
         // Navigation controls
-        function goBack() {
-            // Will be handled by browser view
+        async function goBack() {
+            if (currentTab && currentTab !== 'settings') {
+                await agentHub.goBack(currentTab);
+            }
         }
 
-        function goForward() {
-            // Will be handled by browser view
+        async function goForward() {
+            if (currentTab && currentTab !== 'settings') {
+                await agentHub.goForward(currentTab);
+            }
         }
 
         // Open in system browser (for Google login issues)
-        async function openInChrome() {
+        async function openInBrowser() {
             if (currentTab && currentTab !== 'settings') {
                 await agentHub.openInSystemBrowser(currentTab);
-                showToast(`Opening ${currentTab} in Chrome for login...`);
+                showToast(`Opening ${getProviderLabel(currentTab)} in your browser...`);
             }
         }
 
         // Cookie Login Modal Functions
-
-        let cookieModalProvider = null; // Store provider when modal opens
 
         function openCookieModal() {
             if (!currentTab || currentTab === 'settings') {
@@ -1513,14 +2332,18 @@ Confirm when done</pre>
 
             // Update modal title with current provider
             document.getElementById('cookie-modal-provider').textContent =
-                currentTab.charAt(0).toUpperCase() + currentTab.slice(1);
+                getProviderLabel(cookieModalProvider);
+            document.getElementById('cookie-login-link').textContent =
+                getProviderLoginLabel(cookieModalProvider);
+            updateCookieModalStorageGuidance(cookieModalProvider);
 
             // Clear previous state
             document.getElementById('cookie-textarea').value = '';
+            document.getElementById('storage-textarea').value = '';
             document.getElementById('cookie-status').className = 'cookie-status';
             document.getElementById('cookie-status').textContent = '';
             document.getElementById('cookie-login-btn').disabled = false;
-            document.getElementById('cookie-login-btn').innerHTML = '🔓 Login with Cookies';
+            document.getElementById('cookie-login-btn').innerHTML = '🔓 Apply Login Data';
 
             // IMPORTANT: Hide browser view so modal is visible
             agentHub.hideBrowser();
@@ -1533,8 +2356,10 @@ Confirm when done</pre>
             document.getElementById('cookie-modal-overlay').classList.remove('active');
 
             // Restore browser view if we had a provider open
-            if (cookieModalProvider) {
-                await agentHub.showProvider(cookieModalProvider);
+            const targetProvider = cookieModalProvider;
+            cookieModalProvider = null;
+            if (targetProvider) {
+                await agentHub.showProvider(targetProvider);
             }
         }
 
@@ -1544,48 +2369,75 @@ Confirm when done</pre>
             }
         }
 
-        async function openGeminiInChrome(event) {
+        async function openProviderInBrowserForCookies(event) {
             event.preventDefault();
-            await agentHub.openExternal('https://gemini.google.com/');
-            showToast('Opening Gemini in Chrome...');
+            const targetProvider = cookieModalProvider || currentTab;
+            const targetUrl = getProviderLoginUrl(targetProvider);
+
+            if (!targetUrl) {
+                showToast('No provider site configured');
+                return;
+            }
+
+            await agentHub.openExternal(targetUrl);
+            showToast(`Opening ${getProviderLabel(targetProvider)} in your browser...`);
         }
 
         async function applyCookieLogin() {
             const textarea = document.getElementById('cookie-textarea');
+            const storageTextarea = document.getElementById('storage-textarea');
             const statusDiv = document.getElementById('cookie-status');
             const loginBtn = document.getElementById('cookie-login-btn');
 
             const cookiesJson = textarea.value.trim();
+            const storageJson = storageTextarea.value.trim();
+            const targetProvider = cookieModalProvider || currentTab;
 
-            if (!cookiesJson) {
+            if (!cookiesJson && !storageJson) {
                 statusDiv.className = 'cookie-status error';
-                statusDiv.textContent = '❌ Please paste your cookies JSON first';
+                statusDiv.textContent = '❌ Please paste cookies JSON or browser storage data first';
                 return;
             }
 
-            // Validate JSON format
-            try {
-                const parsed = JSON.parse(cookiesJson);
-                if (!Array.isArray(parsed)) {
-                    throw new Error('Not an array');
+            let parsedStorage = { localStorage: {}, sessionStorage: {} };
+
+            if (cookiesJson) {
+                try {
+                    const parsed = JSON.parse(cookiesJson);
+                    if (!Array.isArray(parsed)) {
+                        throw new Error('Not an array');
+                    }
+                    if (parsed.length === 0) {
+                        throw new Error('Empty array');
+                    }
+                } catch (e) {
+                    statusDiv.className = 'cookie-status error';
+                    statusDiv.textContent = '❌ Invalid cookie JSON format. Make sure you copied the full cookie export.';
+                    return;
                 }
-                if (parsed.length === 0) {
-                    throw new Error('Empty array');
+            }
+
+            if (storageJson) {
+                try {
+                    parsedStorage = parseOptionalStorageImport(targetProvider, storageJson);
+                } catch (e) {
+                    statusDiv.className = 'cookie-status error';
+                    statusDiv.textContent = `❌ ${e.message}`;
+                    return;
                 }
-            } catch (e) {
-                statusDiv.className = 'cookie-status error';
-                statusDiv.textContent = '❌ Invalid JSON format. Make sure you copied the full cookie export.';
-                return;
             }
 
             // Disable button and show loading
             loginBtn.disabled = true;
-            loginBtn.innerHTML = '⏳ Applying cookies...';
+            loginBtn.innerHTML = '⏳ Applying login data...';
             statusDiv.className = 'cookie-status';
             statusDiv.textContent = '';
 
             try {
-                const result = await agentHub.setCookies(currentTab, cookiesJson);
+                const result = await agentHub.setProviderAuthState(targetProvider, {
+                    cookiesJson,
+                    ...parsedStorage
+                });
 
                 if (result.success) {
                     statusDiv.className = 'cookie-status success';
@@ -1593,21 +2445,21 @@ Confirm when done</pre>
 
                     // Close modal after success and update status
                     setTimeout(async () => {
-                        closeCookieModal();
-                        await updateProviderStatus(currentTab);
-                        showToast(`${currentTab} cookies applied! Check if logged in.`);
+                        await closeCookieModal();
+                        await updateProviderStatus(targetProvider);
+                        showToast(`${getProviderLabel(targetProvider)} login data applied! Check if logged in.`);
                     }, 1500);
                 } else {
                     statusDiv.className = 'cookie-status error';
                     statusDiv.textContent = `❌ ${result.error}`;
                     loginBtn.disabled = false;
-                    loginBtn.innerHTML = '🔓 Login with Cookies';
+                    loginBtn.innerHTML = '🔓 Apply Login Data';
                 }
             } catch (e) {
                 statusDiv.className = 'cookie-status error';
                 statusDiv.textContent = `❌ Error: ${e.message}`;
                 loginBtn.disabled = false;
-                loginBtn.innerHTML = '🔓 Login with Cookies';
+                loginBtn.innerHTML = '🔓 Apply Login Data';
             }
         }
 

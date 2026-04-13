@@ -5,6 +5,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('agentHub', {
     // Settings
     getSettings: () => ipcRenderer.invoke('get-settings'),
+    getProviderCatalog: () => ipcRenderer.invoke('get-provider-catalog'),
     saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
     saveEnabledProviders: () => ipcRenderer.invoke('save-enabled-providers'),
 
@@ -14,6 +15,10 @@ contextBridge.exposeInMainWorld('agentHub', {
     hideBrowser: () => ipcRenderer.invoke('hide-browser'),
     checkLoginStatus: (provider) => ipcRenderer.invoke('check-login-status', provider),
     reloadProvider: (provider) => ipcRenderer.invoke('reload-provider', provider),
+    navigateProvider: (provider, url) => ipcRenderer.invoke('navigate-provider', provider, url),
+    goBack: (provider) => ipcRenderer.invoke('go-back', provider),
+    goForward: (provider) => ipcRenderer.invoke('go-forward', provider),
+    getProviderNavigationState: (provider) => ipcRenderer.invoke('get-provider-navigation-state', provider),
     openInSystemBrowser: (provider) => ipcRenderer.invoke('open-in-system-browser', provider),
 
     // MCP Config
@@ -22,6 +27,7 @@ contextBridge.exposeInMainWorld('agentHub', {
 
     // Cookie Login (manual fallback if needed)
     setCookies: (provider, cookiesJson) => ipcRenderer.invoke('set-cookies', provider, cookiesJson),
+    setProviderAuthState: (provider, authState) => ipcRenderer.invoke('set-provider-auth-state', provider, authState),
     getCookies: (provider) => ipcRenderer.invoke('get-cookies', provider),
 
     // File Reference Feature
@@ -41,5 +47,8 @@ contextBridge.exposeInMainWorld('agentHub', {
     },
     onActiveProvider: (callback) => {
         ipcRenderer.on('set-active-provider', (event, provider) => callback(provider));
+    },
+    onProviderAlert: (callback) => {
+        ipcRenderer.on('provider-alert', (event, data) => callback(data));
     }
 });

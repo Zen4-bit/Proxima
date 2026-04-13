@@ -3,6 +3,11 @@
 
 const http = require('http');
 const { URL } = require('url');
+const {
+    providers: providerCatalog,
+    modelAliases,
+    restAutoOrder
+} = require('../src/provider-catalog.cjs');
 
 // ─── Config ──────────────────────────────────────────────
 const REST_PORT = parseInt(process.env.PROXIMA_REST_PORT) || 3210;
@@ -12,21 +17,7 @@ const API_PREFIX = '/v1';
 // ─── Model Aliases ───────────────────────────────────────
 // Users can use any of these names to refer to a provider
 const MODEL_ALIASES = {
-    // ChatGPT
-    'chatgpt': 'chatgpt', 'gpt': 'chatgpt', 'gpt-4': 'chatgpt', 'gpt-4o': 'chatgpt',
-    'gpt-4.5': 'chatgpt', 'openai': 'chatgpt',
-
-    // Claude
-    'claude': 'claude', 'claude-3': 'claude', 'claude-3.5': 'claude', 'claude-4': 'claude',
-    'anthropic': 'claude', 'sonnet': 'claude', 'opus': 'claude', 'haiku': 'claude',
-
-    // Gemini
-    'gemini': 'gemini', 'gemini-pro': 'gemini', 'gemini-2': 'gemini', 'gemini-2.5': 'gemini',
-    'google': 'gemini', 'bard': 'gemini',
-
-    // Perplexity
-    'perplexity': 'perplexity', 'pplx': 'perplexity', 'sonar': 'perplexity',
-
+    ...modelAliases,
     // Special
     'auto': 'auto',   // Auto-pick best available
     'all': 'all'       // Query all providers
@@ -185,7 +176,7 @@ function pickBestProvider(preferred) {
         if (enabled.includes(preferred)) return preferred;
         return null;
     }
-    return ['claude', 'chatgpt', 'gemini', 'perplexity'].find(p => enabled.includes(p)) || null;
+    return restAutoOrder.find((providerId) => enabled.includes(providerId)) || null;
 }
 
 function extractMessage(body) {
@@ -377,8 +368,8 @@ function getDocsPage() {
             <div class="logo">⚡ Proxima API</div>
             <p class="sub">Unified AI Gateway · Port ${REST_PORT} · v${VERSION}</p>
             <div class="chips">
-                ${['perplexity', 'chatgpt', 'claude', 'gemini'].map(p =>
-        `<div class="chip ${enabled.includes(p) ? 'on' : 'off'}"><div class="d"></div>${p[0].toUpperCase() + p.slice(1)}</div>`
+                ${providerCatalog.map((provider) =>
+        `<div class="chip ${enabled.includes(provider.id) ? 'on' : 'off'}"><div class="d"></div>${provider.label}</div>`
     ).join('')}
             </div>
         </div>
@@ -419,10 +410,9 @@ POST /v1/chat/completions
         <div class="sec">
             <div class="st">🤖 Models</div>
             <div class="model-grid">
-                <div class="model-item" style="border:1px solid rgba(34,197,94,.15)">chatgpt · gpt-4 · openai</div>
-                <div class="model-item" style="border:1px solid rgba(249,115,22,.15)">claude · sonnet · anthropic</div>
-                <div class="model-item" style="border:1px solid rgba(59,130,246,.15)">gemini · google · bard</div>
-                <div class="model-item" style="border:1px solid rgba(168,85,247,.15)">perplexity · pplx · sonar</div>
+                ${providerCatalog.map((provider) =>
+        `<div class="model-item">${provider.aliases.join(' · ')}</div>`
+    ).join('')}
                 <div class="model-item">auto → best available</div>
             </div>
         </div>
@@ -618,7 +608,7 @@ async function handleRoute(method, pathname, body, res) {
             aliases: Object.entries(MODEL_ALIASES).filter(([_, v]) => v === p).map(([k]) => k).filter(k => k !== p)
         }));
         // Also show disabled ones
-        const allProviders = ['chatgpt', 'claude', 'gemini', 'perplexity'];
+        const allProviders = providerCatalog.map((provider) => provider.id);
         allProviders.filter(p => !enabled.includes(p)).forEach(p => {
             models.push({
                 id: p, object: 'model', owned_by: 'proxima', status: 'disabled',

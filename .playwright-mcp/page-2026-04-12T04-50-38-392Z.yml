@@ -1,0 +1,155 @@
+- generic [ref=e4]:
+  - generic [ref=e7]:
+    - generic [ref=e8]:
+      - img "logo" [ref=e9]
+      - button "切换侧边栏" [ref=e10] [cursor=pointer]:
+        - img [ref=e11]:
+          - img [ref=e12]
+    - generic [ref=e14]:
+      - generic [ref=e15] [cursor=pointer]:
+        - img [ref=e16]:
+          - img [ref=e17]
+        - generic [ref=e19]: New Chat
+      - generic [ref=e22] [cursor=pointer]:
+        - img [ref=e24]:
+          - img [ref=e25]
+        - textbox "Search Chats" [ref=e27]
+    - generic [ref=e28]:
+      - generic [ref=e29]:
+        - generic [ref=e30] [cursor=pointer]:
+          - img [ref=e31]:
+            - img [ref=e32]
+          - generic [ref=e34]: Community
+        - generic [ref=e35] [cursor=pointer]:
+          - img [ref=e36]:
+            - img [ref=e37]
+          - generic [ref=e39]: Coder
+      - generic [ref=e41]:
+        - generic [ref=e42] [cursor=pointer]:
+          - generic [ref=e44]: Projects
+          - img [ref=e46]:
+            - img [ref=e47]
+        - generic [ref=e49]:
+          - generic [ref=e52] [cursor=pointer]:
+            - img [ref=e54]:
+              - img [ref=e55]
+            - generic [ref=e57]: New Project
+          - generic [ref=e60] [cursor=pointer]:
+            - img [ref=e62]:
+              - img [ref=e63]
+            - generic [ref=e65]: ARC
+      - generic [ref=e69]:
+        - generic [ref=e73] [cursor=pointer]:
+          - generic [ref=e74]: All chats
+          - img [ref=e76]:
+            - img [ref=e77]
+        - generic [ref=e81]:
+          - generic [ref=e433]: Today
+          - generic [ref=e434]:
+            - generic "chat-item" [ref=e435]:
+              - generic [ref=e437]: OK Confirmation
+            - button "Chat Menu" [ref=e439] [cursor=pointer]:
+              - img [ref=e440]:
+                - img [ref=e441]
+          - generic [ref=e239]: March
+          - generic "chat-item" [ref=e241]:
+            - generic [ref=e243]: Responsive UI Cleanup with DaisyUI
+          - generic "chat-item" [ref=e245]:
+            - generic [ref=e247]: Adjusting Function Return Types
+          - generic [ref=e248]: February
+          - generic "chat-item" [ref=e250]:
+            - generic [ref=e252]: OpenVPN Setup for Cross-Border Use
+          - generic "chat-item" [ref=e254]:
+            - generic [ref=e256]: Docker Installation Error
+          - generic "chat-item" [ref=e258]:
+            - generic [ref=e260]: Dark Mode Text Visibility Fix
+          - generic "chat-item" [ref=e262]:
+            - generic [ref=e264]: JS Proxy Mechanics
+          - generic "chat-item" [ref=e266]:
+            - generic [ref=e268]: New Chat
+          - generic "chat-item" [ref=e270]:
+            - generic [ref=e272]: Sequence Calculation Issue
+          - generic [ref=e273]: January
+          - generic "chat-item" [ref=e275]:
+            - generic [ref=e277]: New Chat
+          - generic "chat-item" [ref=e279]:
+            - generic [ref=e281]: Tailwind CSS Closing Animation
+          - generic "chat-item" [ref=e283]:
+            - generic [ref=e285]: Emoji Symbol Choice
+          - generic [ref=e286]: "2025"
+          - generic "chat-item" [ref=e288]:
+            - generic [ref=e290]: Tailwind CSS Flexbox Issue
+          - generic "chat-item" [ref=e292]:
+            - generic [ref=e294]: Border Top Thickness 2px Code
+          - generic "chat-item" [ref=e296]:
+            - generic [ref=e298]: Dragon Flying with Mango
+          - generic "chat-item" [ref=e300]:
+            - generic [ref=e302]: SvelteSymbolPickerOptimization
+          - generic "chat-item" [ref=e304]:
+            - generic [ref=e306]: CoinDepo Leadership Concerns
+    - button "User profile Fil Laborde" [ref=e154] [cursor=pointer]:
+      - generic [ref=e155]:
+        - img "User profile" [ref=e157]
+        - generic [ref=e158]: Fil Laborde
+  - button "?" [ref=e161] [cursor=pointer]:
+    - generic [ref=e162]: "?"
+  - button
+  - generic [ref=e311]:
+    - banner [ref=e312]:
+      - generic [ref=e313]:
+        - generic [ref=e317] [cursor=pointer]:
+          - generic [ref=e318]: Qwen3.6-Plus
+          - img [ref=e320]
+        - img [ref=e325] [cursor=pointer]:
+          - img [ref=e326]
+    - main [ref=e328]:
+      - generic [ref=e329]:
+        - generic [ref=e333]:
+          - generic [ref=e335]:
+            - paragraph [ref=e343]: Reply with exactly OK
+            - generic [ref=e349]:
+              - generic [ref=e350]:
+                - generic [ref=e352] [cursor=pointer]:
+                  - img [ref=e354]:
+                    - img [ref=e355]
+                  - generic [ref=e358]:
+                    - generic [ref=e359]: Thinking completed
+                    - img [ref=e360]:
+                      - img [ref=e361]
+                - generic [ref=e367]: OK
+              - generic [ref=e371]:
+                - img [ref=e373] [cursor=pointer]:
+                  - img [ref=e374]
+                - img [ref=e377] [cursor=pointer]:
+                  - img [ref=e378]
+                - img [ref=e381] [cursor=pointer]:
+                  - img [ref=e382]
+                - img [ref=e385] [cursor=pointer]:
+                  - img [ref=e386]
+                - img [ref=e389] [cursor=pointer]:
+                  - img [ref=e390]
+                - img [ref=e393] [cursor=pointer]:
+                  - img [ref=e394]
+            - paragraph [ref=e450]: Reply with the numbers 1 through 30, each on its own line.
+            - generic [ref=e458] [cursor=pointer]:
+              - img [ref=e459]:
+                - img [ref=e460]
+              - generic [ref=e462]: Thinking...
+          - generic [ref=e402]:
+            - img [ref=e408] [cursor=pointer]
+            - textbox "How can I help you today?" [active] [ref=e410]
+            - generic [ref=e411]:
+              - generic [ref=e415] [cursor=pointer]:
+                - combobox [ref=e417]
+                - generic [ref=e419]:
+                  - generic [ref=e420]: Auto
+                  - generic:
+                    - img
+              - button "Voice Input" [ref=e464] [cursor=pointer]:
+                - img [ref=e466]
+              - button [ref=e468] [cursor=pointer]:
+                - img [ref=e469]:
+                  - img [ref=e470]
+          - generic [ref=e432]: AI-generated content may not be accurate.
+        - generic:
+          - img

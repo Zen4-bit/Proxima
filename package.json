@@ -1,9 +1,9 @@
 {
     "name": "proxima",
-    "version": "3.0.0",
+    "version": "3.5.2",
     "description": "Proxima - Local MCP Server (requires localhost network access for AI coding tools)",
     "license": "SEE LICENSE IN LICENSE",
-    "author": "Zen4-bit",
+    "author": "Zen4-bit, mindflowgo",
     "keywords": [
         "mcp",
         "ai",
@@ -19,10 +19,14 @@
     "scripts": {
         "start": "electron .",
         "mcp": "node src/mcp-server-v3.js",
-        "build": "electron-builder --win --x64",
-        "build:installer": "electron-builder --win --x64 -c.win.target=nsis"
+        "build": "electron-builder",
+        "build:win": "electron-builder --win --x64",
+        "build:installer": "electron-builder --win --x64 -c.win.target=nsis",
+        "build:mac": "electron-builder --mac",
+        "build:mac:dir": "electron-builder --mac dir"
     },
     "build": {
+        "asar": true,
         "appId": "com.proxima.app",
         "productName": "Proxima",
         "copyright": "Copyright © 2026 Proxima",
@@ -37,9 +41,38 @@
             "package.json"
         ],
         "asarUnpack": [
+            "package.json",
             "src/**/*",
-            "node_modules/**/*"
+            "node_modules/**/*",
+            "**/*.node",
+            "**/*.wasm",
+            "**/*.dll",
+            "**/*.dylib",
+            "**/*.so"
         ],
+        "mac": {
+            "target": [
+                {
+                    "target": "dmg",
+                    "arch": [
+                        "universal"
+                    ]
+                },
+                {
+                    "target": "zip",
+                    "arch": [
+                        "universal"
+                    ]
+                }
+            ],
+            "category": "public.app-category.developer-tools",
+            "icon": "assets/proxima-icon.png",
+            "artifactName": "${productName}-${version}-${arch}.${ext}",
+            "darkModeSupport": true
+        },
+        "dmg": {
+            "artifactName": "${productName}-${version}-${arch}.${ext}"
+        },
         "win": {
             "target": [
                 {

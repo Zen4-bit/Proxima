@@ -1,0 +1,137 @@
+- generic [ref=e4]:
+  - generic [ref=e7]:
+    - img [ref=e524] [cursor=pointer]:
+      - img [ref=e525]
+    - generic [ref=e14]:
+      - img [ref=e16] [cursor=pointer]:
+        - img [ref=e17]
+      - img [ref=e24] [cursor=pointer]:
+        - img [ref=e25]
+    - button "User profile" [ref=e527] [cursor=pointer]:
+      - img "User profile" [ref=e157]
+  - button
+  - generic [ref=e311]:
+    - banner [ref=e312]:
+      - generic [ref=e313]:
+        - generic [ref=e317] [cursor=pointer]:
+          - generic [ref=e318]: Qwen3.6-Plus
+          - img [ref=e320]
+        - img [ref=e325] [cursor=pointer]:
+          - img [ref=e326]
+    - main [ref=e328]:
+      - generic [ref=e329]:
+        - generic [ref=e333]:
+          - generic [ref=e335]:
+            - paragraph [ref=e343]: Reply with exactly OK
+            - generic [ref=e349]:
+              - generic [ref=e350]:
+                - generic [ref=e352] [cursor=pointer]:
+                  - img [ref=e354]:
+                    - img [ref=e355]
+                  - generic [ref=e358]:
+                    - generic [ref=e359]: Thinking completed
+                    - img [ref=e360]:
+                      - img [ref=e361]
+                - generic [ref=e367]: OK
+              - generic [ref=e371]:
+                - img [ref=e373] [cursor=pointer]:
+                  - img [ref=e374]
+                - img [ref=e377] [cursor=pointer]:
+                  - img [ref=e378]
+                - img [ref=e381] [cursor=pointer]:
+                  - img [ref=e382]
+                - img [ref=e385] [cursor=pointer]:
+                  - img [ref=e386]
+                - img [ref=e389] [cursor=pointer]:
+                  - img [ref=e390]
+                - img [ref=e393] [cursor=pointer]:
+                  - img [ref=e394]
+            - paragraph [ref=e450]: Reply with the numbers 1 through 30, each on its own line.
+            - generic [ref=e456]:
+              - generic [ref=e472]:
+                - generic [ref=e474] [cursor=pointer]:
+                  - img [ref=e476]:
+                    - img [ref=e477]
+                  - generic [ref=e480]:
+                    - generic [ref=e481]: Thinking completed
+                    - img [ref=e482]:
+                      - img [ref=e483]
+                - generic [ref=e489]: 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30
+              - generic [ref=e493]:
+                - img [ref=e495] [cursor=pointer]:
+                  - img [ref=e496]
+                - img [ref=e499] [cursor=pointer]:
+                  - img [ref=e500]
+                - img [ref=e503] [cursor=pointer]:
+                  - img [ref=e504]
+                - img [ref=e507] [cursor=pointer]:
+                  - img [ref=e508]
+                - img [ref=e511] [cursor=pointer]:
+                  - img [ref=e512]
+                - img [ref=e515] [cursor=pointer]:
+                  - img [ref=e516]
+            - paragraph [ref=e535]: can you draw a picture of a lily
+            - generic [ref=e541]:
+              - generic [ref=e542]:
+                - generic [ref=e544] [cursor=pointer]:
+                  - img [ref=e546]:
+                    - img [ref=e547]
+                  - generic [ref=e550]:
+                    - generic [ref=e551]: Thinking completed
+                    - img [ref=e552]:
+                      - img [ref=e553]
+                - img [ref=e563] [cursor=pointer]
+                - generic [ref=e567]: I've drawn a picture of a lily for you! It features elegant white petals with yellow stamens and green leaves in a soft, natural botanical illustration style.
+              - generic [ref=e571]:
+                - img [ref=e573] [cursor=pointer]:
+                  - img [ref=e574]
+                - img [ref=e577] [cursor=pointer]:
+                  - img [ref=e578]
+                - img [ref=e581] [cursor=pointer]:
+                  - img [ref=e582]
+                - img [ref=e585] [cursor=pointer]:
+                  - img [ref=e586]
+                - img [ref=e589] [cursor=pointer]:
+                  - img [ref=e590]
+                - img [ref=e593] [cursor=pointer]:
+                  - img [ref=e594]
+            - generic [ref=e598]:
+              - img [ref=e609] [cursor=pointer]
+              - paragraph [ref=e614]: change the color to purple. make it lego-like.
+            - generic [ref=e621]:
+              - img [ref=e629] [cursor=pointer]
+              - generic [ref=e633]:
+                - img [ref=e635] [cursor=pointer]:
+                  - img [ref=e636]
+                - img [ref=e639] [cursor=pointer]:
+                  - img [ref=e640]
+                - img [ref=e643] [cursor=pointer]:
+                  - img [ref=e644]
+            - paragraph [ref=e653]: Generate a simple image of a solid blue square. Return the image in chat.
+            - generic [ref=e669]:
+              - img [ref=e705] [cursor=pointer]
+              - generic [ref=e709]:
+                - img [ref=e711] [cursor=pointer]:
+                  - img [ref=e712]
+                - img [ref=e715] [cursor=pointer]:
+                  - img [ref=e716]
+                - img [ref=e719] [cursor=pointer]:
+                  - img [ref=e720]
+          - generic [ref=e401]:
+            - textbox "Describe the image you want to generate." [ref=e677]
+            - generic [ref=e678]:
+              - generic [ref=e679]:
+                - img [ref=e684] [cursor=pointer]
+                - generic [ref=e686] [cursor=pointer]:
+                  - img [ref=e687]:
+                    - img [ref=e688]
+                  - generic [ref=e690]: Create Image
+              - generic [ref=e691]:
+                - button "Voice Input" [ref=e693] [cursor=pointer]:
+                  - img [ref=e695]
+                - button [disabled] [ref=e722]:
+                  - img [ref=e723]:
+                    - img [ref=e724]
+          - generic [ref=e432]: AI-generated content may not be accurate.
+        - generic:
+          - img

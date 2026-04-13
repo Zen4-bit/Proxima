@@ -1,267 +1,22 @@
 // Browser manager — handles provider BrowserViews, stealth, and auth popups
 
-const { BrowserView, BrowserWindow, session, shell } = require('electron');
-const path = require('path');
+const { BrowserView, BrowserWindow, session } = require('electron');
+const {
+    providerMap,
+    buildProviderInterceptorScript,
+    getProviderLoginCheckScript,
+    DEFAULT_BROWSER_USER_AGENT,
+    getChromeVersionFromUserAgent,
+    getChromeMajorVersionFromUserAgent
+} = require('../src/provider-catalog.cjs');
 
-/**
- * Returns provider-specific fetch interceptor script
- * Captures raw API responses at the network level before DOM rendering
- * This makes response capture reliable regardless of CSS/DOM changes
- */
 function getProviderInterceptorScript(provider) {
-    // Common interceptor shell - same structure for all providers
-    // Only the URL matching and response parsing differs
-
-    const configs = {
-        claude: {
-            name: 'Claude',
-            urlPatterns: `url.includes('/chat_conversations') || url.includes('/completion') || url.includes('/messages') || url.includes('/chat') || url.includes('/api/') || url.includes('/retry_completion') || url.includes('/organizations') || url.includes('/v1/') || (url.includes('claude') && method === 'POST')`,
-            streamTypes: `contentType.includes('text/event-stream') || contentType.includes('stream') || contentType.includes('text/plain')`,
-            parser: `
-                // Claude SSE format: data: {type: "content_block_delta", delta: {text: "..."}}
-                // Claude sends MULTIPLE content blocks (thinking + response) - track separately
-                if (!window.__proxima_blocks) window.__proxima_blocks = {};
-                if (line.startsWith('data: ')) {
-                    try {
-                        const data = JSON.parse(line.slice(6));
-                        
-                        // Track which block we're in
-                        if (data.type === 'content_block_start' && data.index !== undefined) {
-                            window.__proxima_blocks[data.index] = '';
-                        }
-                        
-                        if (data.type === 'content_block_delta' && data.delta && data.delta.text) {
-                            var blockIdx = data.index !== undefined ? data.index : 0;
-                            if (!window.__proxima_blocks[blockIdx]) window.__proxima_blocks[blockIdx] = '';
-                            window.__proxima_blocks[blockIdx] += data.delta.text;
-                            // Use the longest block as the response (skip thinking/short blocks)
-                            var bestBlock = '';
-                            for (var bk in window.__proxima_blocks) {
-                                if (window.__proxima_blocks[bk].length > bestBlock.length) {
-                                    bestBlock = window.__proxima_blocks[bk];
-                                }
-                            }
-                            fullText = bestBlock;
-                        }
-                        if (data.completion) {
-                            fullText += data.completion;
-                        }
-                        // message_stop = Claude is fully done (all streams complete)
-                        if (data.type === 'message_stop') {
-                            window.__proxima_blocks = {};
-                            window.__proxima_is_streaming = false;
-                            window.__proxima_last_capture_time = Date.now();
-                        }
-                    } catch(e) {}
-                }
-            `
-        },
-        chatgpt: {
-            name: 'ChatGPT',
-            urlPatterns: `url.includes('/backend-api/conversation') || url.includes('/backend-api/f/conversation')`,
-            streamTypes: `contentType.includes('text/event-stream') || contentType.includes('stream')`,
-            parser: `
-                // ChatGPT SSE format: data: {message: {content: {parts: ["text"]}}}
-                if (line.startsWith('data: ') && line.slice(6).trim() !== '[DONE]') {
-                    try {
-                        const data = JSON.parse(line.slice(6));
-                        if (data.message && data.message.content && data.message.content.parts) {
-                            var newText = data.message.content.parts.join('');
-                            if (newText.length > fullText.length) {
-                                fullText = newText;
-                            }
-                        }
-                        // Also handle v2 format
-                        if (data.v && data.v === 'text' && data.d) {
-                            fullText += data.d;
-                        }
-                    } catch(e) {}
-                }
-            `
-        },
-        perplexity: {
-            name: 'Perplexity',
-            urlPatterns: `url.includes('/api/query') || url.includes('/api/search') || url.includes('/socket.io') || (url.includes('perplexity') && method === 'POST')`,
-            streamTypes: `contentType.includes('text/event-stream') || contentType.includes('stream') || contentType.includes('text/plain')`,
-            parser: `
-                // Perplexity SSE format: data: {text: "...", answer: "..."} or chunks
-                if (line.startsWith('data: ') && line.slice(6).trim() !== '[DONE]') {
-                    try {
-                        var data = JSON.parse(line.slice(6));
-                        if (data.text) {
-                            fullText = data.text;
-                        }
-                        if (data.answer) {
-                            fullText = data.answer;
-                        }
-                        if (data.output) {
-                            fullText = data.output;
-                        }
-                        // Handle chunks array
-                        if (data.chunks && Array.isArray(data.chunks)) {
-                            fullText = data.chunks.join('');
-                        }
-                    } catch(e) {
-                        // Might be raw text chunk
-                        var rawData = line.slice(6).trim();
-                        if (rawData && rawData !== '[DONE]' && rawData.length > 10) {
-                            fullText += rawData;
-                        }
-                    }
-                }
-            `
-        },
-        gemini: {
-            name: 'Gemini',
-            urlPatterns: `url.includes('BimAJc') || url.includes('generate') || url.includes('stream') || url.includes('_/WizAO') || (url.includes('gemini') && method === 'POST')`,
-            streamTypes: `contentType.includes('text/event-stream') || contentType.includes('stream') || contentType.includes('application/json') || contentType.includes('text/plain')`,
-            parser: `
-                // Gemini format: JSON array responses or streaming text
-                if (line.startsWith('data: ') && line.slice(6).trim() !== '[DONE]') {
-                    try {
-                        var data = JSON.parse(line.slice(6));
-                        // Gemini response format
-                        if (data.candidates && data.candidates[0] && data.candidates[0].content) {
-                            var parts = data.candidates[0].content.parts || [];
-                            for (var p = 0; p < parts.length; p++) {
-                                if (parts[p].text) fullText += parts[p].text;
-                            }
-                        }
-                        // Alternative format
-                        if (data.text) fullText = data.text;
-                        if (data.modelOutput) fullText = data.modelOutput;
-                    } catch(e) {
-                        // Gemini sometimes sends raw JSON arrays
-                        var raw = line.trim();
-                        if (raw.startsWith('[')) {
-                            try {
-                                var arr = JSON.parse(raw);
-                                // Deep search for text content in nested arrays
-                                var findText = function(obj) {
-                                    if (typeof obj === 'string' && obj.length > 20) return obj;
-                                    if (Array.isArray(obj)) {
-                                        for (var i = 0; i < obj.length; i++) {
-                                            var found = findText(obj[i]);
-                                            if (found) return found;
-                                        }
-                                    }
-                                    return null;
-                                };
-                                var found = findText(arr);
-                                if (found && found.length > fullText.length) fullText = found;
-                            } catch(e2) {}
-                        }
-                    }
-                } else if (!line.startsWith('data:') && line.trim().length > 50) {
-                    // Gemini might send raw text/JSON without SSE prefix
-                    try {
-                        var raw2 = JSON.parse(line.trim());
-                        if (raw2 && typeof raw2 === 'object') {
-                            var jsonStr = JSON.stringify(raw2);
-                            if (jsonStr.length > fullText.length) {
-                                // Try to find text in the object
-                                var textMatch = jsonStr.match(/"text":"([^"]+)"/g);
-                                if (textMatch) {
-                                    var combined = textMatch.map(function(m) { return m.replace(/"text":"|"/g, ''); }).join('');
-                                    if (combined.length > fullText.length) fullText = combined;
-                                }
-                            }
-                        }
-                    } catch(e3) {}
-                }
-            `
-        }
-    };
-
-    const config = configs[provider];
-    if (!config) return null;
-
-    return `
-        (function() {
-            if (window.__proxima_fetch_intercepted) return;
-            window.__proxima_fetch_intercepted = true;
-            window.__proxima_captured_response = '';
-            window.__proxima_is_streaming = false;
-            window.__proxima_last_capture_time = 0;
-
-            var originalFetch = window.fetch;
-            window.fetch = async function() {
-                var args = arguments;
-                var response = await originalFetch.apply(this, args);
-                var url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : '');
-                var method = (args[1] && args[1].method) ? args[1].method : 'GET';
-
-                try {
-                    // Debug: Log all POST requests to find correct API endpoints
-                    if (method === 'POST') {
-                        console.error('[Proxima] ${config.name} POST:', url.substring(0, 120));
-                    }
-                    if (${config.urlPatterns}) {
-                        var contentType = response.headers.get('content-type') || '';
-                        
-                        if (${config.streamTypes}) {
-                            var cloned = response.clone();
-                            var reader = cloned.body.getReader();
-                            var decoder = new TextDecoder();
-                            
-                            // Each stream gets a unique ID to prevent conflicts
-                            var streamId = Date.now() + '_' + Math.random().toString(36).slice(2);
-                            window.__proxima_active_stream_id = streamId;
-                            if ('${config.name}' !== 'Claude') { window.__proxima_captured_response = ''; }
-                            window.__proxima_is_streaming = true;
-                            window.__proxima_last_capture_time = Date.now();
-                            var fullText = ('${config.name}' === 'Claude') ? (window.__proxima_captured_response || '') : '';
-
-                            (async function() {
-                                try {
-                                    while (true) {
-                                        var result = await reader.read();
-                                        if (result.done) break;
-                                        
-                                        var chunk = decoder.decode(result.value, { stream: true });
-                                        var lines = chunk.split('\\n');
-                                        
-                                        for (var li = 0; li < lines.length; li++) {
-                                            var line = lines[li];
-                                            ${config.parser}
-                                        }
-                                        
-                                        // Only update if this is still the active stream (latest request)
-                                        // or if this stream has more content than what's captured
-                                        if (window.__proxima_active_stream_id === streamId || fullText.length > (window.__proxima_captured_response || '').length) {
-                                            window.__proxima_captured_response = fullText;
-                                            window.__proxima_last_capture_time = Date.now();
-                                        }
-                                    }
-                                } catch (e) {
-                                    console.log('[Proxima] Stream read error:', e.message);
-                                } finally {
-                                    // Only mark streaming complete if this is the active stream
-                                    // Claude: skip — message_stop in parser handles this
-                                    if ('${config.name}' !== 'Claude' && window.__proxima_active_stream_id === streamId) {
-                                        window.__proxima_is_streaming = false;
-                                        window.__proxima_last_capture_time = Date.now();
-                                    }
-                                    console.log('[Proxima] ${config.name} stream ' + streamId.slice(0,8) + ' complete. Captured ' + fullText.length + ' chars');
-                                }
-                            })();
-                        }
-                    }
-                } catch(e) {
-                    // Don't break the original fetch
-                }
-
-                return response;
-            };
-
-            console.log('[Proxima] ${config.name} fetch interceptor installed');
-        })();
-    `;
+    return buildProviderInterceptorScript(provider);
 }
 
 
 class BrowserManager {
-    constructor(mainWindow) {
+    constructor(mainWindow, options = {}) {
         this.mainWindow = mainWindow;
         this.views = new Map();
         this.activeProvider = null;
@@ -269,32 +24,38 @@ class BrowserManager {
         this.authPopups = new Map();
 
         // Provider configurations
-        this.providers = {
-            perplexity: {
-                url: 'https://www.perplexity.ai/',
-                partition: 'persist:perplexity',
-                color: '#20b2aa'
-            },
-            chatgpt: {
-                url: 'https://chatgpt.com/',
-                partition: 'persist:chatgpt',
-                color: '#10a37f'
-            },
-            claude: {
-                url: 'https://claude.ai/',
-                partition: 'persist:claude',
-                color: '#cc785c'
-            },
-            gemini: {
-                url: 'https://gemini.google.com/app',
-                partition: 'persist:gemini',
-                color: '#4285f4'
-            }
-        };
+        this.providers = Object.fromEntries(
+            Object.entries(providerMap).map(([providerId, config]) => [
+                providerId,
+                {
+                    url: config.url,
+                    partition: config.partition,
+                    color: config.color
+                }
+            ])
+        );
 
-        // Match the exact Chrome version that ships with Electron 33 (Chromium 130)
-        this.chromeVersion = '130.0.0.0';
-        this.userAgent = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${this.chromeVersion} Safari/537.36`;
+        this.setUserAgent(options.userAgent || DEFAULT_BROWSER_USER_AGENT);
+    }
+
+    setUserAgent(userAgent) {
+        this.userAgent = userAgent || DEFAULT_BROWSER_USER_AGENT;
+        this.chromeVersion = getChromeVersionFromUserAgent(this.userAgent);
+        this.chromeMajorVersion = getChromeMajorVersionFromUserAgent(this.userAgent);
+
+        try {
+            session.defaultSession.setUserAgent(this.userAgent);
+        } catch (e) {
+            // Ignore when default session is not ready yet
+        }
+
+        for (const config of Object.values(this.providers)) {
+            try {
+                session.fromPartition(config.partition, { cache: true }).setUserAgent(this.userAgent);
+            } catch (e) {
+                // Ignore session update failures and continue
+            }
+        }
     }
 
     /**
@@ -370,8 +131,8 @@ class BrowserManager {
                     // 6. userAgentData
                     try {
                         const brands = [
-                            { brand: "Chromium", version: "130" },
-                            { brand: "Google Chrome", version: "130" },
+                            { brand: "Chromium", version: "${this.chromeMajorVersion}" },
+                            { brand: "Google Chrome", version: "${this.chromeMajorVersion}" },
                             { brand: "Not?A_Brand", version: "99" }
                         ];
                         const uad = {
@@ -386,10 +147,10 @@ class BrowserManager {
                                 architecture: "x86",
                                 bitness: "64",
                                 model: "",
-                                uaFullVersion: "130.0.6723.191",
+                                uaFullVersion: "${this.chromeVersion}",
                                 fullVersionList: [
-                                    { brand: "Chromium", version: "130.0.6723.191" },
-                                    { brand: "Google Chrome", version: "130.0.6723.191" },
+                                    { brand: "Chromium", version: "${this.chromeVersion}" },
+                                    { brand: "Google Chrome", version: "${this.chromeVersion}" },
                                     { brand: "Not?A_Brand", version: "99.0.0.0" }
                                 ],
                                 wow64: false
@@ -463,11 +224,11 @@ class BrowserManager {
             const headers = { ...details.requestHeaders };
 
             // Set proper Chrome client hints for EVERY request
-            headers['sec-ch-ua'] = `"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"`;
+            headers['sec-ch-ua'] = `"Chromium";v="${this.chromeMajorVersion}", "Google Chrome";v="${this.chromeMajorVersion}", "Not?A_Brand";v="99"`;
             headers['sec-ch-ua-mobile'] = '?0';
             headers['sec-ch-ua-platform'] = '"Windows"';
             headers['sec-ch-ua-platform-version'] = '"15.0.0"';
-            headers['sec-ch-ua-full-version-list'] = `"Chromium";v="130.0.6723.191", "Google Chrome";v="130.0.6723.191", "Not?A_Brand";v="99.0.0.0"`;
+            headers['sec-ch-ua-full-version-list'] = `"Chromium";v="${this.chromeVersion}", "Google Chrome";v="${this.chromeVersion}", "Not?A_Brand";v="99.0.0.0"`;
             headers['sec-ch-ua-arch'] = '"x86"';
             headers['sec-ch-ua-bitness'] = '"64"';
             headers['sec-ch-ua-wow64'] = '?0';
@@ -550,15 +311,11 @@ class BrowserManager {
         // Track navigation for URL bar
         view.webContents.on('did-navigate', (event, url) => {
             console.log(`[${provider}] Navigated to:`, url.substring(0, 80));
-            if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-                this.mainWindow.webContents.send('provider-navigated', { provider, url });
-            }
+            this.emitNavigationState(provider, view.webContents);
         });
 
-        view.webContents.on('did-navigate-in-page', (event, url) => {
-            if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-                this.mainWindow.webContents.send('provider-navigated', { provider, url });
-            }
+        view.webContents.on('did-navigate-in-page', () => {
+            this.emitNavigationState(provider, view.webContents);
         });
 
         // Handle popups / window.open - This is KEY for Google OAuth
@@ -614,6 +371,7 @@ class BrowserManager {
             if (this.mainWindow && !this.mainWindow.isDestroyed()) {
                 this.mainWindow.webContents.send('provider-loaded', { provider });
             }
+            this.emitNavigationState(provider, view.webContents);
         });
 
         // Load provider URL
@@ -666,15 +424,8 @@ class BrowserManager {
         authWindow.webContents.on('did-navigate', (event, navUrl) => {
             console.log(`[Auth ${provider}] Navigated to:`, navUrl.substring(0, 80));
 
-            const providerDomains = {
-                perplexity: 'perplexity.ai',
-                chatgpt: 'chatgpt.com',
-                claude: 'claude.ai',
-                gemini: 'gemini.google.com'
-            };
-
-            const domain = providerDomains[provider];
-            if (domain && navUrl.includes(domain)) {
+            const authDomains = providerMap[provider]?.authCompletionDomains || [];
+            if (authDomains.some((domain) => navUrl.includes(domain))) {
                 console.log(`[Auth ${provider}] Auth complete! Closing popup and reloading.`);
                 setTimeout(() => {
                     if (!authWindow.isDestroyed()) {
@@ -732,6 +483,7 @@ class BrowserManager {
             this.mainWindow.addBrowserView(view);
             view.setBounds(bounds);
             view.setAutoResize({ width: true, height: true });
+            view.webContents.focus();
 
             this.activeProvider = provider;
         } catch (e) {
@@ -763,6 +515,31 @@ class BrowserManager {
         return view.webContents;
     }
 
+    getNavigationState(provider, webContents = this.getWebContents(provider)) {
+        const fallbackUrl = this.providers[provider]?.url || '';
+        if (!webContents || webContents.isDestroyed()) {
+            return {
+                provider,
+                url: fallbackUrl,
+                canGoBack: false,
+                canGoForward: false
+            };
+        }
+
+        return {
+            provider,
+            url: webContents.getURL() || fallbackUrl,
+            canGoBack: webContents.navigationHistory.canGoBack(),
+            canGoForward: webContents.navigationHistory.canGoForward()
+        };
+    }
+
+    emitNavigationState(provider, webContents = this.getWebContents(provider)) {
+        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+            this.mainWindow.webContents.send('provider-navigated', this.getNavigationState(provider, webContents));
+        }
+    }
+
     async executeScript(provider, script) {
         const webContents = this.getWebContents(provider);
         if (!webContents) throw new Error(`Provider ${provider} not initialized`);
@@ -780,6 +557,20 @@ class BrowserManager {
         await webContents.loadURL(url);
     }
 
+    goBack(provider) {
+        const webContents = this.getWebContents(provider);
+        if (webContents && webContents.navigationHistory.canGoBack()) {
+            webContents.navigationHistory.goBack();
+        }
+    }
+
+    goForward(provider) {
+        const webContents = this.getWebContents(provider);
+        if (webContents && webContents.navigationHistory.canGoForward()) {
+            webContents.navigationHistory.goForward();
+        }
+    }
+
     async reload(provider) {
         const webContents = this.getWebContents(provider);
         if (webContents) await webContents.reload();
@@ -790,47 +581,12 @@ class BrowserManager {
         if (!webContents) return false;
 
         try {
-            switch (provider) {
-                case 'perplexity':
-                    return await webContents.executeJavaScript(`
-                        (function() {
-                            const buttons = Array.from(document.querySelectorAll('button, a'));
-                            const hasLoginBtn = buttons.some(b => b.innerText === 'Log in' || b.innerText === 'Sign Up');
-                            if (hasLoginBtn) return false;
-                            const hasInput = !!document.querySelector('textarea') || !!document.querySelector('[contenteditable="true"]');
-                            return !hasLoginBtn && hasInput;
-                        })()
-                    `);
-                case 'chatgpt':
-                    return await webContents.executeJavaScript(`
-                        (function() {
-                            const hasInput = !!document.querySelector('#prompt-textarea');
-                            const hasLoginModal = !!document.querySelector('[data-testid="login-button"]');
-                            return hasInput && !hasLoginModal;
-                        })()
-                    `);
-                case 'claude':
-                    return await webContents.executeJavaScript(`
-                        (function() {
-                            const hasInput = !!document.querySelector('[contenteditable="true"]');
-                            const hasLoginPage = window.location.href.includes('/login');
-                            return hasInput && !hasLoginPage;
-                        })()
-                    `);
-                case 'gemini':
-                    return await webContents.executeJavaScript(`
-                        (function() {
-                            const hasInput = !!document.querySelector('.ql-editor') ||
-                                           !!document.querySelector('[contenteditable="true"]') ||
-                                           !!document.querySelector('rich-textarea');
-                            const hasSignIn = !!document.querySelector('a[href*="ServiceLogin"]') ||
-                                            !!document.querySelector('a[data-action-id="sign-in"]');
-                            return hasInput && !hasSignIn;
-                        })()
-                    `);
-                default:
-                    return false;
+            const loginCheckScript = getProviderLoginCheckScript(provider);
+            if (!loginCheckScript) {
+                return false;
             }
+
+            return await webContents.executeJavaScript(loginCheckScript);
         } catch (e) {
             return false;
         }
