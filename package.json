@@ -1,6 +1,6 @@
 {
     "name": "proxima",
-    "version": "3.0.0",
+    "version": "4.1.0",
     "description": "Proxima - Local MCP Server (requires localhost network access for AI coding tools)",
     "license": "SEE LICENSE IN LICENSE",
     "author": "Zen4-bit",
@@ -16,9 +16,13 @@
     ],
     "type": "module",
     "main": "electron/main-v2.cjs",
+    "bin": {
+        "proxima": "./cli/proxima-cli.cjs"
+    },
     "scripts": {
         "start": "electron .",
         "mcp": "node src/mcp-server-v3.js",
+        "cli": "node cli/proxima-cli.cjs",
         "build": "electron-builder --win --x64",
         "build:installer": "electron-builder --win --x64 -c.win.target=nsis"
     },
@@ -32,12 +36,15 @@
         "files": [
             "electron/**/*",
             "src/**/*",
+            "cli/**/*",
+            "sdk/**/*",
             "assets/**/*",
             "node_modules/**/*",
             "package.json"
         ],
         "asarUnpack": [
             "src/**/*",
+            "cli/**/*",
             "node_modules/**/*"
         ],
         "win": {
@@ -62,7 +69,7 @@
     },
     "dependencies": {
         "@modelcontextprotocol/sdk": "^1.25.3",
-        "sql.js": "^1.13.0",
+        "ws": "^8.20.0",
         "zod": "^4.3.6"
     },
     "devDependencies": {

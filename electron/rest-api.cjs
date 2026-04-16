@@ -3,31 +3,32 @@
 
 const http = require('http');
 const { URL } = require('url');
+const { initWebSocket, getWSStats } = require('./ws-server.cjs');
 
 // ─── Config ──────────────────────────────────────────────
 const REST_PORT = parseInt(process.env.PROXIMA_REST_PORT) || 3210;
-const VERSION = '2.1.0';
+const VERSION = '4.1.0';
 const API_PREFIX = '/v1';
 
 // ─── Model Aliases ───────────────────────────────────────
-// Users can use any of these names to refer to a provider
+
 const MODEL_ALIASES = {
-    // ChatGPT
+    
     'chatgpt': 'chatgpt', 'gpt': 'chatgpt', 'gpt-4': 'chatgpt', 'gpt-4o': 'chatgpt',
     'gpt-4.5': 'chatgpt', 'openai': 'chatgpt',
 
-    // Claude
+    
     'claude': 'claude', 'claude-3': 'claude', 'claude-3.5': 'claude', 'claude-4': 'claude',
     'anthropic': 'claude', 'sonnet': 'claude', 'opus': 'claude', 'haiku': 'claude',
 
-    // Gemini
+    
     'gemini': 'gemini', 'gemini-pro': 'gemini', 'gemini-2': 'gemini', 'gemini-2.5': 'gemini',
     'google': 'gemini', 'bard': 'gemini',
 
-    // Perplexity
+    
     'perplexity': 'perplexity', 'pplx': 'perplexity', 'sonar': 'perplexity',
 
-    // Special
+    
     'auto': 'auto',   // Auto-pick best available
     'all': 'all'       // Query all providers
 };
@@ -144,12 +145,12 @@ function resolveModel(model) {
     return MODEL_ALIASES[key] || key;
 }
 
-// Resolve model(s) — supports string OR array
+// Resolve model — supports string, array, or 'auto'
 // Returns: { mode: 'single'|'multi'|'all'|'auto', providers: [...] }
 function resolveModels(modelField) {
     const enabled = getEnabled();
 
-    // Array of models: ["claude", "chatgpt"]
+    
     if (Array.isArray(modelField)) {
         const resolved = modelField
             .map(m => resolveModel(m))
@@ -162,7 +163,7 @@ function resolveModels(modelField) {
         return { mode: unique.length === 1 ? 'single' : 'multi', providers: unique };
     }
 
-    // String
+    
     const resolved = resolveModel(modelField);
 
     if (resolved === 'all') {
@@ -197,7 +198,7 @@ function extractMessage(body) {
     // 5. Content format: { content: "Hello" }
 
     if (body.messages && Array.isArray(body.messages)) {
-        // OpenAI format — get last user message
+        
         const userMsgs = body.messages.filter(m => m.role === 'user');
         if (userMsgs.length > 0) return userMsgs[userMsgs.length - 1].content;
     }
@@ -215,14 +216,22 @@ async function queryProvider(provider, message) {
         });
         if (!sendResult.success) throw new Error(sendResult.error || `Failed to send to ${provider}`);
 
-        const responseResult = await handleMCPRequest({
-            action: 'getResponseWithTyping', provider, data: {}
-        });
+        // Engine path already returns the full response in sendResult
+        // Only fall back to getResponseWithTyping (DOM) if engine didn't return content
+        let responseText = '';
+        if (sendResult.result && sendResult.result.response && sendResult.result.response.length > 0) {
+            responseText = sendResult.result.response;
+        } else {
+            const responseResult = await handleMCPRequest({
+                action: 'getResponseWithTyping', provider, data: {}
+            });
+            responseText = responseResult.response || responseResult.result || '';
+        }
 
         const elapsed = Date.now() - start;
         recordCall(provider, elapsed);
         return {
-            text: responseResult.response || responseResult.result || '',
+            text: responseText,
             model: provider,
             responseTimeMs: elapsed
         };
@@ -319,6 +328,81 @@ function formatAllResponse(allResults) {
     };
 }
 
+// ─── Shared Chat Widget ──────────────────────────────────
+function getChatHTML(accentColor = '#22c55e') {
+    const rgb = accentColor === '#22c55e' ? '34,197,94' : accentColor === '#a78bfa' ? '139,92,246' : '6,182,212';
+    return `
+        <div class="sec">
+            <div class="st" style="color:${accentColor}">💬 Live Chat <span style="font-size:10px;color:#555;font-weight:400;">· via WebSocket</span> <span id="ws-status" style="font-size:10px;padding:2px 8px;border-radius:10px;margin-left:8px;background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.15)">Disconnected</span></div>
+            <div id="chat-box" style="background:rgba(6,6,12,.95);border:1px solid rgba(${rgb},.15);border-radius:12px;overflow:hidden;">
+                <div style="padding:10px 14px;background:rgba(${rgb},.04);border-bottom:1px solid rgba(${rgb},.1);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                    <select id="provider-select" style="background:rgba(16,16,24,.9);color:${accentColor};border:1px solid rgba(${rgb},.2);border-radius:6px;padding:5px 10px;font-size:12px;font-family:'JetBrains Mono',monospace;outline:none;cursor:pointer;">
+                        <option value="auto">🤖 Auto</option>
+                        <option value="claude">🟣 Claude</option>
+                        <option value="chatgpt">🟢 ChatGPT</option>
+                        <option value="gemini">🔵 Gemini</option>
+                        <option value="perplexity">🟡 Perplexity</option>
+                    </select>
+                    <button id="ws-connect-btn" onclick="toggleWS()" style="background:rgba(${rgb},.15);color:${accentColor};border:1px solid rgba(${rgb},.25);border-radius:6px;padding:5px 14px;font-size:11px;font-weight:600;cursor:pointer;transition:all .2s;">Connect</button>
+                    <button id="battle-toggle-btn" onclick="toggleBattle()" style="background:rgba(249,115,22,.08);color:#f97316;border:1px solid rgba(249,115,22,.2);border-radius:6px;padding:5px 12px;font-size:11px;font-weight:600;cursor:pointer;transition:all .2s;">&#9876; Battle</button>
+                    <button onclick="clearChat()" style="background:rgba(255,255,255,.03);color:#555;border:1px solid rgba(255,255,255,.06);border-radius:6px;padding:5px 10px;font-size:10px;cursor:pointer;">Clear</button>
+                    <span id="ws-timer" style="font-size:10px;color:#333;margin-left:auto;font-family:'JetBrains Mono',monospace;"></span>
+                </div>
+                <div id="battle-panel" style="display:none;padding:8px 14px;background:rgba(249,115,22,.03);border-bottom:1px solid rgba(249,115,22,.1);">
+                    <div style="font-size:10px;color:#f97316;font-weight:600;margin-bottom:6px;">&#9876; BATTLE MODE &#8212; Select 2-4 providers:</div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#a78bfa;cursor:pointer;"><input type="checkbox" class="battle-cb" value="claude" style="accent-color:#a78bfa;"> Claude</label>
+                        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#22c55e;cursor:pointer;"><input type="checkbox" class="battle-cb" value="chatgpt" style="accent-color:#22c55e;"> ChatGPT</label>
+                        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#3b82f6;cursor:pointer;"><input type="checkbox" class="battle-cb" value="gemini" style="accent-color:#3b82f6;"> Gemini</label>
+                        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#f97316;cursor:pointer;"><input type="checkbox" class="battle-cb" value="perplexity" style="accent-color:#f97316;"> Perplexity</label>
+                    </div>
+                </div>
+                <div id="chat-messages" style="height:360px;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px;scroll-behavior:smooth;">
+                    <div style="text-align:center;color:#333;font-size:11px;padding:40px 0;">Connect and start chatting with AI ⚡</div>
+                </div>
+                <div style="padding:10px 14px;border-top:1px solid rgba(${rgb},.1);display:flex;gap:8px;">
+                    <input id="chat-input" type="text" placeholder="Type a message..." onkeydown="if(event.key==='Enter')sendChat()" style="flex:1;background:rgba(16,16,24,.9);color:#e0e0e0;border:1px solid rgba(${rgb},.15);border-radius:8px;padding:10px 14px;font-size:13px;font-family:'Inter',sans-serif;outline:none;transition:border-color .2s;" onfocus="this.style.borderColor='rgba(${rgb},.4)'" onblur="this.style.borderColor='rgba(${rgb},.15)'" />
+                    <button onclick="sendChat()" style="background:linear-gradient(135deg,#22c55e,#06b6d4);color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .2s;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Send ⚡</button>
+                </div>
+            </div>
+        </div>`;
+}
+
+function getChatJS() {
+    return `
+    <script>
+    let ws=null,reqTimer=null,reqStart=0,battleMode=false,battleId=0,battleResults={};
+    const msgArea=document.getElementById('chat-messages'),input=document.getElementById('chat-input'),statusEl=document.getElementById('ws-status'),connectBtn=document.getElementById('ws-connect-btn'),timerEl=document.getElementById('ws-timer');
+    function setStatus(t,c){statusEl.textContent=t;const r=c==='#22c55e'?'34,197,94':c==='#f97316'?'249,115,22':'239,68,68';statusEl.style.background='rgba('+r+',.1)';statusEl.style.color=c;statusEl.style.borderColor='rgba('+r+',.15)';}
+    function toggleWS(){if(ws&&ws.readyState===1){ws.close();return;}connectWS();}
+    function connectWS(){try{ws=new WebSocket('ws://localhost:${REST_PORT}/ws');}catch(e){addSystem('Connection failed');return;}
+    setStatus('Connecting...','#f97316');connectBtn.textContent='Connecting...';
+    ws.onopen=()=>{setStatus('Connected','#22c55e');connectBtn.textContent='Disconnect';connectBtn.style.background='rgba(239,68,68,.15)';connectBtn.style.color='#ef4444';connectBtn.style.borderColor='rgba(239,68,68,.25)';input.focus();};
+    ws.onmessage=(e)=>{handleMsg(JSON.parse(e.data));};
+    ws.onclose=()=>{setStatus('Disconnected','#ef4444');connectBtn.textContent='Connect';connectBtn.style.background='rgba(34,197,94,.15)';connectBtn.style.color='#22c55e';connectBtn.style.borderColor='rgba(34,197,94,.25)';clearTimer();};
+    ws.onerror=()=>{addSystem('Connection error — is Proxima running?');};}
+    function handleMsg(m){switch(m.type){case 'connected':addSystem('Connected as '+m.clientId);break;case 'status':updateStatus(m);break;case 'response':clearTimer();removeTyping();if(battleMode){addBattleResponse(m.content,m.model,m.responseTimeMs);}else{addAI(m.content,m.model,m.responseTimeMs);}break;case 'error':clearTimer();removeTyping();addError(m.error);break;case 'pong':addSystem('Pong!');break;}}
+    function toggleBattle(){battleMode=!battleMode;var bp=document.getElementById('battle-panel');var bb=document.getElementById('battle-toggle-btn');var ps=document.getElementById('provider-select');if(battleMode){bp.style.display='block';bb.style.background='rgba(249,115,22,.2)';bb.style.borderColor='rgba(249,115,22,.4)';ps.style.display='none';}else{bp.style.display='none';bb.style.background='rgba(249,115,22,.08)';bb.style.borderColor='rgba(249,115,22,.2)';ps.style.display='';}}
+    function getSelectedBattle(){var cbs=document.querySelectorAll('.battle-cb:checked');var arr=[];cbs.forEach(function(c){arr.push(c.value);});return arr;}
+    function sendChat(){const t=input.value.trim();if(!t||!ws||ws.readyState!==1)return;if(battleMode){var providers=getSelectedBattle();if(providers.length<2){addSystem('Select at least 2 providers for battle!');return;}addUser(t);battleId++;battleResults={};addBattleGrid(providers);reqStart=Date.now();startTimer();providers.forEach(function(p){ws.send(JSON.stringify({action:'ask',model:p,message:t}));});}else{const m=document.getElementById('provider-select').value;addUser(t);reqStart=Date.now();startTimer();ws.send(JSON.stringify({action:'ask',model:m,message:t}));}input.value='';input.focus();}
+    function addUser(t){const d=document.createElement('div');d.style.cssText='align-self:flex-end;max-width:75%;background:linear-gradient(135deg,rgba(34,197,94,.15),rgba(6,182,212,.1));border:1px solid rgba(34,197,94,.2);border-radius:12px 12px 2px 12px;padding:10px 14px;';d.innerHTML='<div style="font-size:9px;color:#22c55e;margin-bottom:4px;font-weight:600;">YOU</div><div style="font-size:13px;color:#e0e0e0;line-height:1.5;">'+esc(t)+'</div>';msgArea.appendChild(d);scroll();}
+    function md(s){if(!s)return '';var bt=String.fromCharCode(96);s=s.replace(new RegExp(bt+bt+bt+'([\\\\s\\\\S]*?)'+bt+bt+bt,'g'),function(_,c){return '<pre style="background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.05);border-radius:6px;padding:8px;margin:6px 0;font-size:11px;font-family:monospace;color:#a5b4fc;overflow-x:auto;">'+esc(c.trim())+'</pre>';});s=s.replace(new RegExp(bt+'([^'+bt+']+)'+bt,'g'),'<code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px;font-size:11px;font-family:monospace;color:#67e8f9;">$1</code>');s=s.replace(/^### (.+)$/gm,'<div style="font-size:14px;font-weight:600;color:#e0e0e0;margin:8px 0 4px;">$1</div>');s=s.replace(/^## (.+)$/gm,'<div style="font-size:15px;font-weight:700;color:#e0e0e0;margin:10px 0 4px;">$1</div>');s=s.replace(/^# (.+)$/gm,'<div style="font-size:16px;font-weight:700;color:#fff;margin:10px 0 6px;">$1</div>');s=s.replace(/\\*\\*(.+?)\\*\\*/g,'<strong style="color:#e0e0e0;">$1</strong>');s=s.replace(/\\*(.+?)\\*/g,'<em>$1</em>');s=s.replace(/^- (.+)$/gm,'<div style="padding-left:12px;margin:2px 0;">&#8226; $1</div>');s=s.replace(/\\n/g,'<br>');return s;}
+    function addSystem(t){const d=document.createElement('div');d.style.cssText='text-align:center;font-size:10px;color:#444;padding:4px;';d.textContent=t;msgArea.appendChild(d);scroll();}
+    function addAI(c,m,ms){const colors={claude:'#a78bfa',chatgpt:'#22c55e',gemini:'#3b82f6',perplexity:'#f97316',auto:'#06b6d4'};const cl=colors[m]||'#22c55e';const d=document.createElement('div');d.style.cssText='align-self:flex-start;max-width:85%;background:rgba(16,16,24,.8);border:1px solid rgba(255,255,255,.06);border-radius:12px 12px 12px 2px;padding:10px 14px;';d.innerHTML='<div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="font-size:9px;color:'+cl+';font-weight:600;">'+(m||'AI').toUpperCase()+'</span><span style="font-size:9px;color:#333;">'+(ms?(ms/1000).toFixed(1)+'s':'')+'</span></div><div style="font-size:13px;color:#ccc;line-height:1.6;word-wrap:break-word;">'+md(c)+'</div>';msgArea.appendChild(d);scroll();}
+    function addBattleGrid(providers){var colors={claude:'#a78bfa',chatgpt:'#22c55e',gemini:'#3b82f6',perplexity:'#f97316'};var cols=providers.length<=2?'1fr 1fr':providers.length===3?'1fr 1fr 1fr':'1fr 1fr';var d=document.createElement('div');d.id='battle-grid-'+battleId;d.style.cssText='display:grid;grid-template-columns:'+cols+';gap:8px;width:100%;';providers.forEach(function(p){var cell=document.createElement('div');cell.id='battle-cell-'+p+'-'+battleId;cell.style.cssText='background:rgba(16,16,24,.8);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:10px;min-height:80px;';var cl=colors[p]||'#22c55e';cell.innerHTML='<div style="font-size:9px;color:'+cl+';font-weight:700;margin-bottom:6px;text-transform:uppercase;display:flex;align-items:center;gap:4px;">'+p+'<span style="display:inline-flex;gap:2px;margin-left:4px;"><span style="width:3px;height:3px;background:'+cl+';border-radius:50%;animation:pulse 1s infinite;"></span><span style="width:3px;height:3px;background:'+cl+';border-radius:50%;animation:pulse 1s infinite .2s;"></span><span style="width:3px;height:3px;background:'+cl+';border-radius:50%;animation:pulse 1s infinite .4s;"></span></span></div><div class="battle-content" style="font-size:12px;color:#888;line-height:1.5;">Waiting...</div>';d.appendChild(cell);});msgArea.appendChild(d);scroll();}
+    function addBattleResponse(c,m,ms){var cell=document.getElementById('battle-cell-'+m+'-'+battleId);if(cell){var cl={claude:'#a78bfa',chatgpt:'#22c55e',gemini:'#3b82f6',perplexity:'#f97316'}[m]||'#22c55e';cell.innerHTML='<div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="font-size:9px;color:'+cl+';font-weight:700;text-transform:uppercase;">'+m+'</span><span style="font-size:9px;color:#555;">'+(ms?(ms/1000).toFixed(1)+'s':'')+'</span></div><div style="font-size:12px;color:#ccc;line-height:1.5;word-wrap:break-word;">'+md(c)+'</div>';cell.style.borderColor='rgba(255,255,255,.1)';scroll();}else{addAI(c,m,ms);}}
+    function addError(t){const d=document.createElement('div');d.style.cssText='align-self:flex-start;max-width:80%;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.15);border-radius:8px;padding:8px 12px;';d.innerHTML='<span style="font-size:10px;color:#ef4444;">⚠ '+esc(t)+'</span>';msgArea.appendChild(d);scroll();}
+    function updateStatus(m){removeTyping();const d=document.createElement('div');d.className='typing-indicator';d.style.cssText='align-self:flex-start;font-size:10px;color:#22c55e;padding:6px 12px;background:rgba(34,197,94,.05);border-radius:8px;display:flex;align-items:center;gap:6px;';d.innerHTML='<span style="display:inline-flex;gap:3px;"><span style="width:4px;height:4px;background:#22c55e;border-radius:50%;animation:pulse 1s infinite;"></span><span style="width:4px;height:4px;background:#22c55e;border-radius:50%;animation:pulse 1s infinite .2s;"></span><span style="width:4px;height:4px;background:#22c55e;border-radius:50%;animation:pulse 1s infinite .4s;"></span></span> '+(m.status||'processing')+'...';msgArea.appendChild(d);scroll();}
+    function removeTyping(){msgArea.querySelectorAll('.typing-indicator').forEach(e=>e.remove());}
+    function clearChat(){msgArea.innerHTML='<div style="text-align:center;color:#333;font-size:11px;padding:40px 0;">Chat cleared ⚡</div>';}
+    function startTimer(){clearTimer();reqTimer=setInterval(()=>{timerEl.textContent=((Date.now()-reqStart)/1000).toFixed(1)+'s';},100);}
+    function clearTimer(){if(reqTimer){clearInterval(reqTimer);reqTimer=null;}setTimeout(()=>{timerEl.textContent='';},2000);}
+    function scroll(){msgArea.scrollTop=msgArea.scrollHeight;}
+    function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+    </script>
+    <style>@keyframes pulse{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1.2)}}#chat-messages::-webkit-scrollbar{width:4px}#chat-messages::-webkit-scrollbar-track{background:transparent}#chat-messages::-webkit-scrollbar-thumb{background:rgba(34,197,94,.15);border-radius:4px}</style>`;
+}
+
 // ─── API Docs HTML ───────────────────────────────────────
 function getDocsPage() {
     const enabled = getEnabled();
@@ -368,11 +452,17 @@ function getDocsPage() {
         .highlight p{color:#888;font-size:12px}
         .model-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:6px;margin-top:8px}
         .model-item{font-family:'JetBrains Mono',monospace;font-size:11px;color:#a5b4fc;padding:4px 8px;background:rgba(139,92,246,.04);border-radius:4px}
+        .nav{display:flex;justify-content:center;gap:4px;margin-bottom:24px}
+        .nav a{padding:8px 24px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;transition:all .2s;border:1px solid transparent}
+        .nav a.active{background:rgba(139,92,246,.15);color:#a78bfa;border-color:rgba(139,92,246,.3)}
+        .nav a:not(.active){color:#666;background:rgba(16,16,24,.5);border-color:rgba(255,255,255,.05)}
+        .nav a:not(.active):hover{color:#a78bfa;border-color:rgba(139,92,246,.2);background:rgba(139,92,246,.05)}
     </style>
 </head>
 <body>
     <div class="grid-bg"></div>
     <div class="wrap">
+        <div class="nav"><a href="/" class="active">⚡ REST API</a><a href="/cli">🖥️ CLI</a><a href="/ws">🔌 WebSocket</a></div>
         <div class="head">
             <div class="logo">⚡ Proxima API</div>
             <p class="sub">Unified AI Gateway · Port ${REST_PORT} · v${VERSION}</p>
@@ -382,6 +472,9 @@ function getDocsPage() {
     ).join('')}
             </div>
         </div>
+
+        ${getChatHTML('#a78bfa')}
+        <div class="line"></div>
 
         <div class="highlight">
             <h3>🎯 ONE Endpoint — Everything</h3>
@@ -437,7 +530,9 @@ POST /v1/chat/completions
             <tr style="border-bottom:1px solid rgba(255,255,255,.06)"><td style="padding:8px;color:#f97316;font-weight:600">translate</td><td style="padding:8px">"function": "translate", "to": "Hindi"</td><td style="padding:8px;color:#888">Translate text</td></tr>
             <tr style="border-bottom:1px solid rgba(255,255,255,.06)"><td style="padding:8px;color:#a855f7;font-weight:600">brainstorm</td><td style="padding:8px">"function": "brainstorm"</td><td style="padding:8px;color:#888">Generate ideas</td></tr>
             <tr style="border-bottom:1px solid rgba(255,255,255,.06)"><td style="padding:8px;color:#ef4444;font-weight:600">code</td><td style="padding:8px">"function": "code", "action": "generate|review|debug|explain"</td><td style="padding:8px;color:#888">Code tools</td></tr>
-            <tr><td style="padding:8px;color:#06b6d4;font-weight:600">analyze</td><td style="padding:8px">"function": "analyze", "url": "..."</td><td style="padding:8px;color:#888">Analyze URL/content</td></tr>
+            <tr style="border-bottom:1px solid rgba(255,255,255,.06)"><td style="padding:8px;color:#06b6d4;font-weight:600">analyze</td><td style="padding:8px">"function": "analyze", "url": "..."</td><td style="padding:8px;color:#888">Analyze URL/content</td></tr>
+            <tr style="border-bottom:1px solid rgba(255,255,255,.06)"><td style="padding:8px;color:#eab308;font-weight:600">security_audit</td><td style="padding:8px">"function": "security_audit", "code": "..."</td><td style="padding:8px;color:#888">Security vulnerability scan</td></tr>
+            <tr><td style="padding:8px;color:#ec4899;font-weight:600">debate</td><td style="padding:8px">"function": "debate"</td><td style="padding:8px;color:#888">Multi-perspective debate</td></tr>
             </table>
         </div>
 
@@ -480,11 +575,497 @@ POST /v1/chat/completions
 // Auto pick — har cheez ke liye
 {"model": "auto", "message": "Hello"}</pre>
             </div>
-        </div>
 
         <div class="foot">Proxima API v${VERSION} — Zen4-bit ⚡</div>
     </div>
-    <script>setTimeout(()=>location.reload(),10000);</script>
+    ${getChatJS()}
+</body>
+</html>`;
+}
+
+// ─── CLI Docs Page ───────────────────────────────────────
+function getCLIDocsPage() {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Proxima CLI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Inter',sans-serif;background:#08080d;color:#d4d4e0;min-height:100vh;line-height:1.6}
+        .grid-bg{position:fixed;inset:0;background-image:linear-gradient(rgba(6,182,212,.02) 1px,transparent 1px),linear-gradient(90deg,rgba(6,182,212,.02) 1px,transparent 1px);background-size:60px 60px}
+        .wrap{max-width:920px;margin:0 auto;padding:36px 20px;position:relative;z-index:1}
+        .head{text-align:center;margin-bottom:32px}
+        .logo{font-size:42px;font-weight:700;background:linear-gradient(135deg,#06b6d4,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+        .sub{color:#666;font-size:14px;margin-top:2px}
+        .back{display:inline-block;margin-top:12px;color:#a78bfa;text-decoration:none;font-size:12px;padding:4px 12px;border:1px solid rgba(139,92,246,.2);border-radius:16px;transition:all .2s}
+        .back:hover{border-color:rgba(139,92,246,.5);background:rgba(139,92,246,.05)}
+        .line{height:1px;background:linear-gradient(90deg,transparent,rgba(6,182,212,.3),transparent);margin:24px 0}
+        .sec{margin-bottom:24px}
+        .st{font-size:16px;font-weight:600;color:#06b6d4;margin-bottom:10px}
+        .card{background:rgba(16,16,24,.85);border:1px solid rgba(6,182,212,.1);border-radius:8px;padding:14px 16px;margin-bottom:5px;transition:border-color .2s}
+        .card:hover{border-color:rgba(6,182,212,.3)}
+        .highlight{background:rgba(6,182,212,.06);border:1px solid rgba(6,182,212,.15);border-radius:8px;padding:16px;margin:12px 0}
+        .highlight h3{color:#06b6d4;font-size:14px;margin-bottom:6px}
+        .highlight p{color:#888;font-size:12px}
+        .ex{background:rgba(6,6,12,.9);border:1px solid rgba(6,182,212,.12);border-radius:8px;padding:14px;margin-top:5px}
+        .ex h4{color:#06b6d4;font-size:10px;margin-bottom:6px;text-transform:uppercase;letter-spacing:.6px}
+        pre{font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5;color:#a5b4fc;white-space:pre-wrap}
+        .foot{text-align:center;margin-top:36px;color:#333;font-size:11px}
+        .cmd-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+        .cmd{padding:10px 14px;background:rgba(16,16,24,.85);border:1px solid rgba(6,182,212,.08);border-radius:8px;transition:border-color .2s}
+        .cmd:hover{border-color:rgba(6,182,212,.25)}
+        .cmd-name{font-family:'JetBrains Mono',monospace;font-size:12px;color:#06b6d4;font-weight:600}
+        .cmd-desc{font-size:11px;color:#666;margin-top:2px}
+        .tag{display:inline-block;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:600;margin-left:4px}
+        .tag-new{background:rgba(34,197,94,.1);color:#22c55e;border:1px solid rgba(34,197,94,.15)}
+        .tag-ctx{background:rgba(249,115,22,.08);color:#f97316;border:1px solid rgba(249,115,22,.12)}
+        .nav{display:flex;justify-content:center;gap:4px;margin-bottom:24px}
+        .nav a{padding:8px 24px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;transition:all .2s;border:1px solid transparent}
+        .nav a.active{background:rgba(6,182,212,.15);color:#06b6d4;border-color:rgba(6,182,212,.3)}
+        .nav a:not(.active){color:#666;background:rgba(16,16,24,.5);border-color:rgba(255,255,255,.05)}
+        .nav a:not(.active):hover{color:#06b6d4;border-color:rgba(6,182,212,.2);background:rgba(6,182,212,.05)}
+        @media(max-width:640px){.cmd-grid{grid-template-columns:1fr}}
+    </style>
+</head>
+<body>
+    <div class="grid-bg"></div>
+    <div class="wrap">
+        <div class="nav"><a href="/">⚡ REST API</a><a href="/cli" class="active">🖥️ CLI</a><a href="/ws">🔌 WebSocket</a></div>
+        <div class="head">
+            <div class="logo">🖥️ Proxima CLI</div>
+            <p class="sub">Talk to AI from your terminal · v${VERSION}</p>
+        </div>
+
+        ${getChatHTML('#06b6d4')}
+        <div class="line"></div>
+
+        <div class="highlight">
+            <h3>⚡ Quick Start</h3>
+            <p>Install and start using AI from your terminal in seconds.</p>
+            <pre style="margin-top:10px">
+# Option 1: Run directly
+node cli/proxima-cli.cjs ask claude "What is AI?"
+
+# Option 2: npm script
+npm run cli -- ask claude "Hello"
+
+# Option 3: Register globally (use from any folder on this PC)
+npm link
+proxima ask claude "Hello"</pre>
+        </div>
+
+        <div class="line"></div>
+
+        <div class="sec">
+            <div class="st">📋 All Commands</div>
+            <div class="cmd-grid">
+                <div class="cmd"><div class="cmd-name">ask <span style="color:#666">[model]</span> "msg"</div><div class="cmd-desc">Chat with any AI provider</div></div>
+                <div class="cmd"><div class="cmd-name">compare "question"</div><div class="cmd-desc">Ask all providers, compare side-by-side</div></div>
+                <div class="cmd"><div class="cmd-name">search "query"</div><div class="cmd-desc">Web search via Perplexity</div></div>
+                <div class="cmd"><div class="cmd-name">brainstorm "topic"</div><div class="cmd-desc">Generate creative ideas</div></div>
+                <div class="cmd"><div class="cmd-name">translate "text" --to Lang</div><div class="cmd-desc">Translate to any language</div></div>
+                <div class="cmd"><div class="cmd-name">code "description"</div><div class="cmd-desc">Generate / review / explain code</div></div>
+                <div class="cmd"><div class="cmd-name">debate "topic"</div><div class="cmd-desc">Multi-AI debate on any topic</div></div>
+                <div class="cmd"><div class="cmd-name">audit "code"</div><div class="cmd-desc">Security vulnerability scan</div></div>
+                <div class="cmd"><div class="cmd-name">analyze "url"</div><div class="cmd-desc">Analyze URL or content</div></div>
+                <div class="cmd"><div class="cmd-name">fix "error" <span class="tag tag-new">NEW</span></div><div class="cmd-desc">Fix errors with AI help</div></div>
+                <div class="cmd"><div class="cmd-name">models</div><div class="cmd-desc">List all providers (ON/OFF)</div></div>
+                <div class="cmd"><div class="cmd-name">status</div><div class="cmd-desc">Server health check</div></div>
+                <div class="cmd"><div class="cmd-name">stats</div><div class="cmd-desc">Provider response times</div></div>
+                <div class="cmd"><div class="cmd-name">new</div><div class="cmd-desc">Reset all conversations</div></div>
+            </div>
+        </div>
+
+        <div class="line"></div>
+
+        <div class="sec">
+            <div class="st">🤖 Provider Control</div>
+            <div class="ex">
+                <h4>Choose Your AI</h4>
+                <pre>
+# Specific provider
+proxima ask claude "Explain quantum computing"
+proxima ask chatgpt "Write a poem about AI"
+proxima ask gemini "Summarize this topic"
+proxima ask perplexity "Latest news on AI"
+
+# Auto-pick best available
+proxima ask "Hello"
+proxima ask auto "Hello"
+
+# All providers at once
+proxima ask all "What is consciousness?"
+proxima compare "Is water wet?"</pre>
+            </div>
+        </div>
+
+        <div class="line"></div>
+
+        <div class="sec">
+            <div class="st">🔧 Context-Aware Features <span class="tag tag-ctx">SMART</span></div>
+            <p style="color:#888;font-size:12px;margin-bottom:10px">Pipe command output, errors, or file content directly to AI for instant help.</p>
+
+            <div class="cmd-grid">
+                <div class="ex">
+                    <h4>📥 Pipe Error Output</h4>
+                    <pre># Build error → AI fixes it
+npm run build 2>&1 | proxima fix
+
+# Python error → AI fix
+python app.py 2>&1 | proxima fix
+
+# Any command output
+docker logs app | proxima ask "any errors?"</pre>
+                </div>
+                <div class="ex">
+                    <h4>📄 File as Context</h4>
+                    <pre># Explain a file
+proxima ask "explain this" --file src/app.js
+
+# Review a file
+proxima ask "review for bugs" --file server.py
+
+# Fix error with source file
+proxima fix "TypeError" --file src/utils.js</pre>
+                </div>
+                <div class="ex">
+                    <h4>🔀 Pipe + Question</h4>
+                    <pre># Log analysis
+cat error.log | proxima ask "what went wrong?"
+
+# Git changes → code review
+git diff | proxima code review
+
+# Config check
+cat nginx.conf | proxima ask "any issues?"</pre>
+                </div>
+                <div class="ex">
+                    <h4>⚡ Auto-Fix Mode</h4>
+                    <pre># Just pipe anything — auto detects
+npm test 2>&1 | proxima fix
+cargo build 2>&1 | proxima fix
+go build . 2>&1 | proxima fix
+
+# Even without a command name:
+some-command 2>&1 | proxima</pre>
+                </div>
+            </div>
+        </div>
+
+        <div class="line"></div>
+
+        <div class="sec">
+            <div class="st">💻 Code Tools</div>
+            <div class="ex">
+                <h4>Generate, Review, Explain, Debug</h4>
+                <pre>
+# Generate code
+proxima code "REST API with auth" --lang Python
+proxima code "sort algorithm" --lang JavaScript
+
+# Review code
+proxima code review "def fib(n): return fib(n-1)+fib(n-2)"
+cat app.js | proxima code review
+
+# Explain code
+proxima code explain "async/await patterns"
+cat complex.py | proxima code explain
+
+# Debug
+proxima code debug "function fails on empty array"</pre>
+            </div>
+        </div>
+
+        <div class="line"></div>
+
+        <div class="sec">
+            <div class="st">⚙️ Options & Environment</div>
+            <div class="cmd-grid">
+                <div class="ex">
+                    <h4>Flags</h4>
+                    <pre>--model, -m    Specify AI model
+--to           Target language (translate)
+--from         Source language (translate)
+--lang, -l     Programming language (code)
+--file         Send file as context
+--q            Question for analyze
+--json         Raw JSON output</pre>
+                </div>
+                <div class="ex">
+                    <h4>Environment Variables</h4>
+                    <pre># Custom port
+set PROXIMA_PORT=4000
+proxima ask claude "Hello"
+
+# Custom host
+set PROXIMA_HOST=192.168.1.100
+proxima status
+
+# Default: 127.0.0.1:${REST_PORT}</pre>
+                </div>
+            </div>
+        </div>
+
+        <div class="foot">Proxima CLI v${VERSION} — Zen4-bit ⚡</div>
+    </div>
+    ${getChatJS()}
+</body>
+</html>`;
+}
+
+// ─── WebSocket Docs Page ─────────────────────────────────
+function getWSDocsPage() {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Proxima WebSocket</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Inter',sans-serif;background:#08080d;color:#d4d4e0;min-height:100vh;line-height:1.6}
+        .grid-bg{position:fixed;inset:0;background-image:linear-gradient(rgba(34,197,94,.02) 1px,transparent 1px),linear-gradient(90deg,rgba(34,197,94,.02) 1px,transparent 1px);background-size:60px 60px}
+        .wrap{max-width:920px;margin:0 auto;padding:36px 20px;position:relative;z-index:1}
+        .head{text-align:center;margin-bottom:32px}
+        .logo{font-size:42px;font-weight:700;background:linear-gradient(135deg,#22c55e,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+        .sub{color:#666;font-size:14px;margin-top:2px}
+        .line{height:1px;background:linear-gradient(90deg,transparent,rgba(34,197,94,.3),transparent);margin:24px 0}
+        .sec{margin-bottom:24px}
+        .st{font-size:16px;font-weight:600;color:#22c55e;margin-bottom:10px}
+        .highlight{background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.15);border-radius:8px;padding:16px;margin:12px 0}
+        .highlight h3{color:#22c55e;font-size:14px;margin-bottom:6px}
+        .highlight p{color:#888;font-size:12px}
+        .ex{background:rgba(6,6,12,.9);border:1px solid rgba(34,197,94,.12);border-radius:8px;padding:14px;margin-top:5px}
+        .ex h4{color:#22c55e;font-size:10px;margin-bottom:6px;text-transform:uppercase;letter-spacing:.6px}
+        pre{font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5;color:#a5b4fc;white-space:pre-wrap}
+        .foot{text-align:center;margin-top:36px;color:#333;font-size:11px}
+        .cmd-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+        .cmd{padding:10px 14px;background:rgba(16,16,24,.85);border:1px solid rgba(34,197,94,.08);border-radius:8px;transition:border-color .2s}
+        .cmd:hover{border-color:rgba(34,197,94,.25)}
+        .cmd-name{font-family:'JetBrains Mono',monospace;font-size:12px;color:#22c55e;font-weight:600}
+        .cmd-desc{font-size:11px;color:#666;margin-top:2px}
+        .tag{display:inline-block;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:600;margin-left:4px}
+        .tag-live{background:rgba(34,197,94,.1);color:#22c55e;border:1px solid rgba(34,197,94,.15)}
+        .nav{display:flex;justify-content:center;gap:4px;margin-bottom:24px}
+        .nav a{padding:8px 24px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;transition:all .2s;border:1px solid transparent}
+        .nav a.active{background:rgba(34,197,94,.15);color:#22c55e;border-color:rgba(34,197,94,.3)}
+        .nav a:not(.active){color:#666;background:rgba(16,16,24,.5);border-color:rgba(255,255,255,.05)}
+        .nav a:not(.active):hover{color:#22c55e;border-color:rgba(34,197,94,.2);background:rgba(34,197,94,.05)}
+        @media(max-width:640px){.cmd-grid{grid-template-columns:1fr}}
+    </style>
+</head>
+<body>
+    <div class="grid-bg"></div>
+    <div class="wrap">
+        <div class="nav"><a href="/">⚡ REST API</a><a href="/cli">🖥️ CLI</a><a href="/ws" class="active">🔌 WebSocket</a></div>
+        <div class="head">
+            <div class="logo">🔌 Proxima WebSocket</div>
+            <p class="sub">Real-time AI communication · ws://localhost:${REST_PORT}/ws</p>
+        </div>
+
+        ${getChatHTML('#22c55e')}
+        <div class="line"></div>
+
+        <div class="highlight">
+            <h3>⚡ Connect</h3>
+            <p>Persistent connection — send multiple messages without reconnecting.</p>
+            <pre style="margin-top:10px">
+// JavaScript
+const ws = new WebSocket("ws://localhost:${REST_PORT}/ws");
+
+ws.onopen = () => console.log("Connected!");
+ws.onmessage = (e) => console.log(JSON.parse(e.data));
+
+// Send a message
+ws.send(JSON.stringify({
+    action: "ask",
+    model: "claude",
+    message: "What is AI?"
+}));</pre>
+        </div>
+
+        <div class="line"></div>
+
+        <div class="sec">
+            <div class="st">📋 Available Actions</div>
+            <div class="cmd-grid">
+                <div class="cmd"><div class="cmd-name">ask <span class="tag tag-live">LIVE</span></div><div class="cmd-desc">Chat with any AI provider</div></div>
+                <div class="cmd"><div class="cmd-name">search</div><div class="cmd-desc">Web search via Perplexity</div></div>
+                <div class="cmd"><div class="cmd-name">code</div><div class="cmd-desc">Generate / review / explain code</div></div>
+                <div class="cmd"><div class="cmd-name">translate</div><div class="cmd-desc">Translate text</div></div>
+                <div class="cmd"><div class="cmd-name">brainstorm</div><div class="cmd-desc">Creative ideas</div></div>
+                <div class="cmd"><div class="cmd-name">debate</div><div class="cmd-desc">Multi-provider debate</div></div>
+                <div class="cmd"><div class="cmd-name">audit</div><div class="cmd-desc">Security vulnerability scan</div></div>
+                <div class="cmd"><div class="cmd-name">ping</div><div class="cmd-desc">Connection health check</div></div>
+                <div class="cmd"><div class="cmd-name">stats</div><div class="cmd-desc">Server statistics</div></div>
+            </div>
+        </div>
+
+        <div class="line"></div>
+
+        <div class="sec">
+            <div class="st">📨 Message Format</div>
+            <div class="cmd-grid">
+                <div class="ex">
+                    <h4>→ Send (Client to Server)</h4>
+                    <pre>{
+  "action": "ask",
+  "model": "claude",
+  "message": "What is AI?",
+  "id": "optional-request-id"
+}</pre>
+                </div>
+                <div class="ex">
+                    <h4>← Receive (Server to Client)</h4>
+                    <pre>// Status update
+{"type":"status","id":"req_1","status":"processing"}
+
+// Response
+{"type":"response","id":"req_1",
+ "content":"AI is...",
+ "model":"claude",
+ "responseTimeMs":5420}
+
+// Error
+{"type":"error","id":"req_1",
+ "error":"Provider unavailable"}</pre>
+                </div>
+            </div>
+        </div>
+
+        <div class="line"></div>
+
+        <div class="sec">
+            <div class="st">📝 All Actions — Examples</div>
+            <div class="cmd-grid">
+                <div class="ex">
+                    <h4>💬 Ask / Chat</h4>
+                    <pre>// Ask specific provider
+{"action":"ask","model":"claude",
+ "message":"Write a haiku"}
+
+// Auto-pick best
+{"action":"ask",
+ "message":"Hello world"}</pre>
+                </div>
+                <div class="ex">
+                    <h4>🔍 Search</h4>
+                    <pre>{"action":"search",
+ "query":"Latest AI news 2026"}</pre>
+                </div>
+                <div class="ex">
+                    <h4>💻 Code</h4>
+                    <pre>// Generate
+{"action":"code",
+ "description":"Sort algorithm",
+ "language":"Python"}
+
+// Review
+{"action":"code","subaction":"review",
+ "description":"def fib(n):..."}</pre>
+                </div>
+                <div class="ex">
+                    <h4>🌐 Translate</h4>
+                    <pre>{"action":"translate",
+ "text":"Hello world",
+ "to":"Hindi"}</pre>
+                </div>
+                <div class="ex">
+                    <h4>🧠 Brainstorm</h4>
+                    <pre>{"action":"brainstorm",
+ "topic":"AI startup ideas"}</pre>
+                </div>
+                <div class="ex">
+                    <h4>⚔️ Debate</h4>
+                    <pre>{"action":"debate",
+ "topic":"Is AI dangerous?"}</pre>
+                </div>
+                <div class="ex">
+                    <h4>🛡️ Security Audit</h4>
+                    <pre>{"action":"audit",
+ "code":"app.get('/user',
+  (req,res)=>db.query(
+  'SELECT * WHERE id='+req.id))"}</pre>
+                </div>
+                <div class="ex">
+                    <h4>❤️ Ping / Stats</h4>
+                    <pre>{"action":"ping"}
+// → {"type":"pong"}
+
+{"action":"stats"}
+// → {"type":"stats","data":{...}}</pre>
+                </div>
+            </div>
+        </div>
+
+        <div class="line"></div>
+
+        <div class="sec">
+            <div class="st">🔧 Client Examples</div>
+            <div class="cmd-grid">
+                <div class="ex">
+                    <h4>JavaScript (Browser / Node.js)</h4>
+                    <pre>const ws = new WebSocket("ws://localhost:${REST_PORT}/ws");
+
+ws.onmessage = (e) => {
+  const msg = JSON.parse(e.data);
+  if (msg.type === 'response') {
+    console.log(msg.content);
+  }
+};
+
+ws.onopen = () => {
+  ws.send(JSON.stringify({
+    action: "ask",
+    model: "claude",
+    message: "Explain AI"
+  }));
+};</pre>
+                </div>
+                <div class="ex">
+                    <h4>Python</h4>
+                    <pre>import websocket, json
+
+ws = websocket.create_connection(
+  "ws://localhost:${REST_PORT}/ws"
+)
+
+# Send
+ws.send(json.dumps({
+  "action": "ask",
+  "model": "claude",
+  "message": "What is AI?"
+}))
+
+# Receive
+result = json.loads(ws.recv())  # status
+result = json.loads(ws.recv())  # response
+print(result["content"])</pre>
+                </div>
+            </div>
+        </div>
+
+        <div class="line"></div>
+
+        <div class="sec">
+            <div class="st">📡 Event Types</div>
+            <div class="cmd-grid">
+                <div class="cmd"><div class="cmd-name">connected</div><div class="cmd-desc">Initial connection — returns clientId</div></div>
+                <div class="cmd"><div class="cmd-name">status</div><div class="cmd-desc">Processing status update (processing, searching, etc.)</div></div>
+                <div class="cmd"><div class="cmd-name">response</div><div class="cmd-desc">AI response with content and timing</div></div>
+                <div class="cmd"><div class="cmd-name">error</div><div class="cmd-desc">Error with message</div></div>
+                <div class="cmd"><div class="cmd-name">pong</div><div class="cmd-desc">Reply to ping</div></div>
+                <div class="cmd"><div class="cmd-name">stats</div><div class="cmd-desc">Server statistics data</div></div>
+            </div>
+        </div>
+
+        <div class="foot">Proxima WebSocket v${VERSION} — Zen4-bit ⚡</div>
+    </div>
+    ${getChatJS()}
 </body>
 </html>`;
 }
@@ -503,7 +1084,7 @@ async function handleRoute(method, pathname, body, res) {
             return sendError(res, 404, resolved.error, 'model_not_found');
         }
 
-        // Helper: run prompt on resolved models
+    
         async function run(prompt, defaultModel, extraFields = {}) {
             const input = body.model || defaultModel || 'auto';
             const r = resolveModels(input);
@@ -586,6 +1167,59 @@ async function handleRoute(method, pathname, body, res) {
                 ? `Analyze this URL: ${url}${body.question ? `\nQuestion: ${body.question}` : ''}${body.focus ? `\nFocus: ${body.focus}` : ''}`
                 : `Analyze: ${content}${body.question ? `\nQuestion: ${body.question}` : ''}`;
             return run(prompt, url ? 'perplexity' : 'auto', { function: 'analyze' });
+        }
+
+        // ── function: "security_audit" ──
+        if (fn === 'security_audit') {
+            const code = body.code || extractMessage(body);
+            if (!code) return sendError(res, 400, 'code or message required');
+            const lang = body.language ? ` (${body.language})` : '';
+            const prompt = `You are a senior security engineer. Perform a thorough security audit of this code${lang}.
+
+CODE:
+${code}
+
+Check for: injection vulnerabilities, auth flaws, data exposure, input validation issues, cryptographic issues, config problems, dependency risks.
+
+For each issue: Severity (CRITICAL/HIGH/MEDIUM/LOW), Location, Description, Fix.
+End with a security score (0-100).`;
+            return run(prompt, 'claude', { function: 'security_audit' });
+        }
+
+        // ── function: "debate" ──
+        if (fn === 'debate') {
+            const topic = body.topic || extractMessage(body);
+            if (!topic) return sendError(res, 400, 'topic or message required');
+            const sides = body.sides || 2;
+            const resolved2 = resolveModels(body.model || 'all');
+            if (resolved2.mode === 'error') return sendError(res, 404, resolved2.error);
+
+            if (resolved2.providers.length < 2) {
+                // Single provider — generate both sides
+                const prompt = `Debate this topic from ${sides} different perspectives with strong arguments and evidence:\n\nTopic: ${topic}\n\nFormat: ## Perspective [N]: [Position]\n- Arguments\n- Evidence\n\nEnd with balanced conclusion.`;
+                return run(prompt, 'auto', { function: 'debate', topic });
+            }
+
+            // Multi-provider debate
+            const stances = ['FOR / supportive', 'AGAINST / critical', 'NEUTRAL / analytical', 'ALTERNATIVE / unconventional'];
+            const debateResults = {};
+            const debateTimings = {};
+            await Promise.all(resolved2.providers.slice(0, sides).map(async (provider, i) => {
+                try {
+                    const stance = stances[i] || `Perspective ${i + 1}`;
+                    const r = await queryProvider(provider, `You are debating this topic. Your position: ${stance}.\n\nTopic: ${topic}\n\nPresent your strongest arguments. Be persuasive. Do NOT present the other side.`);
+                    debateResults[provider] = { stance, response: r.text };
+                    debateTimings[provider] = r.responseTimeMs;
+                } catch (e) {
+                    debateResults[provider] = { stance: stances[i], error: e.message };
+                }
+            }));
+            sendJSON(res, 200, {
+                id: `proxima-${Date.now()}`, object: 'chat.completion', model: 'debate',
+                topic, perspectives: debateResults, timings: debateTimings,
+                proxima: { function: 'debate', providers: resolved2.providers.slice(0, sides) }
+            });
+            return;
         }
 
         // ── No function = Normal Chat (default) ──
@@ -674,117 +1308,23 @@ async function handleRoute(method, pathname, body, res) {
                     body: { model: 'string', message: 'string or url', function: 'analyze' },
                     optional: { url: 'URL to analyze', question: 'specific question', focus: 'focus area' },
                     example: { model: 'perplexity', function: 'analyze', url: 'https://example.com', question: 'What is this?' }
+                },
+                security_audit: {
+                    description: 'Scan code for security vulnerabilities',
+                    body: { model: 'string', code: 'string', function: 'security_audit' },
+                    optional: { language: 'programming language' },
+                    example: { model: 'claude', code: 'app.get("/user", (req,res) => { db.query("SELECT * FROM users WHERE id=" + req.query.id) })', function: 'security_audit' }
+                },
+                debate: {
+                    description: 'Multi-perspective debate on any topic',
+                    body: { model: 'string or "all"', message: 'string', function: 'debate' },
+                    optional: { sides: 'number of perspectives (default: 2)' },
+                    example: { model: 'all', message: 'Is AI a threat to humanity?', function: 'debate' }
                 }
             }
         });
         return;
     }
-
-    // (removed — logic is now inside /v1/chat/completions)
-    // async function runOnModels(modelInput, prompt, defaultModel, extraFields = {}) {
-    //     // Default model if not specified
-    //     const input = modelInput || defaultModel || 'auto';
-    //     const resolved = resolveModels(input);
-
-    //     if (resolved.mode === 'error') {
-    //         return { error: true, code: 404, message: resolved.error };
-    //     }
-
-    //     try {
-    //         if (resolved.mode === 'single') {
-    //             const r = await queryProvider(resolved.providers[0], prompt);
-    //             return { error: false, response: { ...formatChatResponse(r, resolved.providers[0]), ...extraFields } };
-    //         } else {
-    //             const multiResults = await queryMultiple(resolved.providers, prompt);
-    //             return { error: false, response: { ...formatAllResponse(multiResults), ...extraFields } };
-    //         }
-    //     } catch (e) {
-    //         return { error: true, code: 500, message: e.message };
-    //     }
-    // }
-
-    // Old tool endpoints (consolidated into /v1/chat/completions)
-
-    // ── Search ──
-    // if (method === 'POST' && pathname === `${API_PREFIX}/tools/search`) {
-    //     const q = extractMessage(body);
-    //     if (!q) return sendError(res, 400, 'Query required');
-    //     const result = await runOnModels(body.model, q, 'perplexity', { tool: 'search' });
-    //     if (result.error) return sendError(res, result.code, result.message);
-    //     sendJSON(res, 200, result.response);
-    //     return;
-    // }
-
-    // ── Translate ──
-    // if (method === 'POST' && pathname === `${API_PREFIX}/tools/translate`) {
-    //     const { text, targetLanguage, sourceLanguage } = body;
-    //     if (!text) return sendError(res, 400, 'text required');
-    //     if (!targetLanguage) return sendError(res, 400, 'targetLanguage required');
-    //     const prompt = `Translate the following${sourceLanguage ? ` from ${sourceLanguage}` : ''} to ${targetLanguage}. Only output the translation:\n\n${text}`;
-    //     const result = await runOnModels(body.model, prompt, 'auto', { tool: 'translate', original: text, targetLanguage });
-    //     if (result.error) return sendError(res, result.code, result.message);
-    //     sendJSON(res, 200, result.response);
-    //     return;
-    // }
-
-    // ── Brainstorm ──
-    // if (method === 'POST' && pathname === `${API_PREFIX}/tools/brainstorm`) {
-    //     const topic = body.topic || extractMessage(body);
-    //     if (!topic) return sendError(res, 400, 'topic required');
-    //     const prompt = `Brainstorm creative ideas for: ${topic}\n\nProvide diverse, practical suggestions.`;
-    //     const result = await runOnModels(body.model, prompt, 'auto', { tool: 'brainstorm', topic });
-    //     if (result.error) return sendError(res, result.code, result.message);
-    //     sendJSON(res, 200, result.response);
-    //     return;
-    // }
-
-    // ── Code Tools ──
-    // if (method === 'POST' && pathname === `${API_PREFIX}/tools/code`) {
-    //     const action = body.action || 'generate';
-    //     let prompt;
-    //     switch (action) {
-    //         case 'generate':
-    //             if (!body.description) return sendError(res, 400, 'description required');
-    //             prompt = `Generate ${body.language || 'JavaScript'} code:\n${body.description}\n\nProvide clean, production-ready code.`;
-    //             break;
-    //         case 'review':
-    //             if (!body.code) return sendError(res, 400, 'code required');
-    //             prompt = `Review this ${body.language || ''} code for bugs, performance, security:\n\`\`\`${body.language || ''}\n${body.code}\n\`\`\``;
-    //             break;
-    //         case 'debug':
-    //             if (!body.code && !body.error) return sendError(res, 400, 'code or error required');
-    //             prompt = 'Debug:\n';
-    //             if (body.code) prompt += `\`\`\`${body.language || ''}\n${body.code}\n\`\`\`\n`;
-    //             if (body.error) prompt += `Error: ${body.error}\n`;
-    //             prompt += 'Identify the bug, explain, and fix.';
-    //             break;
-    //         case 'explain':
-    //             if (!body.code) return sendError(res, 400, 'code required');
-    //             prompt = `Explain this ${body.language || ''} code:\n\`\`\`${body.language || ''}\n${body.code}\n\`\`\``;
-    //             break;
-    //         default:
-    //             return sendError(res, 400, `Unknown action: ${action}. Use: generate, review, debug, explain`);
-    //     }
-    //     const result = await runOnModels(body.model, prompt, 'claude', { tool: 'code', action });
-    //     if (result.error) return sendError(res, result.code, result.message);
-    //     sendJSON(res, 200, result.response);
-    //     return;
-    // }
-
-    // ── Analyze ──
-    // if (method === 'POST' && pathname === `${API_PREFIX}/tools/analyze`) {
-    //     const { url, question, focus } = body;
-    //     const content = url || extractMessage(body);
-    //     if (!content) return sendError(res, 400, 'url or content required');
-    //     const prompt = url
-    //         ? `Analyze this URL: ${url}${question ? `\nQuestion: ${question}` : ''}${focus ? `\nFocus: ${focus}` : ''}`
-    //         : `Analyze: ${content}${question ? `\nQuestion: ${question}` : ''}`;
-    //     const defaultModel = url ? 'perplexity' : 'auto';
-    //     const result = await runOnModels(body.model, prompt, defaultModel, { tool: 'analyze' });
-    //     if (result.error) return sendError(res, result.code, result.message);
-    //     sendJSON(res, 200, result.response);
-    //     return;
-    // }
 
     // /v1/stats, /v1/conversations/*
 
@@ -837,6 +1377,7 @@ async function handleRoute(method, pathname, body, res) {
         return;
     }
 
+    // /api/stats — redirects to /v1/stats
     if (method === 'GET' && pathname === '/api/stats') {
         sendJSON(res, 200, { success: true, ...getFormattedStats() });
         return;
@@ -846,6 +1387,19 @@ async function handleRoute(method, pathname, body, res) {
     if (method === 'GET' && (pathname === '/' || pathname === '/docs')) {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
         res.end(getDocsPage());
+        return;
+    }
+
+    // CLI docs page
+    if (method === 'GET' && pathname === '/cli') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+        res.end(getCLIDocsPage());
+        return;
+    }
+    // WebSocket docs page
+    if (method === 'GET' && (pathname === '/ws' || pathname === '/websocket')) {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+        res.end(getWSDocsPage());
         return;
     }
 
@@ -883,6 +1437,14 @@ function startRestAPI() {
     httpServer.listen(REST_PORT, '127.0.0.1', () => {
         stats.startTime = new Date();
         console.log(`[API] ⚡ Proxima API v${VERSION} running at http://localhost:${REST_PORT}`);
+
+        // Init WebSocket on same server
+        try {
+            initWebSocket(httpServer, handleMCPRequest, getEnabled);
+            console.log(`[API] 🔌 WebSocket ready at ws://localhost:${REST_PORT}/ws`);
+        } catch (err) {
+            console.error('[API] WebSocket init failed:', err.message);
+        }
     });
 
     httpServer.on('error', (err) => {
@@ -897,4 +1459,17 @@ function startRestAPI() {
     return httpServer;
 }
 
-module.exports = { initRestAPI, startRestAPI };
+function stopRestAPI() {
+    if (httpServer) {
+        httpServer.close(() => {
+            console.log('[API] ⏹ REST API server stopped');
+        });
+        httpServer = null;
+    }
+}
+
+function isRestAPIRunning() {
+    return httpServer !== null && httpServer.listening;
+}
+
+module.exports = { initRestAPI, startRestAPI, stopRestAPI, isRestAPIRunning };

@@ -1,11 +1,15 @@
 // Proxima main process — embedded browser + anti-detection + IPC server
 
-const { app, BrowserWindow, ipcMain, shell, session } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, session, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
 const BrowserManager = require('./browser-manager.cjs');
-const { initRestAPI, startRestAPI } = require('./rest-api.cjs');
+const { initRestAPI, startRestAPI, stopRestAPI, isRestAPIRunning } = require('./rest-api.cjs');
+const providerAPI = require('./provider-api.cjs');
+
+// Cache for API responses — when API captures response, DOM scraping is skipped
+const _apiResponseCache = {};
 
 // Anti-detection: must run before any Electron APIs
 // These MUST be set before app is ready or any windows are created
@@ -14,23 +18,22 @@ const { initRestAPI, startRestAPI } = require('./rest-api.cjs');
 const CHROME_VERSION = '130.0.6723.191';
 const CHROME_UA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VERSION} Safari/537.36`;
 
-// 1. Set user agent at Chromium COMMAND LINE level 
-//    This affects the INTERNAL sec-ch-ua brand generation in Chromium
+// 1. Set user agent at Chromium level
+//    Ensures consistent sec-ch-ua brand generation
 app.commandLine.appendSwitch('user-agent', CHROME_UA);
 
-// 2. Disable automation detection flags
+// 2. Disable automation flags for proper page rendering
 app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
 
-// 3. Disable features that leak Electron identity
+// 3. Disable unnecessary Electron features
 app.commandLine.appendSwitch('disable-features', 'ElectronSerialChooser,OutOfBlinkCors');
 
 // 4. Set the app-wide fallback user agent
-//    This affects navigator.userAgent AND sec-ch-ua hint headers for ALL sessions
 app.userAgentFallback = CHROME_UA;
 
-// 5. On ready, also clean all session user agents
+// 5. Apply user agent to all sessions on ready
 app.on('ready', () => {
-    // Clean default session
+
     session.defaultSession.setUserAgent(CHROME_UA);
 });
 
@@ -43,6 +46,15 @@ const enabledProvidersPath = path.join(userDataPath, 'enabled-providers.json');
 let mainWindow;
 let browserManager;
 let ipcServer; // For MCP server communication
+let cookieBackupInterval; // For clearing on shutdown
+
+// State tracking for response change detection
+const responseState = {
+    perplexity: { fingerprint: '', blockCount: 0 },
+    chatgpt: { fingerprint: '' },
+    claude: { fingerprint: '' },
+    gemini: { fingerprint: '' }
+};
 
 // Default settings
 const defaultSettings = {
@@ -133,7 +145,8 @@ async function backupCookies(provider, ses) {
                 secure: c.secure,
                 httpOnly: c.httpOnly,
                 sameSite: c.sameSite || 'no_restriction',
-                expirationDate: c.expirationDate || (Math.floor(Date.now() / 1000) + 2 * 24 * 60 * 60)
+                // Use 1 year expiry for session cookies — prevents premature logout
+                expirationDate: c.expirationDate || (Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60)
             }))
         };
 
@@ -154,24 +167,38 @@ async function restoreCookies(provider, ses) {
 
         const backup = JSON.parse(fs.readFileSync(backupPath, 'utf8'));
 
-        // Check if backup is too old (> 3 days)
-        const maxAge = 3 * 24 * 60 * 60 * 1000; // 3 days in ms
+        // Check if backup is too old (> 90 days)
+        const maxAge = 90 * 24 * 60 * 60 * 1000; // 90 days in ms
         if (Date.now() - backup.timestamp > maxAge) {
-
+            console.log(`[Cookie Restore] Backup too old for ${provider}, deleting`);
             fs.unlinkSync(backupPath);
             return false;
         }
 
-        // Check if there are already valid cookies in the session
-        const existing = await ses.cookies.get({});
-        if (existing.length > 5) {
-            // Session already has cookies, probably still valid
-
-            return true;
+        // Check if there are already valid AUTH cookies in the session
+        // Don't just count all cookies — Google sets many tracking/consent cookies
+        // that don't indicate login status
+        const providerAuthDomains = {
+            perplexity: { domain: 'perplexity.ai', authCookies: ['__Secure-next-auth.session-token', 'pplx_'] },
+            chatgpt: { domain: 'openai.com', authCookies: ['__Secure-next-auth.session-token', '__cf_bm'] },
+            claude: { domain: 'claude.ai', authCookies: ['sessionKey', '__cf_bm'] },
+            gemini: { domain: 'google.com', authCookies: ['SID', 'HSID', 'SSID', '__Secure-1PSID', '__Secure-3PSID'] }
+        };
+        const authConfig = providerAuthDomains[provider];
+        if (authConfig) {
+            const existing = await ses.cookies.get({});
+            const domainCookies = existing.filter(c => c.domain.includes(authConfig.domain));
+            const hasAuth = authConfig.authCookies.some(name =>
+                domainCookies.some(c => c.name.startsWith(name) || c.name === name)
+            );
+            if (hasAuth) {
+                console.log(`[Cookie Restore] ${provider} already has valid auth cookies, skipping restore`);
+                return true;
+            }
         }
 
-        // Restore cookies with refreshed expiration
-        const twoDaysFromNow = Math.floor(Date.now() / 1000) + (2 * 24 * 60 * 60);
+        // Restore cookies with refreshed expiration (1 year)
+        const oneYearFromNow = Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60);
         let restored = 0;
 
         for (const cookie of backup.cookies) {
@@ -188,8 +215,8 @@ async function restoreCookies(provider, ses) {
                     secure: cookie.secure !== false,
                     httpOnly: cookie.httpOnly === true,
                     sameSite: cookie.sameSite || 'no_restriction',
-                    // Refresh expiration on restore
-                    expirationDate: Math.max(cookie.expirationDate || 0, twoDaysFromNow)
+                    // Refresh expiration on restore — 1 year
+                    expirationDate: Math.max(cookie.expirationDate || 0, oneYearFromNow)
                 });
                 restored++;
             } catch (e) {
@@ -199,6 +226,12 @@ async function restoreCookies(provider, ses) {
 
         // Flush to disk
         await ses.cookies.flushStore();
+
+        // Refresh backup timestamp so it doesn't expire for active users
+        if (restored > 0) {
+            backup.timestamp = Date.now();
+            fs.writeFileSync(backupPath, JSON.stringify(backup, null, 2));
+        }
 
         console.log(`[Cookie Restore] Restored ${restored}/${backup.cookies.length} cookies for ${provider}`);
         return restored > 0;
@@ -235,7 +268,7 @@ function createWindow() {
         backgroundColor: '#0f0f23',
         icon: path.join(__dirname, '../assets/proxima-icon.png')
     });
-    mainWindow.setMaxListeners(20); // Prevent MaxListenersExceeded warning
+    mainWindow.setMaxListeners(50); // Electron BrowserView add/remove ops add internal 'closed' listeners
 
     // Initialize browser manager
     browserManager = new BrowserManager(mainWindow);
@@ -293,15 +326,16 @@ function createWindow() {
                         view.setBounds(offScreenBounds);
                     }
 
-                    // Navigate to the provider's URL
-                    const providerConfig = browserManager.providers[provider];
-                    if (providerConfig && providerConfig.url) {
-                        view.webContents.loadURL(providerConfig.url);
-                        console.log(`[Agent Hub] Loading ${providerConfig.url} for ${provider}`);
-                    }
+
                 }
 
                 await sleep(1500); // Give time for page to start loading
+
+                // Setup auto-inject for API scripts (all providers)
+                const wc = browserManager.getWebContents(provider);
+                if (wc) {
+                    providerAPI.setupAutoInject(provider, wc);
+                }
             } catch (err) {
                 console.error(`[Agent Hub] Error initializing ${provider}:`, err.message);
             }
@@ -319,7 +353,7 @@ function createWindow() {
         console.log('[Agent Hub] All providers initialized and ready!');
 
         // Periodically backup cookies every 10 minutes
-        setInterval(async () => {
+        cookieBackupInterval = setInterval(async () => {
             if (!browserManager || browserManager.isDestroyed) return;
             for (const provider of browserManager.getInitializedProviders()) {
                 try {
@@ -337,6 +371,10 @@ function createWindow() {
     });
 
     mainWindow.on('closed', () => {
+        if (cookieBackupInterval) {
+            clearInterval(cookieBackupInterval);
+            cookieBackupInterval = null;
+        }
         if (browserManager) {
             browserManager.destroy();
         }
@@ -349,10 +387,9 @@ function createWindow() {
     // Start IPC server for MCP communication
     startIPCServer();
 
-    // Start REST API server
+    // Start REST API server (only if enabled in settings)
     try {
-        const enabledList = Object.entries(loadSettings().providers)
-            .filter(([_, c]) => c.enabled).map(([n]) => n);
+        const currentSettings = loadSettings();
         initRestAPI({
             handleMCPRequest,
             getEnabledProviders: () => {
@@ -361,7 +398,12 @@ function createWindow() {
                     .filter(([_, c]) => c.enabled).map(([n]) => n);
             }
         });
-        startRestAPI();
+        // Only start if enabled (default: false — user must enable it)
+        if (currentSettings.restApiEnabled) {
+            startRestAPI();
+        } else {
+            console.log('[REST API] Disabled in settings. Enable via UI toggle.');
+        }
     } catch (e) {
         console.error('[REST API] Failed to start:', e.message);
     }
@@ -370,8 +412,7 @@ function createWindow() {
 // IPC Server for MCP Communication
 
 function startIPCServer() {
-    const settings = loadSettings();
-    const port = settings.ipcPort || 19222;
+    const DEFAULT_IPC_PORT = 19222;
 
     ipcServer = net.createServer((socket) => {
 
@@ -381,7 +422,7 @@ function startIPCServer() {
         socket.on('data', async (data) => {
             buffer += data.toString();
 
-            // Process complete messages (newline-delimited JSON)
+
             const lines = buffer.split('\n');
             buffer = lines.pop() || '';
 
@@ -391,7 +432,7 @@ function startIPCServer() {
 
                         const request = JSON.parse(line);
                         const response = await handleMCPRequest(request);
-                        // IMPORTANT: Include requestId in response for MCP server to match!
+
                         response.requestId = request.requestId;
                         const responseStr = JSON.stringify(response) + '\n';
 
@@ -410,17 +451,27 @@ function startIPCServer() {
         });
     });
 
-    ipcServer.listen(port, '127.0.0.1', () => {
-        console.log(`[IPC] Server listening on port ${port}`);
+
+    ipcServer.listen(DEFAULT_IPC_PORT, '127.0.0.1', () => {
+        console.log(`[IPC] Server listening on port ${DEFAULT_IPC_PORT}`);
+
+        const s = loadSettings();
+        if (s.ipcPort !== DEFAULT_IPC_PORT) {
+            s.ipcPort = DEFAULT_IPC_PORT;
+            saveSettings(s);
+        }
     });
 
     ipcServer.on('error', (err) => {
         console.error('[IPC] Server error:', err);
-        // Try next port if in use
+
         if (err.code === 'EADDRINUSE') {
+            console.log(`[IPC] Port ${DEFAULT_IPC_PORT} in use, trying ${DEFAULT_IPC_PORT + 1}...`);
             setTimeout(() => {
                 ipcServer.close();
-                ipcServer.listen(port + 1, '127.0.0.1');
+                ipcServer.listen(DEFAULT_IPC_PORT + 1, '127.0.0.1', () => {
+                    console.log(`[IPC] Server listening on fallback port ${DEFAULT_IPC_PORT + 1}`);
+                });
             }, 1000);
         }
     });
@@ -456,16 +507,16 @@ async function handleMCPRequest(request) {
 
                         const uploadResult = await uploadFileToProvider(provider, data.filePath);
                         await sleep(1000); // Wait for file to attach
-                        const result = await sendMessageToProvider(provider, data.message);
+                        const result = await sendMessageToProvider(provider, data.message, data.forceDOM || false);
                         return { success: true, provider, result, fileUploaded: uploadResult };
                     } catch (fileErr) {
                         console.error('[MCP] File upload failed:', fileErr.message);
                         // Still send message even if file upload fails
-                        const result = await sendMessageToProvider(provider, data.message);
+                        const result = await sendMessageToProvider(provider, data.message, data.forceDOM || false);
                         return { success: true, provider, result, fileError: fileErr.message };
                     }
                 } else {
-                    const result = await sendMessageToProvider(provider, data.message);
+                    const result = await sendMessageToProvider(provider, data.message, data.forceDOM || false);
                     return { success: true, provider, result };
                 }
 
@@ -476,11 +527,7 @@ async function handleMCPRequest(request) {
                 }
                 try {
                     const uploadResult = await uploadFileToProvider(provider, data.filePath);
-                    // Set flag for Perplexity file upload tracking
-                    if (provider === 'perplexity') {
-                        perplexityFileJustUploaded = true;
 
-                    }
                     return { success: true, provider, ...uploadResult };
                 } catch (uploadErr) {
                     return { success: false, error: uploadErr.message };
@@ -489,7 +536,7 @@ async function handleMCPRequest(request) {
             case 'sendMessageWithFile':
                 // Explicitly send message with file
                 if (!fileReferenceEnabled) {
-
+                    return { success: false, error: 'File reference is disabled. Enable it in Agent Hub settings.' };
                 }
                 try {
                     let fileResult = null;
@@ -497,11 +544,7 @@ async function handleMCPRequest(request) {
 
                         fileResult = await uploadFileToProvider(provider, data.filePath);
 
-                        // Set flag for Perplexity file upload tracking
-                        if (provider === 'perplexity') {
-                            perplexityFileJustUploaded = true;
 
-                        }
 
                         // Wait longer and verify file is attached
 
@@ -529,18 +572,25 @@ async function handleMCPRequest(request) {
 
                         // Wait for send button to be ready (file upload complete)
 
-                        await waitForSendButton(provider);
+                        await waitForSendButtonReady(provider);
                     }
 
 
                     const msgResult = await sendMessageToProvider(provider, data.message);
-                    const responseData = await getResponseWithTypingStatus(provider);
+                    // Use engine response if available, only DOM-poll when engine didn't return content
+                    let finalResponse = '';
+                    if (msgResult && msgResult.response && msgResult.response.length > 0) {
+                        finalResponse = msgResult.response;
+                    } else {
+                        const responseData = await getResponseWithTypingStatus(provider);
+                        finalResponse = responseData.response;
+                    }
                     return {
                         success: true,
                         provider,
                         fileUploaded: fileResult,
                         messageSent: msgResult,
-                        response: responseData.response
+                        response: finalResponse
                     };
                 } catch (err) {
                     return { success: false, error: err.message };
@@ -679,25 +729,34 @@ async function handleMCPRequest(request) {
 
 // Provider-Specific Interaction Functions
 
-async function sendMessageToProvider(provider, message) {
+async function sendMessageToProvider(provider, message, forceDOM = false) {
     const webContents = browserManager.getWebContents(provider);
     if (!webContents) {
         throw new Error(`Provider ${provider} not initialized`);
     }
 
-    // CRITICAL: Clear the network interceptor's captured response BEFORE sending new message
-    // This prevents old conversation data from being mixed into the new response
-    try {
-        await webContents.executeJavaScript(`
-            window.__proxima_captured_response = '';
-            window.__proxima_is_streaming = false;
-            window.__proxima_last_capture_time = 0;
-            window.__proxima_active_stream_id = null;
-            if (window.__proxima_blocks) window.__proxima_blocks = {};
-        `);
-    } catch (e) {
-        // Silent — non-critical
+    // API-first approach — direct fetch + SSE, skip when forceDOM=true
+    if (!forceDOM) {
+        try {
+            console.log(`[${provider}] Trying API-first approach...`);
+            const apiResponse = await providerAPI.sendViaAPI(provider, webContents, message);
+            if (apiResponse && apiResponse.length > 0) {
+                console.log(`[${provider}] \u2714 API response captured (${apiResponse.length} chars)`);
+                _apiResponseCache[provider] = apiResponse;
+                return { response: apiResponse };
+            }
+            console.log(`[${provider}] API returned empty \u2014 falling back to DOM`);
+            delete _apiResponseCache[provider];
+        } catch (apiErr) {
+            console.log(`[${provider}] API failed: ${apiErr.message} — falling back to DOM`);
+            // Clear stale cache so getResponseWithTyping doesn't return old data
+            delete _apiResponseCache[provider];
+        }
+    } else {
+        console.log(`[${provider}] forceDOM=true — skipping API, typing into open conversation`);
     }
+
+    // DOM fallback: types into currently open conversation
 
     switch (provider) {
         case 'perplexity':
@@ -747,8 +806,8 @@ async function sendToPerplexity(webContents, message) {
         })()
     `).catch(() => ({ count: 0, fingerprint: '' }));
 
-    global.perplexityOldFingerprint = oldResponseData.fingerprint;
-    global.perplexityOldBlockCount = oldResponseData.count;
+    responseState.perplexity.fingerprint = oldResponseData.fingerprint;
+    responseState.perplexity.blockCount = oldResponseData.count;
     console.log('[Perplexity] Old response data:', { count: oldResponseData.count, fingerprint: oldResponseData.fingerprint.substring(0, 50) + '...' });
 
     // Step 1: Focus the input area
@@ -778,7 +837,6 @@ async function sendToPerplexity(webContents, message) {
     await sleep(500);
 
     // Step 2: Insert message using clipboard paste (ALWAYS - works with or without file)
-    const { clipboard } = require('electron');
     const oldClipboard = clipboard.readText();
     clipboard.writeText(message);
 
@@ -847,7 +905,7 @@ async function sendToChatGPT(webContents, message) {
     `).catch(() => '');
 
     // Store fingerprint globally for response capture
-    global.chatgptOldFingerprint = oldResponseFingerprint;
+    responseState.chatgpt.fingerprint = oldResponseFingerprint;
     console.log('[ChatGPT] Captured old response fingerprint:', oldResponseFingerprint.substring(0, 50) + '...');
 
     // Focus input field
@@ -921,7 +979,7 @@ async function sendToClaude(webContents, message) {
     `).catch(() => '');
 
     // Store fingerprint globally for response capture
-    global.claudeOldFingerprint = oldResponseFingerprint;
+    responseState.claude.fingerprint = oldResponseFingerprint;
     console.log('[Claude] Captured old response fingerprint:', oldResponseFingerprint.substring(0, 50) + '...');
 
     await webContents.executeJavaScript(`
@@ -979,7 +1037,7 @@ async function sendToGemini(webContents, message) {
     `).catch(() => '');
 
     // Store fingerprint globally for response capture
-    global.geminiOldFingerprint = oldResponseFingerprint;
+    responseState.gemini.fingerprint = oldResponseFingerprint;
     console.log('[Gemini] Captured old response fingerprint:', oldResponseFingerprint.substring(0, 50) + '...');
 
     // Wait a bit for page to be fully ready
@@ -1190,6 +1248,18 @@ async function typeIntoPage(webContents, text) {
 async function getResponseWithTypingStatus(provider) {
     console.log(`[getResponseWithTyping] Starting for ${provider}...`);
 
+    // CHECK API CACHE FIRST — if API already captured the response, skip DOM scraping entirely
+    if (_apiResponseCache[provider]) {
+        const cached = _apiResponseCache[provider];
+        delete _apiResponseCache[provider]; // Clear after use
+        console.log(`[getResponseWithTyping] \u2714 Using API-cached response for ${provider} (${cached.length} chars) — DOM scraping SKIPPED`);
+        return {
+            typingStarted: true,
+            typingStopped: true,
+            response: cached
+        };
+    }
+
     const webContents = browserManager.getWebContents(provider);
     if (!webContents) {
         throw new Error(`Provider ${provider} not initialized`);
@@ -1219,9 +1289,9 @@ async function getResponseWithTypingStatus(provider) {
                     return { count: 0, fingerprint: '' };
                 })()
             `).catch(() => ({ count: 0, fingerprint: '' }));
-            global.perplexityOldFingerprint = oldData.fingerprint;
-            global.perplexityOldBlockCount = oldData.count;
-            console.log(`[Perplexity] Captured old response fingerprint: ${oldData.fingerprint.substring(0, 50)}...`);
+            responseState.perplexity.fingerprint = oldData.fingerprint;
+            responseState.perplexity.blockCount = oldData.count;
+            console.log(`[Perplexity] Old response data: { count: ${oldData.count}, fingerprint: '${oldData.fingerprint.substring(0, 50)}...' }`);
         } else if (provider === 'claude') {
             const oldFp = await webContents.executeJavaScript(`
                 (function() {
@@ -1244,7 +1314,7 @@ async function getResponseWithTypingStatus(provider) {
                     return '';
                 })()
             `).catch(() => '');
-            global.claudeOldFingerprint = oldFp;
+            responseState.claude.fingerprint = oldFp;
             console.log(`[Claude] Captured old response fingerprint: ${oldFp.substring(0, 50)}...`);
         } else if (provider === 'chatgpt') {
             const oldFp = await webContents.executeJavaScript(`
@@ -1256,6 +1326,7 @@ async function getResponseWithTypingStatus(provider) {
                     return '';
                 })()
             `).catch(() => '');
+            responseState.chatgpt.fingerprint = oldFp;
             console.log(`[ChatGPT] Captured old response fingerprint: ${oldFp.substring(0, 50)}...`);
         } else if (provider === 'gemini') {
             const oldFp = await webContents.executeJavaScript(`
@@ -1267,6 +1338,7 @@ async function getResponseWithTypingStatus(provider) {
                     return '';
                 })()
             `).catch(() => '');
+            responseState.gemini.fingerprint = oldFp;
             console.log(`[Gemini] Captured old response fingerprint: ${oldFp.substring(0, 50)}...`);
         }
     } catch (e) {
@@ -1274,10 +1346,15 @@ async function getResponseWithTypingStatus(provider) {
     }
 
     // Now get the actual response
-    const response = await getProviderResponse(provider);
+    let response = await getProviderResponse(provider);
+
+    // Clean Perplexity-specific noise (query heading echo, trailing UI elements)
+    if (provider === 'perplexity' && response) {
+        response = cleanPerplexityResponse(response);
+    }
 
     return {
-        typingStarted: true,
+        typingStarted: response && response.length > 0,
         typingStopped: true,
         response
     };
@@ -1289,126 +1366,98 @@ async function getProviderResponse(provider, customSelector = null) {
         throw new Error(`Provider ${provider} not initialized`);
     }
 
-    // Fast path: grab from network interceptor instead of waiting for DOM
+    console.log(`[getProviderResponse] ${provider}: Using DOM fallback path...`);
 
-    const maxWaitSeconds = (provider === 'claude') ? 600 : 120; // 5 min Claude, 2 min others
-    const maxPolls = maxWaitSeconds * 2; // polling every 500ms
-    let networkGotResponse = false;
-
-    console.log(`[getProviderResponse] ⚡ ${provider}: Network interceptor polling (fast path)...`);
-
-    for (let i = 0; i < maxPolls; i++) {
-        try {
-            const status = await webContents.executeJavaScript(`
-                (function() {
-                    return {
-                        response: window.__proxima_captured_response || '',
-                        isStreaming: window.__proxima_is_streaming || false,
-                        lastCaptureTime: window.__proxima_last_capture_time || 0,
-                        installed: !!window.__proxima_fetch_intercepted
-                    };
-                })()
-            `);
-
-            // Interceptor not installed — skip to DOM fallback
-            if (!status.installed) {
-                console.log(`[getProviderResponse] ${provider}: Interceptor not installed, using DOM fallback`);
-                break;
-            }
-
-            // Stream started and has content
-            if (status.response.length > 0) {
-                // Stream is DONE — return immediately!
-                if (!status.isStreaming) {
-                    console.log(`[getProviderResponse] ⚡ ${provider}: Network capture COMPLETE! ${status.response.length} chars (poll #${i})`);
-                    // Clear for next use
-                    await webContents.executeJavaScript(`window.__proxima_captured_response = ''`);
-                    networkGotResponse = true;
-                    return status.response;
-                }
-
-                // Still streaming — log progress every 5 seconds
-                if (i % 10 === 0 && i > 0) {
-                    console.log(`[getProviderResponse] ${provider}: Still streaming... ${status.response.length} chars captured`);
-                }
-            }
-
-            // No content yet — waiting for stream to start
-            // If no stream activity after 2 seconds, fall back to DOM quickly
-            // (Gemini/Perplexity don't use fetch, so interceptor won't capture them)
-            // Also handles case where interceptor matched URL but parser failed (ChatGPT)
-            if (i > 3 && !status.isStreaming && status.response.length === 0) {
-                console.log(`[getProviderResponse] ${provider}: No usable stream data after ${i * 0.5}s, trying DOM fallback`);
-                break;
-            }
-
-        } catch (e) {
-            // webContents might be navigating, retry
-            if (i > 40) {
-                console.log(`[getProviderResponse] ${provider}: Interceptor error, falling back to DOM`);
-                break;
-            }
-        }
-
-        await sleep(500);
+    // Get old fingerprint for detecting new responses
+    let oldFingerprint = '';
+    let oldBlockCount = 0;
+    if (provider === 'perplexity') {
+        oldFingerprint = responseState.perplexity.fingerprint || '';
+        oldBlockCount = responseState.perplexity.blockCount || 0;
+    } else if (provider === 'claude') {
+        oldFingerprint = responseState.claude.fingerprint || '';
+    } else if (provider === 'chatgpt') {
+        oldFingerprint = responseState.chatgpt.fingerprint || '';
+    } else if (provider === 'gemini') {
+        oldFingerprint = responseState.gemini.fingerprint || '';
     }
-
-    // Slow path: DOM scraping fallback (interceptor missed or not installed)
-
-    if (!networkGotResponse) {
-        console.log(`[getProviderResponse] ${provider}: Using DOM fallback path...`);
-
-        // Get old fingerprint for detecting new responses
-        let oldFingerprint = '';
-        let oldBlockCount = 0;
-        if (provider === 'perplexity') {
-            oldFingerprint = global.perplexityOldFingerprint || '';
-            oldBlockCount = global.perplexityOldBlockCount || 0;
-        } else if (provider === 'claude') {
-            oldFingerprint = global.claudeOldFingerprint || '';
-        }
 
         // Smart typing wait — check if AI is currently typing, wait only if needed
         try {
+            // Perplexity needs extra initial wait — it takes 2-4s to even START generating
+            if (provider === 'perplexity') {
+                await sleep(3000);
+            }
+            // Gemini thinking models take time before response starts
+            if (provider === 'gemini') {
+                await sleep(2000);
+            }
+
+            let typingDetected = false;
             const typingNow = await isAITyping(provider);
             if (typingNow.isTyping) {
+                typingDetected = true;
+            } else if (provider === 'perplexity' || provider === 'gemini') {
+                // May not have started typing yet — retry a few times
+                for (let retry = 0; retry < 6; retry++) {
+                    await sleep(500);
+                    const recheck = await isAITyping(provider);
+                    if (recheck.isTyping) {
+                        typingDetected = true;
+                        break;
+                    }
+                }
+            }
+
+            if (typingDetected) {
                 console.log(`[getProviderResponse] ${provider}: AI still typing, waiting...`);
                 const maxTypingWait = (provider === 'claude') ? 600 : 120;
+                let lastResponseSnap = '';
+                let stableResponseCount = 0;
                 for (let i = 0; i < maxTypingWait; i++) {
                     const ts = await isAITyping(provider);
                     if (!ts.isTyping) break;
+                    
+                    // Perplexity false positive fix: check if response text is stable
+                    // If response hasn't changed for 5 checks (2.5s) while "typing", it's done
+                    if (provider === 'perplexity' && i > 10) {
+                        try {
+                            const snap = await webContents.executeJavaScript(`
+                                (function() {
+                                    const blocks = document.querySelectorAll('[class*="prose"]:not(.prose-sm)');
+                                    if (blocks.length > 0) return blocks[blocks.length-1].textContent.length.toString();
+                                    return '0';
+                                })()
+                            `);
+                            if (snap === lastResponseSnap && snap !== '0') {
+                                stableResponseCount++;
+                                if (stableResponseCount >= 5) {
+                                    console.log(`[getProviderResponse] ${provider}: Response stable for 2.5s, breaking typing wait`);
+                                    break;
+                                }
+                            } else {
+                                stableResponseCount = 0;
+                                lastResponseSnap = snap;
+                            }
+                        } catch(e) {}
+                    }
+                    
                     if (i % 20 === 0 && i > 0) {
                         console.log(`[getProviderResponse] ${provider}: Still typing (${i * 0.5}s)...`);
                     }
                     await sleep(500);
                 }
+            } else if (provider === 'perplexity') {
+                // Even if no typing detected, Perplexity may have finished very fast
+                await sleep(3000);
             }
         } catch (e) { }
 
         // Small delay for DOM to settle (Perplexity needs more time for math/LaTeX rendering)
         await sleep((provider === 'claude' || provider === 'perplexity') ? 1500 : 500);
 
-        // One more try — maybe interceptor caught it while DOM was settling
-        try {
-            const lateCheck = await webContents.executeJavaScript(`
-                (function() {
-                    var resp = window.__proxima_captured_response || '';
-                    var streaming = window.__proxima_is_streaming || false;
-                    if (resp.length > 50 && !streaming) {
-                        window.__proxima_captured_response = '';
-                        return resp;
-                    }
-                    return '';
-                })()
-            `);
-            if (lateCheck && lateCheck.length > 50) {
-                console.log(`[getProviderResponse] ✅ ${provider}: Late network capture (${lateCheck.length} chars)`);
-                return lateCheck;
-            }
-        } catch (e) { }
-
-        // STEP 4: DOM polling for response text
-        let lastText = '';
+    // STEP 4: DOM polling for response text
+    let lastText = '';
         let stableCount = 0;
         // Perplexity math/LaTeX renders in stages — need more stability checks
         const STABLE_THRESHOLD = provider === 'perplexity' ? 5 : 3;
@@ -1650,7 +1699,7 @@ async function getProviderResponse(provider, customSelector = null) {
                         let parent = lastBlock.parentElement;
                         
                         for (let i = 0; i < 10 && parent; i++) {
-                            // Stop conditions
+                            // Stop conditions — only stop at true page boundaries
                             if (parent.tagName === 'MAIN' || parent.tagName === 'BODY' || parent.tagName === 'HTML') break;
                             if (parent.querySelector('textarea, input[type="text"]')) break;
                             
@@ -2033,11 +2082,11 @@ async function getProviderResponse(provider, customSelector = null) {
                         console.log('[getProviderResponse] ✓ Captured (' + text.length + ' chars)');
                         // Clear the old fingerprint after successful capture
                         if (provider === 'perplexity') {
-                            global.perplexityOldFingerprint = '';
-                            global.perplexityOldBlockCount = 0;
+                            responseState.perplexity.fingerprint = '';
+                            responseState.perplexity.blockCount = 0;
                         }
                         if (provider === 'claude') {
-                            global.claudeOldFingerprint = '';
+                            responseState.claude.fingerprint = '';
                         }
                         return text;
                     }
@@ -2051,11 +2100,66 @@ async function getProviderResponse(provider, customSelector = null) {
         }
 
         return lastText || 'No response captured';
-    } // end DOM fallback
+}
 
-    return 'No response captured';
+// Clean Perplexity response — strip query heading echo and trailing UI noise
+function cleanPerplexityResponse(text) {
+    if (!text || text.length === 0) return text;
+    
+    // First: strip inline trailing noise (DOM often concatenates without newlines)
+    // Pattern: "15 sourcesFollow-ups..." or "10 sourcesDeep research..."
+    text = text.replace(/\d+\s*sources?(?:Follow-up|Deep research|Related|Who |What |How |Why |When |Where |Which |Can |Is |Are |Do |Does |Should ).*/si, '').trim();
+    
+    // Strip inline citation markers like "wikipedia+2", "geeksforgeeks+1", "docs.docker+2"
+    text = text.replace(/[a-z0-9._-]+\+\d+/gi, '').trim();
+    
+    const lines = text.split('\n');
+    
+    // Strip leading lines that are query echoes:
+    // 1. Lines starting with # (markdown heading)
+    // 2. Lines ending with ? (question echo without #)
+    // 3. Empty lines
+    while (lines.length > 0) {
+        const trimmed = lines[0].trim();
+        if (trimmed === '' || trimmed.startsWith('#')) {
+            lines.shift();
+        } else if (trimmed.endsWith('?') && trimmed.length < 200) {
+            // Looks like a question echo — strip it
+            lines.shift();
+        } else {
+            break;
+        }
+    }
+    
+    // Strip trailing UI noise (line-separated patterns)
+    while (lines.length > 0) {
+        const lastLine = lines[lines.length - 1].trim().toLowerCase();
+        if (lastLine === '' || 
+            /^\d+\s*sources?$/i.test(lastLine) ||
+            lastLine.startsWith('follow-up') ||
+            lastLine.startsWith('follow up') ||
+            lastLine.startsWith('deep research') ||
+            lastLine.startsWith('related')) {
+            lines.pop();
+        } else {
+            break;
+        }
+    }
+    
+    return lines.join('\n').trim();
 }
 async function startNewConversation(provider) {
+    // Reset API-level conversation state (clears stored conversation IDs in inject scripts)
+    const webContents = browserManager.getWebContents(provider);
+    if (webContents) {
+        try {
+            await providerAPI.resetConversation(provider, () => webContents);
+        } catch (e) {
+            console.error(`[startNewConversation] API reset failed for ${provider}:`, e.message);
+        }
+    }
+
+    // Navigate to provider home page to start fresh UI
     const config = browserManager.providers[provider];
     if (config) {
         await browserManager.navigate(provider, config.url);
@@ -2126,35 +2230,38 @@ async function isAITyping(provider) {
                 
                 // Perplexity typing detection
                 if (host.includes('perplexity')) {
-                    // 1. Stop button (appears during ALL generation)
+                    // 1. Stop button (most reliable — only appears during generation)
                     const stopButton = document.querySelector('button[aria-label="Stop"]');
                     if (stopButton && stopButton.offsetParent !== null) {
                         return { isTyping: true, provider: 'perplexity' };
                     }
                     
                     // 2. "Searching" text/indicator
-                    const searchingIndicator = document.querySelector('[data-testid*="searching"], [class*="searching"]');
-                    if (searchingIndicator) {
+                    const searchingIndicator = document.querySelector('[data-testid*="searching"]');
+                    if (searchingIndicator && searchingIndicator.offsetParent !== null) {
                         return { isTyping: true, provider: 'perplexity' };
                     }
                     
-                    // 3. Loading spinners & animated progress indicators
-                    const spinners = document.querySelectorAll('.animate-spin, [class*="animate-pulse"], [class*="loading"], [class*="spinner"], [class*="progress"]');
-                    for (const sp of spinners) {
-                        // Only count spinners inside the main content area (not nav/sidebar)
-                        if (sp.offsetParent !== null && !sp.closest('nav, header, [class*="sidebar"], [class*="nav"]')) {
-                            return { isTyping: true, provider: 'perplexity' };
+                    // 3. Active spinners ONLY inside the answer area (not sidebar/nav/ads)
+                    const answerArea = document.querySelector('[class*="prose"], [class*="answer"], main');
+                    if (answerArea) {
+                        const spinners = answerArea.querySelectorAll('.animate-spin, [class*="animate-pulse"]');
+                        for (const sp of spinners) {
+                            if (sp.offsetParent !== null) {
+                                return { isTyping: true, provider: 'perplexity' };
+                            }
                         }
                     }
                     
-                    // 4. Streaming/thinking dots (pulsing circles or dots animation)
-                    const thinkingDots = document.querySelector('[class*="thinking"], [class*="typing"], [class*="generating"], [class*="streaming"]');
-                    if (thinkingDots && thinkingDots.offsetParent !== null) {
+                    // 4. Streaming/thinking dots (tight selectors only)
+                    const thinkingDots = document.querySelector('[class*="thinking"], [class*="generating"], [class*="streaming"]');
+                    if (thinkingDots && thinkingDots.offsetParent !== null && !thinkingDots.closest('nav, header, [class*="sidebar"]')) {
                         return { isTyping: true, provider: 'perplexity' };
                     }
                     
-                    // 5. Step counter still in-progress (e.g., "Searching 3 sources" text visible)
-                    const stepIndicators = document.querySelectorAll('[class*="step"], [class*="source"]');
+                    // 5. Step counter — only match active "Searching/Reading/Analyzing" text
+                    //    (NOT [class*="source"] which matches the permanent Sources section)
+                    const stepIndicators = document.querySelectorAll('[class*="step"]');
                     for (const si of stepIndicators) {
                         const text = si.textContent || '';
                         if ((text.includes('Searching') || text.includes('Reading') || text.includes('Analyzing') || text.includes('Thinking')) && si.offsetParent !== null) {
@@ -2162,25 +2269,71 @@ async function isAITyping(provider) {
                         }
                     }
                     
-                    // 6. SVG animation (Perplexity uses animated SVG rings during generation)
-                    const animatedSvg = document.querySelector('svg[class*="animate"], circle[class*="animate"], svg.animate-spin');
-                    if (animatedSvg && animatedSvg.closest('[class*="prose"], [class*="answer"], [class*="response"], main') && animatedSvg.offsetParent !== null) {
-                        return { isTyping: true, provider: 'perplexity' };
+                    // 6. SVG animation inside answer area only
+                    if (answerArea) {
+                        const animatedSvg = answerArea.querySelector('svg[class*="animate"], circle[class*="animate"], svg.animate-spin');
+                        if (animatedSvg && animatedSvg.offsetParent !== null) {
+                            return { isTyping: true, provider: 'perplexity' };
+                        }
                     }
                 }
                 
-                // Gemini typing detection
+                // Gemini typing detection — check response completion via action buttons
                 if (host.includes('gemini') || host.includes('google')) {
-                    // Only check for SPECIFIC stop button
-                    const stopButton = document.querySelector('button[aria-label="Stop"], button[aria-label="Stop generating"]');
-                    const matSpinner = document.querySelector('mat-spinner');
+                    // APPROACH: Gemini shows action buttons (👍👎🔄📋) ONLY when response is DONE
+                    // If we find a response area WITHOUT these buttons → still generating
                     
-                    // Check if stop button is actually visible
-                    if (stopButton && stopButton.offsetParent !== null) {
-                        return { isTyping: true, provider: 'gemini' };
+                    // 1. Check for stop button (visible during generation)
+                    const allButtons = document.querySelectorAll('button');
+                    for (const btn of allButtons) {
+                        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+                        if ((label.includes('stop') || label.includes('cancel')) && btn.offsetParent !== null) {
+                            return { isTyping: true, provider: 'gemini' };
+                        }
                     }
+                    
+                    // 2. Check for mat-spinner
+                    const matSpinner = document.querySelector('mat-spinner');
                     if (matSpinner && matSpinner.offsetParent !== null) {
                         return { isTyping: true, provider: 'gemini' };
+                    }
+                    
+                    // 3. Check for "Answer now" text (only present during thinking phase)
+                    for (const btn of allButtons) {
+                        const text = btn.textContent.trim();
+                        if (text === 'Answer now' && btn.offsetParent !== null) {
+                            return { isTyping: true, provider: 'gemini' };
+                        }
+                    }
+                    
+                    // 4. Check for active thinking/streaming indicators  
+                    const thinkLabels = document.querySelectorAll('[class*="thinking"], [class*="Thinking"]');
+                    for (const el of thinkLabels) {
+                        if (el.offsetParent !== null && el.textContent.includes('hinking')) {
+                            return { isTyping: true, provider: 'gemini' };
+                        }
+                    }
+                    
+                    // 5. Response completion check: find last response container
+                    //    If it exists but has NO action buttons (👍👎) → still generating
+                    const responseContainers = document.querySelectorAll(
+                        'model-response, .model-response-text, [class*="response-container"], message-content, .message-content'
+                    );
+                    if (responseContainers.length > 0) {
+                        const lastResp = responseContainers[responseContainers.length - 1];
+                        // Action buttons have thumbs up/down icons — check for them
+                        const actionBtns = lastResp.parentElement ?
+                            lastResp.parentElement.querySelectorAll('button[aria-label*="ood"], button[aria-label*="ad"], button[aria-label*="opy"], button[aria-label*="hare"], button[aria-label*="odify"], button[aria-label*="etry"]') :
+                            lastResp.querySelectorAll('button');
+                        // If we have the response container but < 2 action buttons → still generating
+                        if (actionBtns.length < 2) {
+                            // Double-check: make sure this isn't an old completed response
+                            // by checking if the text is very short (thinking placeholder)
+                            const text = lastResp.textContent.trim();
+                            if (text.length < 100 || text.includes('Answer now') || text.includes('Refining') || text.includes('Analyzing')) {
+                                return { isTyping: true, provider: 'gemini' };
+                            }
+                        }
                     }
                 }
                 
@@ -2306,7 +2459,7 @@ ipcMain.handle('get-mcp-config', () => {
 });
 
 ipcMain.handle('copy-to-clipboard', (event, text) => {
-    require('electron').clipboard.writeText(text);
+    clipboard.writeText(text);
     return { success: true };
 });
 
@@ -2370,8 +2523,9 @@ ipcMain.handle('set-cookies', async (event, provider, cookiesJson) => {
             }
         }
 
-        // Calculate default expiration: 2 days from now (in seconds since epoch)
-        const twoDaysFromNow = Math.floor(Date.now() / 1000) + (2 * 24 * 60 * 60);
+        // Calculate default expiration: 1 year from now (in seconds since epoch)
+        // Short expiry (like 2 days) causes random logouts — use long expiry
+        const oneYearFromNow = Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60);
 
         // Set the new cookies
         let setCount = 0;
@@ -2399,8 +2553,8 @@ ipcMain.handle('set-cookies', async (event, provider, cookiesJson) => {
                 if (cookie.expirationDate && cookie.expirationDate > Date.now() / 1000) {
                     cookieDetails.expirationDate = cookie.expirationDate;
                 } else {
-                    // Default: expire in 2 days
-                    cookieDetails.expirationDate = twoDaysFromNow;
+                    // Default: expire in 1 year (was 2 days — too short!)
+                    cookieDetails.expirationDate = oneYearFromNow;
                 }
 
                 await ses.cookies.set(cookieDetails);
@@ -2482,6 +2636,87 @@ ipcMain.handle('get-file-reference-enabled', () => {
     return { success: true, enabled: fileReferenceEnabled };
 });
 
+// REST API Server Toggle
+
+ipcMain.handle('set-rest-api-enabled', (event, enabled) => {
+    const settings = loadSettings();
+    settings.restApiEnabled = enabled;
+    saveSettings(settings);
+
+    if (enabled) {
+        if (!isRestAPIRunning()) {
+            startRestAPI();
+        }
+        console.log('[REST API] ⚡ REST API ENABLED — http://localhost:3210');
+    } else {
+        stopRestAPI();
+        console.log('[REST API] ⏹ REST API DISABLED');
+    }
+    return { success: true, enabled, running: isRestAPIRunning() };
+});
+
+ipcMain.handle('get-rest-api-enabled', () => {
+    const settings = loadSettings();
+    return { success: true, enabled: !!settings.restApiEnabled, running: isRestAPIRunning() };
+});
+
+ipcMain.handle('install-cli', async () => {
+    try {
+        const { exec } = require('child_process');
+
+        // CLI path: works in both dev (npm start) and installed (.exe) mode
+        const asarPath = path.join(app.getAppPath() + '.unpacked', 'cli', 'proxima-cli.cjs');
+        const devPath = path.join(app.getAppPath(), 'cli', 'proxima-cli.cjs');
+        const cliSource = fs.existsSync(asarPath) ? asarPath : devPath;
+
+        // Bin directory in user's AppData
+        const binDir = path.join(app.getPath('userData'), 'bin');
+        fs.mkdirSync(binDir, { recursive: true });
+
+        // Create proxima.cmd wrapper
+        fs.writeFileSync(path.join(binDir, 'proxima.cmd'), `@echo off\r\nnode "${cliSource}" %*`);
+
+        // Add to user PATH via PowerShell
+        const escaped = binDir.replace(/\\/g, '\\\\');
+        const ps = `$p=[Environment]::GetEnvironmentVariable('Path','User');if($p -notlike '*${escaped}*'){[Environment]::SetEnvironmentVariable('Path',$p+';${escaped}','User')}`;
+        await new Promise((resolve) => {
+            exec(`powershell -NoProfile -Command "${ps}"`, { windowsHide: true }, () => resolve());
+        });
+
+        return { success: true, path: binDir };
+    } catch (err) {
+        console.error('[CLI Install]', err.message);
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('is-cli-installed', () => {
+    const binDir = path.join(app.getPath('userData'), 'bin');
+    const cmdPath = path.join(binDir, 'proxima.cmd');
+    return fs.existsSync(cmdPath);
+});
+
+ipcMain.handle('uninstall-cli', async () => {
+    try {
+        const { exec } = require('child_process');
+        const binDir = path.join(app.getPath('userData'), 'bin');
+        const cmdPath = path.join(binDir, 'proxima.cmd');
+
+        // Delete proxima.cmd
+        if (fs.existsSync(cmdPath)) fs.unlinkSync(cmdPath);
+
+        // Remove from user PATH via PowerShell
+        const escaped = binDir.replace(/\\/g, '\\\\');
+        const ps = `$p=[Environment]::GetEnvironmentVariable('Path','User');$p=($p -split ';'|Where-Object{$_ -ne '${escaped}'})-join';';[Environment]::SetEnvironmentVariable('Path',$p,'User')`;
+        await new Promise((resolve) => {
+            exec(`powershell -NoProfile -Command "${ps}"`, { windowsHide: true }, () => resolve());
+        });
+
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
+});
 
 // Check if file is attached in chat
 async function checkFileAttachment(provider) {
@@ -2517,55 +2752,6 @@ async function checkFileAttachment(provider) {
     `);
 }
 
-// Wait for send button to be ready (enabled and visible)
-async function waitForSendButton(provider) {
-    const webContents = browserManager.getWebContents(provider);
-    if (!webContents) return false;
-
-    const maxWait = 15000; // 15 seconds max
-    const checkInterval = 500;
-    let waited = 0;
-
-    while (waited < maxWait) {
-        const isReady = await webContents.executeJavaScript(`
-            (function() {
-                const host = window.location.host;
-                let sendBtn = null;
-                
-                if (host.includes('chatgpt')) {
-                    sendBtn = document.querySelector('button[data-testid="send-button"], button[aria-label*="Send"]');
-                } else if (host.includes('claude')) {
-                    sendBtn = document.querySelector('button[aria-label*="Send"], button[type="submit"]');
-                } else if (host.includes('gemini')) {
-                    sendBtn = document.querySelector('button[aria-label*="Send"], button.send-button');
-                } else if (host.includes('perplexity')) {
-                    sendBtn = document.querySelector('button[aria-label*="Submit"], button[type="submit"]');
-                }
-                
-                if (sendBtn) {
-                    const isDisabled = sendBtn.disabled || sendBtn.hasAttribute('disabled');
-                    const isVisible = sendBtn.offsetParent !== null;
-                    console.log('[SendButton] Found:', !isDisabled && isVisible ? 'READY' : 'NOT READY');
-                    return !isDisabled && isVisible;
-                }
-                return false;
-            })()
-        `);
-
-        if (isReady) {
-            console.log('[MCP] Send button is ready!');
-            return true;
-        }
-
-        await sleep(checkInterval);
-        waited += checkInterval;
-        console.log(`[MCP] Waiting for send button... ${waited}ms`);
-    }
-
-    console.log('[MCP] Timeout waiting for send button, proceeding anyway...');
-    return false;
-}
-
 // Upload file to AI provider chat using file input manipulation
 async function uploadFileToProvider(provider, filePath) {
     const webContents = browserManager.getWebContents(provider);
@@ -2573,8 +2759,7 @@ async function uploadFileToProvider(provider, filePath) {
         throw new Error(`Provider ${provider} not initialized`);
     }
 
-    const fs = require('fs');
-    const path = require('path');
+
 
     if (!fs.existsSync(filePath)) {
         throw new Error(`File not found: ${filePath}`);
@@ -2762,7 +2947,7 @@ async function uploadFileToProvider(provider, filePath) {
 }
 
 function getMimeType(filePath) {
-    const ext = require('path').extname(filePath).toLowerCase();
+    const ext = path.extname(filePath).toLowerCase();
     const mimeTypes = {
         '.txt': 'text/plain',
         '.js': 'text/javascript',
@@ -2821,6 +3006,7 @@ app.on('window-all-closed', () => {
     if (ipcServer) {
         ipcServer.close();
     }
+    stopRestAPI();
     if (process.platform !== 'darwin') {
         app.quit();
     }
@@ -2834,8 +3020,8 @@ app.on('activate', () => {
 
 // Handle certificate errors for some AI sites
 app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
-    // Only bypass for known AI provider domains
-    const trustedDomains = ['perplexity.ai', 'openai.com', 'claude.ai', 'gemini.google.com', 'google.com'];
+    // Allow certificate for known AI provider domains
+    const trustedDomains = ['perplexity.ai', 'openai.com', 'chatgpt.com', 'claude.ai', 'anthropic.com', 'gemini.google.com', 'accounts.google.com'];
     const urlObj = new URL(url);
     if (trustedDomains.some(domain => urlObj.hostname.includes(domain))) {
         event.preventDefault();

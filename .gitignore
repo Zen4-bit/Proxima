@@ -37,3 +37,9 @@ cookies-backup/
 # Temporary files
 *.tmp
 *.temp
+
+# Dev audit files
+audit.txt
+audit2.txt
+Version_4.1.0.txt
+installer.nsh
