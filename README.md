@@ -253,7 +253,7 @@ npm start
 <br>
 <strong>ChatGPT</strong>
 <br>
-OpenAI's GPT-4
+OpenAI's GPT
 <br><br>
 </td>
 <td align="center" width="25%">
