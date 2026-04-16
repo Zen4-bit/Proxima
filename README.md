@@ -30,6 +30,8 @@ Use ChatGPT, Claude, Gemini & Perplexity directly inside your coding tools — t
 
 ## Demo
 
+**App Demo · CLI · Webhook Live Chat & Battle · Application Overview**
+
 <table cellspacing="0" cellpadding="0">
 <tr>
 <td width="50%">
@@ -141,7 +143,11 @@ Proxima is a local AI gateway that connects multiple AI providers to your develo
 </tr>
 <tr>
 <td><strong>🎯</strong></td>
-<td><strong>Multi-Model Queries</strong><br><code>model: "all"</code> queries every provider at once. <code>model: ["claude", "chatgpt"]</code> targets specific ones. New aliases: <code>gpt-4.5</code>, <code>claude-3/3.5/4</code>, <code>gemini-2/2.5</code>.</td>
+<td><strong>Multi-Model Queries</strong><br><code>model: "all"</code> queries every provider at once. <code>model: ["claude", "chatgpt"]</code> targets specific ones. Compare responses side-by-side from multiple AI providers in a single request.</td>
+</tr>
+<tr>
+<td><strong>📤</strong></td>
+<td><strong>Conversation Export</strong><br>Export full conversation history from any provider using <code>conversation_export</code>. Continue working on AI agent projects, revisit ideas discussed with providers, and build on previous plans without losing context.</td>
 </tr>
 <tr>
 <td><strong>🛡️</strong></td>
