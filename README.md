@@ -30,6 +30,8 @@ Use ChatGPT, Claude, Gemini & Perplexity directly inside your coding tools — t
 
 ## Demo
 
+**App Demo · CLI · Webhook Live Chat & Battle · Application Overview**
+
 <table cellspacing="0" cellpadding="0">
 <tr>
 <td width="50%">
