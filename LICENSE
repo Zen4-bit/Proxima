@@ -14,8 +14,13 @@ NOT PERMITTED:
 - Selling, licensing, or distributing this software for profit
 - Using this software as part of a commercial product or service
 - Enterprise or corporate deployments
+- Redistributing modified versions without attribution
 
 For commercial licensing inquiries, please contact the author.
+
+ATTRIBUTION:
+- Any shared or forked version must include this license and credit the original author
+- Modifications must be clearly marked as such
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
