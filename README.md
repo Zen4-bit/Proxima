@@ -30,32 +30,28 @@ Use ChatGPT, Claude, Gemini & Perplexity directly inside your coding tools — t
 
 ## Demo
 
-<table>
+<table cellspacing="0" cellpadding="0">
 <tr>
-<td align="center" width="50%">
-<strong>🎬 App Demo</strong><br><br>
+<td width="50%"><b>App Demo</b><br>
 
-
+https://github.com/user-attachments/assets/5e75eb68-b1b5-43dc-979d-3bf6faa48fa0
 
 </td>
-<td align="center" width="50%">
-<strong>⌨️ CLI</strong><br><br>
+<td width="50%"><b>CLI</b><br>
 
-
+https://github.com/user-attachments/assets/a8564fc9-b3b3-4a53-bc35-cfce72fe34da
 
 </td>
 </tr>
 <tr>
-<td align="center" width="50%">
-<strong>🔌 Webhook Live Chat & Battle</strong><br><br>
+<td width="50%"><b>Webhook Live Chat & Battle</b><br>
 
-
+https://github.com/user-attachments/assets/bb7fa455-d379-4e69-b530-f7c09d2faccf
 
 </td>
-<td align="center" width="50%">
-<strong>📋 Application Overview</strong><br><br>
+<td width="50%"><b>Application Overview</b><br>
 
-
+https://github.com/user-attachments/assets/d4121fdb-f97e-4d35-846c-5ec7c5249a85
 
 </td>
 </tr>
