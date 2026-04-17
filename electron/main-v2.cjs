@@ -1305,7 +1305,7 @@ async function getProviderResponse(provider, customSelector = null) {
                         response: window.__proxima_captured_response || '',
                         isStreaming: window.__proxima_is_streaming || false,
                         lastCaptureTime: window.__proxima_last_capture_time || 0,
-                        installed: !!window.__proxima_fetch_intercepted
+                        installed: !!(window.__proxima_fetch_intercepted || window.__proxima_ws_intercepted)
                     };
                 })()
             `);
@@ -1334,10 +1334,10 @@ async function getProviderResponse(provider, customSelector = null) {
             }
 
             // No content yet — waiting for stream to start
-            // If no stream activity after 2 seconds, fall back to DOM quickly
-            // (Gemini/Perplexity don't use fetch, so interceptor won't capture them)
-            // Also handles case where interceptor matched URL but parser failed (ChatGPT)
-            if (i > 3 && !status.isStreaming && status.response.length === 0) {
+            // Perplexity uses socket.io which needs ~5-8s for handshake before data flows.
+            // Other providers: bail after 2s (fetch interceptor is nearly instant).
+            const bailAfter = (provider === 'perplexity') ? 16 : 4; // polls × 500ms
+            if (i > bailAfter && !status.isStreaming && status.response.length === 0) {
                 console.log(`[getProviderResponse] ${provider}: No usable stream data after ${i * 0.5}s, trying DOM fallback`);
                 break;
             }
@@ -2126,48 +2126,39 @@ async function isAITyping(provider) {
                 
                 // Perplexity typing detection
                 if (host.includes('perplexity')) {
-                    // 1. Stop button (appears during ALL generation)
-                    const stopButton = document.querySelector('button[aria-label="Stop"]');
-                    if (stopButton && stopButton.offsetParent !== null) {
+                    // 1. Stop button — the most reliable signal (only visible while generating)
+                    const stopBtn = document.querySelector(
+                        'button[aria-label="Stop"], button[aria-label="Stop generating"], ' +
+                        'button[data-testid="stop-button"]'
+                    );
+                    if (stopBtn && stopBtn.offsetParent !== null) {
                         return { isTyping: true, provider: 'perplexity' };
                     }
-                    
-                    // 2. "Searching" text/indicator
-                    const searchingIndicator = document.querySelector('[data-testid*="searching"], [class*="searching"]');
-                    if (searchingIndicator) {
+
+                    // 2. Explicit "searching" data-testid (Perplexity shows this while sourcing)
+                    const searchingEl = document.querySelector('[data-testid*="searching"], [data-testid*="generating"]');
+                    if (searchingEl && searchingEl.offsetParent !== null) {
                         return { isTyping: true, provider: 'perplexity' };
                     }
-                    
-                    // 3. Loading spinners & animated progress indicators
-                    const spinners = document.querySelectorAll('.animate-spin, [class*="animate-pulse"], [class*="loading"], [class*="spinner"], [class*="progress"]');
-                    for (const sp of spinners) {
-                        // Only count spinners inside the main content area (not nav/sidebar)
-                        if (sp.offsetParent !== null && !sp.closest('nav, header, [class*="sidebar"], [class*="nav"]')) {
+
+                    // 3. Streaming/generating class directly on answer block (very specific)
+                    const generatingBlock = document.querySelector(
+                        '[class*="generating"], [class*="streaming"], [data-generating="true"]'
+                    );
+                    if (generatingBlock && generatingBlock.offsetParent !== null) {
+                        return { isTyping: true, provider: 'perplexity' };
+                    }
+
+                    // 4. Animated SVG ring INSIDE the answer/main content (skip nav/header)
+                    const animSvg = document.querySelector('svg.animate-spin, circle.animate-spin');
+                    if (animSvg) {
+                        const inContent = animSvg.closest('main, [class*="answer"], [class*="prose"], [class*="response"]');
+                        if (inContent && animSvg.offsetParent !== null) {
                             return { isTyping: true, provider: 'perplexity' };
                         }
-                    }
-                    
-                    // 4. Streaming/thinking dots (pulsing circles or dots animation)
-                    const thinkingDots = document.querySelector('[class*="thinking"], [class*="typing"], [class*="generating"], [class*="streaming"]');
-                    if (thinkingDots && thinkingDots.offsetParent !== null) {
-                        return { isTyping: true, provider: 'perplexity' };
-                    }
-                    
-                    // 5. Step counter still in-progress (e.g., "Searching 3 sources" text visible)
-                    const stepIndicators = document.querySelectorAll('[class*="step"], [class*="source"]');
-                    for (const si of stepIndicators) {
-                        const text = si.textContent || '';
-                        if ((text.includes('Searching') || text.includes('Reading') || text.includes('Analyzing') || text.includes('Thinking')) && si.offsetParent !== null) {
-                            return { isTyping: true, provider: 'perplexity' };
-                        }
-                    }
-                    
-                    // 6. SVG animation (Perplexity uses animated SVG rings during generation)
-                    const animatedSvg = document.querySelector('svg[class*="animate"], circle[class*="animate"], svg.animate-spin');
-                    if (animatedSvg && animatedSvg.closest('[class*="prose"], [class*="answer"], [class*="response"], main') && animatedSvg.offsetParent !== null) {
-                        return { isTyping: true, provider: 'perplexity' };
                     }
                 }
+
                 
                 // Gemini typing detection
                 if (host.includes('gemini') || host.includes('google')) {

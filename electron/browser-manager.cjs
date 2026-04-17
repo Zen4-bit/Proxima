@@ -88,25 +88,13 @@ function getProviderInterceptorScript(provider) {
                 if (line.startsWith('data: ') && line.slice(6).trim() !== '[DONE]') {
                     try {
                         var data = JSON.parse(line.slice(6));
-                        if (data.text) {
-                            fullText = data.text;
-                        }
-                        if (data.answer) {
-                            fullText = data.answer;
-                        }
-                        if (data.output) {
-                            fullText = data.output;
-                        }
-                        // Handle chunks array
-                        if (data.chunks && Array.isArray(data.chunks)) {
-                            fullText = data.chunks.join('');
-                        }
+                        if (data.text) { fullText = data.text; }
+                        if (data.answer) { fullText = data.answer; }
+                        if (data.output) { fullText = data.output; }
+                        if (data.chunks && Array.isArray(data.chunks)) { fullText = data.chunks.join(''); }
                     } catch(e) {
-                        // Might be raw text chunk
                         var rawData = line.slice(6).trim();
-                        if (rawData && rawData !== '[DONE]' && rawData.length > 10) {
-                            fullText += rawData;
-                        }
+                        if (rawData && rawData !== '[DONE]' && rawData.length > 10) { fullText += rawData; }
                     }
                 }
             `
@@ -176,7 +164,7 @@ function getProviderInterceptorScript(provider) {
     const config = configs[provider];
     if (!config) return null;
 
-    return `
+    let script = `
         (function() {
             if (window.__proxima_fetch_intercepted) return;
             window.__proxima_fetch_intercepted = true;
@@ -257,6 +245,93 @@ function getProviderInterceptorScript(provider) {
             console.log('[Proxima] ${config.name} fetch interceptor installed');
         })();
     `;
+
+    // ── Perplexity WebSocket interceptor ─────────────────────────────────────
+    // Perplexity streams answers over socket.io WebSocket, NOT fetch.
+    // The fetch interceptor above will always miss it.
+    // We hook window.WebSocket to spy on every incoming message and extract
+    // the answer text so the existing polling path gets a fast result.
+    if (provider === 'perplexity') {
+        script += `
+        (function() {
+            if (window.__proxima_ws_intercepted) return;
+            window.__proxima_ws_intercepted = true;
+
+            var OrigWebSocket = window.WebSocket;
+            window.WebSocket = function(url, protocols) {
+                var ws = protocols ? new OrigWebSocket(url, protocols) : new OrigWebSocket(url);
+
+                ws.addEventListener('message', function(event) {
+                    try {
+                        var raw = event.data;
+                        if (typeof raw !== 'string') return;
+
+                        // socket.io frames start with a number prefix e.g. "42[...]"
+                        // Strip the socket.io envelope: leading digits and optional namespace
+                        var jsonStr = raw.replace(/^\\d+(\\/[^,]+,)?/, '');
+                        if (!jsonStr || jsonStr[0] !== '[') return;
+
+                        var arr = JSON.parse(jsonStr);
+                        // arr[0] = event name, arr[1] = payload
+                        var eventName = arr[0];
+                        var payload = arr[1];
+
+                        if (!payload) return;
+
+                        // Perplexity emits: 'query_progress', 'query_completed', 'answer', 'search_results'
+                        var text = '';
+                        if (typeof payload === 'object') {
+                            text = payload.text || payload.answer || payload.output || '';
+                            // Some frames wrap in .chunks[]
+                            if (!text && Array.isArray(payload.chunks)) {
+                                text = payload.chunks.join('');
+                            }
+                            // Nested: payload.answer_with_references || payload.web_results[].summary
+                            if (!text && payload.answer_with_references) {
+                                text = payload.answer_with_references;
+                            }
+                        }
+
+                        if (text && text.length > 10) {
+                            // Only update if longer (progressive streaming)
+                            if (text.length > (window.__proxima_captured_response || '').length) {
+                                window.__proxima_captured_response = text;
+                                window.__proxima_last_capture_time = Date.now();
+                            }
+
+                            // Mark streaming done on terminal events
+                            var terminalEvents = ['query_completed', 'answer_finalized', 'done', 'complete', 'end'];
+                            if (terminalEvents.indexOf(eventName) !== -1) {
+                                window.__proxima_is_streaming = false;
+                                console.log('[Proxima-WS] Perplexity done: ' + text.length + ' chars via event: ' + eventName);
+                            } else {
+                                window.__proxima_is_streaming = true;
+                            }
+                        }
+
+                        // Detect explicit "done" sentinel with no text payload
+                        if (eventName === 'query_completed' || eventName === 'done') {
+                            window.__proxima_is_streaming = false;
+                            window.__proxima_last_capture_time = Date.now();
+                        }
+                    } catch(e) {}
+                });
+
+                return ws;
+            };
+
+            // Copy static properties (e.g. WebSocket.OPEN, CLOSED constants)
+            Object.keys(OrigWebSocket).forEach(function(k) {
+                try { window.WebSocket[k] = OrigWebSocket[k]; } catch(e) {}
+            });
+            window.WebSocket.prototype = OrigWebSocket.prototype;
+
+            console.log('[Proxima] Perplexity WebSocket interceptor installed');
+        })();
+        `;
+    }
+
+    return script;
 }
 
 
