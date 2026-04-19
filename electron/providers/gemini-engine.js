@@ -1,5 +1,5 @@
 /**
- * Proxima — Gemini Engine
+ * Proxima — Gemini Engine v4.1.0
  * Runs inside gemini.google.com BrowserView context. Extracts SNlM0e/cfb2h
  * tokens from page HTML, sends requests to BardFrontendService, and parses
  * Gemini's complex nested JSON response format.

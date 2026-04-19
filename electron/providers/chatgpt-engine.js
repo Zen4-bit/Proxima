@@ -1,5 +1,5 @@
 /**
- * Proxima — ChatGPT Engine
+ * Proxima — ChatGPT Engine v4.1.0
  * Runs inside chatgpt.com BrowserView context. Uses session cookies for auth,
  * solves SHA3-512 proof-of-work challenges, and streams responses via SSE.
  * Requires DOM access (navigator/screen) for proof-of-work challenges.

@@ -1,5 +1,5 @@
 /**
- * Proxima — Claude Engine
+ * Proxima — Claude Engine v4.1.0
  * Runs inside claude.ai BrowserView context. Uses org-based session auth,
  * creates persistent conversations, and streams responses via SSE.
  */

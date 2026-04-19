@@ -1,5 +1,5 @@
 /**
- * Proxima — Perplexity Engine
+ * Proxima — Perplexity Engine v4.1.0
  * Runs inside perplexity.ai BrowserView context. Sends queries via
  * /rest/sse/perplexity_ask and parses SSE blocks[].markdown_block.answer.
  * ⚠️ NOTE: parsed.text contains step JSON, NOT the answer — always use blocks[].
