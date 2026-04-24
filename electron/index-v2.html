@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multi-AI MCP Server</title>
+    <title>Proxima</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         * {
@@ -1167,36 +1167,105 @@ Confirm when done</pre>
                 </div>
             </div>
 
-            <!-- File Reference Feature -->
+            <!-- CLI — Terminal Interface -->
             <div class="settings-section">
                 <h2 class="settings-title"><span class="section-icon"
-                        style="background: linear-gradient(135deg, #22c55e, #16a34a);">FI</span> File Reference</h2>
+                        style="background: linear-gradient(135deg, #22c55e, #16a34a);">CLI</span> CLI — Terminal
+                    Interface</h2>
                 <p style="color: #b3b3b3; margin-bottom: 16px; font-size: 0.95rem; line-height: 1.5;">
-                    When enabled, MCP calls can include file paths that will be uploaded as attachments to AI providers.
+                    Terminal-native AI access across all providers. Requires REST API to be enabled.
+                </p>
+                <div
+                    style="background: rgba(6, 6, 12, 0.7); border: 1px solid rgba(34, 197, 94, 0.15); border-radius: 10px; padding: 12px 16px; margin-bottom: 14px;">
+                    <code
+                        style="font-family: 'JetBrains Mono', 'Consolas', monospace; font-size: 0.78rem; color: #86efac; line-height: 1.8; display: block; white-space: pre;">proxima ask claude "What is AI?"
+proxima search "latest AI news"
+proxima fix "TypeError" --file app.js
+npm run build 2>&1 | proxima fix</code>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <button onclick="installCli()" id="install-cli-btn"
+                        style="background: linear-gradient(135deg, #22c55e, #16a34a); color: #fff; border: none; padding: 7px 16px; border-radius: 8px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">⚡
+                        Install CLI to PATH</button>
+                    <button onclick="installCli()" id="fix-cli-btn"
+                        style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); padding: 7px 16px; border-radius: 8px; font-size: 0.8rem; font-weight: 600; cursor: pointer; display: none;">🔧
+                        Fix</button>
+                    <button onclick="uninstallCli()" id="uninstall-cli-btn"
+                        style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); padding: 7px 16px; border-radius: 8px; font-size: 0.8rem; font-weight: 600; cursor: pointer; display: none;">🗑
+                        Uninstall</button>
+                    <span style="color: #555; font-size: 0.72rem;">Docs: <code
+                            style="background: rgba(34,197,94,.1); padding: 2px 6px; border-radius: 4px; color: #4ade80; font-size: 0.72rem;">http://localhost:3210/cli</code></span>
+                </div>
+                <p id="cli-install-status" style="color: #22c55e; font-size: 0.72rem; margin-top: 8px; display: none;">
+                </p>
+            </div>
+
+            <!-- REST API & CLI -->
+            <div class="settings-section">
+                <h2 class="settings-title"><span class="section-icon"
+                        style="background: linear-gradient(135deg, #a78bfa, #7c3aed);">API</span> REST API & CLI</h2>
+                <p style="color: #b3b3b3; margin-bottom: 16px; font-size: 0.95rem; line-height: 1.5;">
+                    Run a local HTTP server (port 3210) that exposes an OpenAI-compatible REST API. External apps,
+                    scripts, SDKs, and the <strong style="color:#06b6d4">CLI tool</strong> can send requests to your AI
+                    providers.
                 </p>
                 <div class="feature-toggle-row">
                     <div class="feature-info">
-                        <div class="feature-name">Enable File Attachments</div>
-                        <div class="feature-desc">Allow MCP to upload files (images, code, documents) to AI chats</div>
+                        <div class="feature-name">Enable REST API</div>
+                        <div class="feature-desc">Start local server at http://localhost:3210 for external access</div>
                     </div>
-                    <div class="toggle-switch" id="file-reference-toggle" onclick="toggleFileReference(this)"></div>
+                    <div class="toggle-switch" id="rest-api-toggle" onclick="toggleRestApi(this)"></div>
                 </div>
-                <div id="file-reference-info"
-                    style="margin-top: 16px; padding: 16px 20px; background: linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(34, 197, 94, 0.1)); border-radius: 12px; display: none; border-left: 4px solid #22c55e; border: 1px solid rgba(34, 197, 94, 0.3);">
-                    <p style="color: #4ade80; font-size: 0.95rem; margin: 0; font-weight: 500;">
-                        <strong style="color: #22c55e; font-size: 1rem;">File Reference Active!</strong><br>
-                        <span style="color: #86efac;">Use <code
-                                style="background: rgba(34, 197, 94, 0.3); padding: 3px 8px; border-radius: 6px; color: #fff; font-weight: 600;">filePath</code>
-                            parameter in MCP calls to attach files.</span>
+                <div id="rest-api-info"
+                    style="margin-top: 16px; padding: 16px 20px; background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(139, 92, 246, 0.1)); border-radius: 12px; display: none; border-left: 4px solid #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3);">
+                    <p style="color: #c4b5fd; font-size: 0.95rem; margin: 0; font-weight: 500;">
+                        <strong style="color: #a78bfa; font-size: 1rem;">⚡ REST API Active!</strong><br>
+                        <span style="color: #ddd6fe;">Server running at <code
+                                style="background: rgba(139, 92, 246, 0.3); padding: 3px 8px; border-radius: 6px; color: #fff; font-weight: 600;">http://localhost:3210</code></span><br>
+                        <span style="color: #a5b4fc; font-size: 0.85rem; margin-top: 4px; display: inline-block;">API
+                            Docs: <code
+                                style="background: rgba(139, 92, 246, 0.2); padding: 2px 6px; border-radius: 4px; color: #c4b5fd;">http://localhost:3210/docs</code></span>
+                        <span style="color: #a5b4fc; font-size: 0.85rem; margin-left: 12px;">CLI Docs: <code
+                                style="background: rgba(6, 182, 212, 0.2); padding: 2px 6px; border-radius: 4px; color: #67e8f9;">http://localhost:3210/cli</code></span>
+                        <span style="color: #a5b4fc; font-size: 0.85rem; margin-left: 12px;">WS Docs: <code
+                                style="background: rgba(139, 92, 246, 0.2); padding: 2px 6px; border-radius: 4px; color: #c4b5fd;">http://localhost:3210/ws-docs</code></span>
+                    </p>
+                </div>
+
+
+                <!-- WebSocket Info -->
+                <div
+                    style="margin-top: 16px; padding: 14px 18px; background: rgba(6, 182, 212, 0.06); border: 1px solid rgba(6, 182, 212, 0.15); border-radius: 12px;">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                        <span style="font-size: 1.1rem;">🔌</span>
+                        <span style="color: #06b6d4; font-weight: 600; font-size: 0.95rem;">WebSocket — Real-time
+                            Connection</span>
+                        <span
+                            style="background: rgba(34,197,94,.1); color: #22c55e; border: 1px solid rgba(34,197,94,.15); padding: 1px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: 600;">NEW</span>
+                    </div>
+                    <p style="color: #888; font-size: 0.82rem; line-height: 1.5; margin-bottom: 10px;">
+                        Persistent bidirectional connection for streaming AI responses. Auto-enabled with REST API.
+                    </p>
+                    <div
+                        style="background: rgba(6, 6, 12, 0.7); border: 1px solid rgba(6, 182, 212, 0.1); border-radius: 8px; padding: 10px 14px;">
+                        <code
+                            style="font-family: 'JetBrains Mono', 'Consolas', monospace; font-size: 0.75rem; color: #a5b4fc; line-height: 1.7; display: block; white-space: pre;">const ws = new WebSocket("ws://localhost:3210/ws");
+ws.send(JSON.stringify({ action: "ask", message: "Hello" }));
+ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
+                    </div>
+                    <p style="color: #555; font-size: 0.72rem; margin-top: 8px;">
+                        Endpoint: <code
+                            style="background: rgba(6,182,212,.1); padding: 2px 6px; border-radius: 4px; color: #67e8f9; font-size: 0.72rem;">ws://localhost:3210/ws</code>
+                        — Docs: <code
+                            style="background: rgba(6,182,212,.1); padding: 2px 6px; border-radius: 4px; color: #67e8f9; font-size: 0.72rem;">http://localhost:3210/ws-docs</code>
                     </p>
                 </div>
             </div>
 
-
             <!-- Version Footer -->
             <div
                 style="text-align: center; padding: 20px 0; margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.05);">
-                <span style="color: #666; font-size: 0.8rem;">Proxima v1.0 • Multi-AI MCP Server</span>
+                <span style="color: #666; font-size: 0.8rem;">Proxima v4.1.0 • Multi-AI MCP Server</span>
             </div>
         </div>
     </div>
@@ -1248,13 +1317,33 @@ Confirm when done</pre>
             settings = await agentHub.getSettings();
             updateUI();
             loadMcpConfig();
-            loadFileReferenceState();
+            loadRestApiState();
 
             // Listen for auto-initialization from main process
             if (agentHub.onActiveProvider) {
                 agentHub.onActiveProvider((provider) => {
                     console.log('Auto-switching to:', provider);
                     switchTab(provider);
+                });
+            }
+
+            // Listen for provider navigation — auto-trigger cookie login for Gemini
+            if (agentHub.onProviderNavigated) {
+                agentHub.onProviderNavigated(({ provider, url }) => {
+                    // Update URL bar
+                    if (provider === currentTab) {
+                        const urlBar = document.getElementById('browser-url');
+                        if (urlBar) urlBar.textContent = url.length > 60 ? url.substring(0, 60) + '...' : url;
+                    }
+
+                    // Gemini only: when Google Sign-In page is detected,
+                    // auto-open cookie login modal (Google blocks embedded browser login)
+                    if (provider === 'gemini' && provider === currentTab &&
+                        url.includes('accounts.google.com/') &&
+                        (url.includes('/signin') || url.includes('/ServiceLogin') || url.includes('/AccountChooser') || url.includes('/identifier'))) {
+                        console.log('[Gemini] Google Sign-In detected — showing Cookie Login');
+                        setTimeout(() => openCookieModal(), 500);
+                    }
                 });
             }
 
@@ -1375,35 +1464,125 @@ Confirm when done</pre>
             }
         }
 
-        async function toggleFileReference(element) {
+
+
+        async function toggleRestApi(element) {
             const isActive = element.classList.contains('active');
 
             if (isActive) {
                 element.classList.remove('active');
-                document.getElementById('file-reference-info').style.display = 'none';
-                settings.fileReferenceEnabled = false;
-                showToast('File Reference disabled');
+                document.getElementById('rest-api-info').style.display = 'none';
+                settings.restApiEnabled = false;
+                showToast('REST API server stopped');
             } else {
                 element.classList.add('active');
-                document.getElementById('file-reference-info').style.display = 'block';
-                settings.fileReferenceEnabled = true;
-                showToast('File Reference enabled! Use filePath parameter in MCP calls.');
+                document.getElementById('rest-api-info').style.display = 'block';
+                settings.restApiEnabled = true;
+                showToast('REST API server started at http://localhost:3210');
             }
 
             await agentHub.saveSettings(settings);
-            await agentHub.setFileReferenceEnabled(settings.fileReferenceEnabled);
+            await agentHub.setRestApiEnabled(settings.restApiEnabled);
         }
 
-        function loadFileReferenceState() {
-            const toggle = document.getElementById('file-reference-toggle');
-            const info = document.getElementById('file-reference-info');
+        function loadRestApiState() {
+            const toggle = document.getElementById('rest-api-toggle');
+            const info = document.getElementById('rest-api-info');
 
-            if (settings.fileReferenceEnabled) {
+            if (settings.restApiEnabled) {
                 toggle.classList.add('active');
                 info.style.display = 'block';
             } else {
                 toggle.classList.remove('active');
                 info.style.display = 'none';
+            }
+        }
+
+        function setCliInstalledUI() {
+            const btn = document.getElementById('install-cli-btn');
+            const fixBtn = document.getElementById('fix-cli-btn');
+            const unBtn = document.getElementById('uninstall-cli-btn');
+            const status = document.getElementById('cli-install-status');
+            btn.textContent = '✅ Installed';
+            btn.disabled = true;
+            btn.style.background = 'rgba(34, 197, 94, 0.2)';
+            btn.style.color = '#22c55e';
+            btn.style.border = '1px solid rgba(34, 197, 94, 0.3)';
+            fixBtn.style.display = 'inline-block';
+            unBtn.style.display = 'inline-block';
+            status.style.display = 'block';
+            status.style.color = '#22c55e';
+        }
+
+        function setCliUninstalledUI() {
+            const btn = document.getElementById('install-cli-btn');
+            const fixBtn = document.getElementById('fix-cli-btn');
+            const unBtn = document.getElementById('uninstall-cli-btn');
+            const status = document.getElementById('cli-install-status');
+            btn.textContent = '⚡ Install CLI to PATH';
+            btn.disabled = false;
+            btn.style.background = 'linear-gradient(135deg, #06b6d4, #0891b2)';
+            btn.style.color = '#fff';
+            btn.style.border = 'none';
+            fixBtn.style.display = 'none';
+            unBtn.style.display = 'none';
+            status.style.display = 'none';
+        }
+
+        async function checkCliState() {
+            try {
+                const installed = await agentHub.isCliInstalled();
+                if (installed) {
+                    setCliInstalledUI();
+                    document.getElementById('cli-install-status').textContent = '✅ CLI is active. Use "proxima" from any terminal.';
+                }
+            } catch (e) { }
+        }
+        checkCliState();
+
+        async function installCli() {
+            const btn = document.getElementById('install-cli-btn');
+            const status = document.getElementById('cli-install-status');
+            btn.textContent = '⏳ Installing...';
+            btn.disabled = true;
+            try {
+                const result = await agentHub.installCli();
+                if (result.success) {
+                    setCliInstalledUI();
+                    status.textContent = '✅ Done! Open a new CMD or PowerShell and type "proxima".';
+                    showToast('CLI installed — open a new terminal to use it');
+                } else {
+                    status.style.display = 'block';
+                    status.style.color = '#ef4444';
+                    status.textContent = '❌ ' + (result.error || 'Install failed');
+                    btn.textContent = '⚡ Install CLI to PATH';
+                    btn.disabled = false;
+                }
+            } catch (err) {
+                status.style.display = 'block';
+                status.style.color = '#ef4444';
+                status.textContent = '❌ ' + err.message;
+                btn.textContent = '⚡ Install CLI to PATH';
+                btn.disabled = false;
+            }
+        }
+
+        async function uninstallCli() {
+            const status = document.getElementById('cli-install-status');
+            try {
+                const result = await agentHub.uninstallCli();
+                if (result.success) {
+                    setCliUninstalledUI();
+                    showToast('CLI uninstalled');
+                } else {
+                    status.style.display = 'block';
+                    status.style.color = '#ef4444';
+                    status.textContent = '❌ ' + (result.error || 'Uninstall failed');
+                }
+            } catch (err) {
+                status.style.display = 'block';
+                status.style.color = '#ef4444';
+                status.textContent = '❌ ' + err.message;
             }
         }
 

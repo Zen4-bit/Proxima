@@ -35,8 +35,9 @@ class Proxima {
  * @param {number} [options.timeout=120000] - Request timeout in ms
  * @param {number} [options.maxRetries=3] - Max retry attempts on connection failure
  */
-    constructor({ baseUrl = 'http://localhost:3210', apiKey = null, model = 'auto', timeout = 120000, maxRetries = 3 } = {}) {
-        this.baseUrl = baseUrl.replace(/\/$/, '');
+    constructor({ baseUrl = null, apiKey = null, model = 'auto', timeout = 120000, maxRetries = 3 } = {}) {
+        const port = typeof process !== 'undefined' && process.env && process.env.PROXIMA_PORT ? process.env.PROXIMA_PORT : '3210';
+        this.baseUrl = (baseUrl || `http://localhost:${port}`).replace(/\/$/, '');
         this.defaultModel = model;
         this.timeout = timeout;
         this.maxRetries = maxRetries;

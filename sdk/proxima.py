@@ -53,8 +53,10 @@ class Proxima:
         default_model: Default model for all calls (default: auto)
     """
 
-    def __init__(self, base_url="http://localhost:3210", api_key=None, default_model="auto"):
-        self.base_url = base_url.rstrip("/")
+    def __init__(self, base_url=None, api_key=None, default_model="auto"):
+        import os
+        port = os.environ.get("PROXIMA_PORT", "3210")
+        self.base_url = (base_url or f"http://localhost:{port}").rstrip("/")
         self.default_model = default_model
         self.session = requests.Session()
         self.session.headers.update({"Content-Type": "application/json"})

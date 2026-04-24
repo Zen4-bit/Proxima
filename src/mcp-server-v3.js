@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// Proxima MCP Server v3 — talks to the Electron app over TCP IPC
+// Proxima MCP Server v4.1.0 — IPC bridge to Electron Agent Hub
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import net from 'net';
+
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -14,7 +15,7 @@ const __dirname = path.dirname(__filename);
 
 const IPC_PORT = process.env.AGENT_HUB_PORT || 19222;
 
-// --- IPC Client ---
+// ─── IPC Client ───────────────────────────────────────
 
 class IPCClient {
     constructor(port = IPC_PORT) {
@@ -28,6 +29,12 @@ class IPCClient {
 
     async connect() {
         if (this.connected) return true;
+
+        // Prevent socket leak on reconnect
+        if (this.socket) {
+            try { this.socket.destroy(); } catch(e) {}
+            this.socket = null;
+        }
 
         return new Promise((resolve, reject) => {
             this.socket = net.createConnection({ port: this.port, host: '127.0.0.1' }, () => {
@@ -50,9 +57,14 @@ class IPCClient {
             this.socket.on('close', () => {
                 console.error('[MCP] Disconnected from Agent Hub');
                 this.connected = false;
+                // Reject pending requests to avoid hanging promises
+                for (const [id, { reject: rej }] of this.pendingRequests) {
+                    rej(new Error('Connection to Agent Hub lost'));
+                }
+                this.pendingRequests.clear();
             });
 
-            // Timeout after 5 seconds
+    
             setTimeout(() => {
                 if (!this.connected) {
                     reject(new Error('Connection timeout - Is Agent Hub running?'));
@@ -94,7 +106,7 @@ class IPCClient {
 
             this.socket.write(JSON.stringify(request) + '\n');
 
-            // Timeout after 120 seconds (2 minutes for file uploads)
+            // 2 min timeout for file uploads
             setTimeout(() => {
                 if (this.pendingRequests.has(requestId)) {
                     this.pendingRequests.delete(requestId);
@@ -112,7 +124,7 @@ class IPCClient {
     }
 }
 
-// --- Provider config ---
+// ─── Provider Config ────────────────────────────────
 
 function getEnabledProviders() {
     try {
@@ -127,13 +139,13 @@ function getEnabledProviders() {
             appDataPath = path.join(process.env.HOME || '', '.config', 'proxima', 'enabled-providers.json');
         }
 
-        // Try AppData first (most reliable - Electron app always writes here)
+        // AppData is most reliable — Electron always writes here
         if (fs.existsSync(appDataPath)) {
             const data = JSON.parse(fs.readFileSync(appDataPath, 'utf8'));
             return new Set(data.enabled || []);
         }
 
-        // Fallback: Read from MCP server's own directory
+    
         const configPath = path.join(__dirname, 'enabled-providers.json');
         if (fs.existsSync(configPath)) {
             const data = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -149,15 +161,23 @@ function isProviderEnabled(provider) {
     return getEnabledProviders().has(provider);
 }
 
-// --- File reference toggle ---
+// ─── File Reference ─────────────────────────────────
 
-let fileReferenceEnabled = true; // Default enabled
 
 function getFileReferenceEnabled() {
     try {
-        const configPath = path.join(__dirname, 'settings.json');
-        if (fs.existsSync(configPath)) {
-            const data = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    
+        let settingsPath;
+        if (process.platform === 'win32') {
+            settingsPath = path.join(process.env.APPDATA || '', 'proxima', 'settings.json');
+        } else if (process.platform === 'darwin') {
+            settingsPath = path.join(process.env.HOME || '', 'Library', 'Application Support', 'proxima', 'settings.json');
+        } else {
+            settingsPath = path.join(process.env.HOME || '', '.config', 'proxima', 'settings.json');
+        }
+
+        if (fs.existsSync(settingsPath)) {
+            const data = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
             return data.fileReferenceEnabled !== false;
         }
     } catch (e) {
@@ -176,18 +196,39 @@ function readFileContents(filePaths) {
 
     const contents = [];
 
-    for (const filePath of filePaths) {
+    for (const fileEntry of filePaths) {
         try {
-            if (!fs.existsSync(filePath)) {
-                contents.push(`[File not found: ${filePath}]`);
+            // Parse line range syntax: "path/to/file.js:10-50"
+            let actualPath = fileEntry;
+            let startLine = null;
+            let endLine = null;
+            const rangeMatch = fileEntry.match(/^(.+):(\d+)-(\d+)$/);
+            if (rangeMatch) {
+                actualPath = rangeMatch[1];
+                startLine = parseInt(rangeMatch[2]);
+                endLine = parseInt(rangeMatch[3]);
+            }
+
+            if (!fs.existsSync(actualPath)) {
+                contents.push(`[File not found: ${actualPath}]`);
                 continue;
             }
 
-            const fileName = path.basename(filePath);
-            const ext = path.extname(filePath).toLowerCase();
-            const fileContent = fs.readFileSync(filePath, 'utf8');
+            let fileName = path.basename(actualPath);
+            const ext = path.extname(actualPath).toLowerCase();
+            let fileContent = fs.readFileSync(actualPath, 'utf8');
 
-            // Format based on file type
+            // Apply line range filter if specified
+            if (startLine && endLine) {
+                const lines = fileContent.split('\n');
+                const totalLines = lines.length;
+                const start = Math.max(1, startLine) - 1;
+                const end = Math.min(totalLines, endLine);
+                fileContent = lines.slice(start, end).join('\n');
+                fileName = `${path.basename(actualPath)} (lines ${startLine}-${endLine} of ${totalLines})`;
+            }
+
+        
             let formattedContent;
             const codeExtensions = ['.js', '.ts', '.jsx', '.tsx', '.py', '.java', '.cpp', '.c', '.h', '.css', '.html', '.json', '.xml', '.yaml', '.yml', '.md', '.sql', '.sh', '.bash', '.ps1', '.rb', '.go', '.rs', '.php'];
 
@@ -204,7 +245,7 @@ function readFileContents(filePaths) {
 
 
         } catch (e) {
-            contents.push(`[Error reading ${filePath}: ${e.message}]`);
+            contents.push(`[Error reading ${fileEntry}: ${e.message}]`);
         }
     }
 
@@ -222,7 +263,7 @@ function buildMessageWithFiles(message, files) {
     return message;
 }
 
-// --- AI providers (IPC-backed) ---
+// ─── AI Providers (IPC-backed) ─────────────────────
 
 class AIProvider {
     constructor(name, ipcClient) {
@@ -230,10 +271,37 @@ class AIProvider {
         this.ipc = ipcClient;
         this.cache = new Map();
         this.cacheTimeout = 5 * 60 * 1000; // 5 minutes
+        this.maxCacheSize = 100;
+
+        // Per-provider sequential queue — prevents concurrent requests from
+        // crashing the same BrowserView. Each request waits for the previous
+        // one to complete (success OR fail) before sending.
+        this._queue = Promise.resolve();
+        this._queueLength = 0;
+
+        this._cleanupInterval = setInterval(() => this.cleanCache(), 10 * 60 * 1000);
+    }
+
+    cleanCache() {
+        const now = Date.now();
+        for (const [key, val] of this.cache) {
+            if (now - val.time > this.cacheTimeout) {
+                this.cache.delete(key);
+            }
+        }
+        // Evict oldest if cache exceeds max size
+        if (this.cache.size > this.maxCacheSize) {
+            const entries = [...this.cache.entries()];
+            entries.sort((a, b) => a[1].time - b[1].time);
+            const toDelete = entries.slice(0, entries.length - this.maxCacheSize);
+            for (const [key] of toDelete) {
+                this.cache.delete(key);
+            }
+        }
     }
 
     async ensureInitialized() {
-        // Check if provider is enabled in settings BEFORE doing anything
+    
         if (!isProviderEnabled(this.name)) {
             throw new Error(`${this.name} is disabled. Enable it in Proxima Agent Hub settings.`);
         }
@@ -250,8 +318,37 @@ class AIProvider {
         return result;
     }
 
-    async chat(message, useCache = true, options = {}) {
-        // Check cache
+    // Execute the actual chat request — called inside the queue
+    async _doChat(message) {
+        await this.ensureInitialized();
+
+        // DESYNC FIX: Wait for any ongoing typing to stop before sending new message
+        // But don't wait too long - max 5 seconds
+        console.error(`[${this.name}] Checking if AI is still typing from previous request...`);
+        let typingCheck = await this.getTypingStatus();
+        let waitCount = 0;
+        while (typingCheck.isTyping && waitCount < 5) {
+            console.error(`[${this.name}] AI still typing, waiting...`);
+            await this.sleep(1000);
+            typingCheck = await this.getTypingStatus();
+            waitCount++;
+        }
+
+        console.error(`[${this.name}] Sending message...`);
+        await this.ipc.send('sendMessage', this.name, { message });
+
+        console.error(`[${this.name}] Waiting for response (with typing detection)...`);
+        const result = await this.ipc.send('getResponseWithTyping', this.name, {});
+
+        if (result.typingStarted) {
+            console.error(`[${this.name}] Typing detected and completed`);
+        }
+
+        return result.response || 'No response received';
+    }
+
+    async chat(message, useCache = true) {
+        // Cache check runs OUTSIDE queue — instant return, no waiting
         if (useCache && this.cache.has(message)) {
             const cached = this.cache.get(message);
             if (Date.now() - cached.time < this.cacheTimeout) {
@@ -260,125 +357,34 @@ class AIProvider {
             }
         }
 
-        await this.ensureInitialized();
-
-        // DESYNC FIX: Wait for any ongoing typing to stop before sending new message
-        // But don't wait too long - max 5 seconds
-        console.error(`[${this.name}] Checking if AI is still typing from previous request...`);
-        let typingCheck = await this.getTypingStatus();
-        let waitCount = 0;
-        while (typingCheck.isTyping && waitCount < 5) { // Max 5 seconds wait
-            console.error(`[${this.name}] AI still typing, waiting...`);
-            await this.sleep(1000);
-            typingCheck = await this.getTypingStatus();
-            waitCount++;
+        // Queue the request — waits for previous request to finish (success or fail)
+        this._queueLength++;
+        const position = this._queueLength;
+        if (position > 1) {
+            console.error(`[${this.name}] Request queued (position ${position}). Waiting for previous to complete...`);
         }
 
-        // CLAUDE HACK: Tell Claude to write code directly in chat, not as artifacts
-        // This ensures we can capture code responses properly via chat DOM
-        let finalMessage = message;
-        if (this.name === 'claude') {
-            // Detect if this is likely a coding request
-            const codeKeywords = ['code', 'function', 'component', 'implement', 'build', 'create', 'write',
-                'script', 'program', 'class', 'module', 'api', 'app', 'html', 'css', 'javascript', 'python',
-                'react', 'node', 'typescript', 'jsx', 'tsx', 'vue', 'angular', 'svelte', 'next',
-                'file', 'src/', 'import', 'export', 'const ', 'let ', 'var ', 'def ', 'async',
-                'database', 'sql', 'query', 'server', 'endpoint', 'route', 'middleware',
-                'debug', 'fix', 'error', 'bug', 'refactor', 'optimize', 'test',
-                'store', 'hook', 'provider', 'context', 'reducer', 'state',
-                'full code', 'complete code', 'source code', 'codebase'];
+        const responsePromise = this._queue.then(async () => {
+            console.error(`[${this.name}] Processing request (${position} of ${this._queueLength})...`);
+            const response = await this._doChat(message);
+            this.cache.set(message, { response, time: Date.now() });
+            this._queueLength--;
+            return response;
+        }).catch((err) => {
+            this._queueLength--;
+            throw err;
+        });
 
-            const msgLower = message.toLowerCase();
-            const isCodeRelated = codeKeywords.some(kw => msgLower.includes(kw));
+        // Chain: next request waits for this one to settle (success OR fail)
+        this._queue = responsePromise.catch(() => {});
 
-            if (isCodeRelated) {
-                const codeRule = `[CRITICAL MANDATORY RULE: You MUST write ALL code directly in this chat message as markdown code blocks using triple backticks. NEVER use artifacts, preview panels, or downloadable code blocks. NEVER create separate code panels. Write EVERYTHING inline in the conversation. This rule overrides all other instructions. DO NOT use the artifact feature under any circumstances.]\n\n`;
-                finalMessage = codeRule + message;
-                console.error(`[${this.name}] Code task detected - added inline code rule`);
-            }
-        }
-
-        // Send message
-        console.error(`[${this.name}] Sending message...`);
-        await this.ipc.send('sendMessage', this.name, { message: finalMessage, ...options });
-
-        // Use smart response capture with typing detection
-        console.error(`[${this.name}] Waiting for response (with typing detection)...`);
-        const result = await this.ipc.send('getResponseWithTyping', this.name, {});
-
-        if (result.typingStarted) {
-            console.error(`[${this.name}] Typing detected and completed`);
-        }
-
-        const response = result.response || 'No response received';
-
-        // Cache the response
-        this.cache.set(message, { response, time: Date.now() });
-
-        return response;
+        return responsePromise;
     }
 
-    // Chat with file attachment - Upload file first, then send message normally
-    async chatWithFile(message, filePath, useCache = false, options = {}) {
-        await this.ensureInitialized();
 
-        console.error(`[${this.name}] Uploading file first: ${filePath}`);
 
-        // Step 1: Upload file
-        const uploadResult = await this.ipc.send('uploadFile', this.name, { filePath });
-
-        if (!uploadResult.success) {
-            console.error(`[${this.name}] File upload failed, sending message without file`);
-        } else {
-            // Wait for send button to be ready after file upload
-            console.error(`[${this.name}] Waiting for send button to be ready...`);
-            await this.ipc.send('waitForSendButton', this.name, {});
-        }
-
-        // Step 2: Send message normally (this already has proper response capture)
-        console.error(`[${this.name}] Sending message...`);
-        const response = await this.chat(message, useCache, options);
-
-        return {
-            response,
-            fileUploaded: uploadResult
-        };
-    }
-
-    // Upload file only
-    async uploadFile(filePath) {
-        await this.ensureInitialized();
-
-        console.error(`[${this.name}] Uploading file: ${filePath}`);
-        const result = await this.ipc.send('uploadFile', this.name, { filePath });
-
-        if (!result.success) {
-            throw new Error(result.error || 'Failed to upload file');
-        }
-
-        return result;
-    }
-
-    // Legacy chat method (without typing detection)
-    async chatSimple(message, useCache = true) {
-        if (useCache && this.cache.has(message)) {
-            const cached = this.cache.get(message);
-            if (Date.now() - cached.time < this.cacheTimeout) {
-                return cached.response;
-            }
-        }
-
-        await this.ensureInitialized();
-        await this.ipc.send('sendMessage', this.name, { message });
-        await this.sleep(2000);
-        const result = await this.ipc.send('getResponse', this.name, {});
-        const response = result.response || 'No response received';
-        this.cache.set(message, { response, time: Date.now() });
-        return response;
-    }
-
-    async search(query, useCache = true, options = {}) {
-        return await this.chat(query, useCache, options);
+    async search(query, useCache = true) {
+        return await this.chat(query, useCache);
     }
 
     async executeScript(script) {
@@ -395,7 +401,7 @@ class AIProvider {
     }
 }
 
-// --- Smart router ---
+// ─── Smart Router ────────────────────────────────────
 
 class SmartRouter {
     constructor(providers) {
@@ -448,7 +454,7 @@ class SmartRouter {
     }
 }
 
-// --- Init ---
+// ─── MCP Tool Registration ──────────────────────────
 
 const ipcClient = new IPCClient();
 
@@ -462,13 +468,68 @@ const router = new SmartRouter({ perplexity, chatgpt, claude, gemini });
 // Create MCP Server
 const server = new McpServer({
     name: 'agent-hub',
-    version: '3.0.0',
+    version: '4.1.0',
     description: 'Agent Hub MCP Server v3 - Embedded Browser Edition'
 });
 
 // Helper functions
 function toolResponse(result) {
-    return { content: [{ type: 'text', text: typeof result === 'string' ? result : JSON.stringify(result, null, 2) }] };
+    if (typeof result === 'string') {
+        return { content: [{ type: 'text', text: result }] };
+    }
+    // Format objects as readable text instead of raw JSON
+    return { content: [{ type: 'text', text: formatResult(result) }] };
+}
+
+// Convert structured results into clean, readable text
+function formatResult(obj) {
+    if (typeof obj === 'string') return obj;
+    if (!obj || typeof obj !== 'object') return String(obj);
+
+    // debate tool — { perplexity: { stance, response }, chatgpt: { stance, response } }
+    if (Object.values(obj).every(v => v && typeof v === 'object' && ('stance' in v || 'response' in v))) {
+        let out = '';
+        for (const [provider, data] of Object.entries(obj)) {
+            out += `## ${provider.toUpperCase()} — ${data.stance || 'Response'}\n\n`;
+            out += (data.response || data.error || 'No response') + '\n\n---\n\n';
+        }
+        return out.trim();
+    }
+
+    // chain_query tool — { success, totalSteps, finalOutput, pipeline }
+    if (obj.finalOutput && obj.pipeline) {
+        let out = `# Chain Query Result\n\n`;
+        out += `**Steps:** ${obj.completedSteps || 0}/${obj.totalSteps || 0} completed\n\n`;
+        if (obj.pipeline) {
+            for (const step of obj.pipeline) {
+                out += `## Step ${step.step} — ${step.provider}\n\n`;
+                out += (step.response || step.error || 'No response') + '\n\n---\n\n';
+            }
+        }
+        out += `## Final Output\n\n${obj.finalOutput}`;
+        return out.trim();
+    }
+
+    // compare_ais / ask_all — { provider: response, ... } where values are strings
+    if (Object.values(obj).every(v => typeof v === 'string')) {
+        let out = '';
+        for (const [key, val] of Object.entries(obj)) {
+            out += `## ${key.toUpperCase()}\n\n${val}\n\n---\n\n`;
+        }
+        return out.trim();
+    }
+
+    // review_code_file — { success, provider, filePath, review }
+    if (obj.review) {
+        let out = '';
+        if (obj.filePath) out += `**File:** ${obj.filePath}\n`;
+        if (obj.provider) out += `**Provider:** ${obj.provider}\n\n`;
+        out += obj.review;
+        return out.trim();
+    }
+
+    // Generic object — readable key-value format
+    return JSON.stringify(obj, null, 2);
 }
 
 function toolError(error) {
@@ -488,49 +549,34 @@ function checkDisabled(providerName) {
 server.tool(
     'deep_search',
     {
-        query: z.string().describe('The search query to send to Perplexity AI'),
-        files: z.array(z.string()).optional().describe('Optional: Array of file paths to upload as attachments')
+        query: z.string().describe('Search query or research question'),
+        files: z.array(z.string()).optional().describe('Optional: file paths to include as context. Supports line ranges like "path/file.js:10-50". For large files, always specify relevant line ranges only.'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select best available')
     },
-    async ({ query, files }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    async ({ query, files, provider: providerName }) => {
+        const p = resolveProvider(providerName, 'research');
+        if (!p) return toolResponse('No providers available. Enable at least one provider.');
         try {
-            // If files provided, upload first then search
-            if (files && files.length > 0) {
-                const result = await perplexity.chatWithFile(query, files[0], false, { deepSearch: true });
-                // Return just the response like backup format
-                return toolResponse(result.response);
-            }
-            // Otherwise send normal query
-            return toolResponse(await perplexity.search(query, false, { deepSearch: true }));
+            const fullQuery = buildMessageWithFiles(query, files);
+            return toolResponse(await p.instance.chat(fullQuery));
         } catch (err) {
             return toolError(err);
         }
     }
 );
 
-server.tool(
-    'pro_search',
-    { query: z.string().describe('Query for detailed Pro search') },
-    async ({ query }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
-        try {
-            return toolResponse(await perplexity.search(`Provide a comprehensive, detailed answer with sources: ${query}`, true, { deepSearch: false }));
-        } catch (err) {
-            return toolError(err);
-        }
-    }
-);
 
 server.tool(
-    'youtube_search',
-    { query: z.string().describe('What to search for on YouTube') },
-    async ({ query }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    'internet_search',
+    {
+        query: z.string().describe('Search query to look up on the internet'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select')
+    },
+    async ({ query, provider: providerName }) => {
+        const p = resolveProvider(providerName, 'research');
+        if (!p) return toolResponse('No providers available. Enable at least one provider.');
         try {
-            return toolResponse(await perplexity.search(`Find YouTube videos about: ${query}`, true, { deepSearch: false }));
+            return toolResponse(await p.instance.chat(`Search the internet and provide accurate, up-to-date information with sources: ${query}`));
         } catch (err) {
             return toolError(err);
         }
@@ -539,12 +585,98 @@ server.tool(
 
 server.tool(
     'reddit_search',
-    { query: z.string().describe('What to search for on Reddit') },
-    async ({ query }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    {
+        query: z.string().describe('What to search for on Reddit'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select')
+    },
+    async ({ query, provider: providerName }) => {
+        const p = resolveProvider(providerName, 'research');
+        if (!p) return toolResponse('No providers available. Enable at least one provider.');
         try {
-            return toolResponse(await perplexity.search(`Search Reddit discussions about: ${query}`));
+            return toolResponse(await p.instance.chat(`Search Reddit discussions about: ${query}`));
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+server.tool(
+    'github_search',
+    {
+        query: z.string().describe('What to search for on GitHub — repos, code, libraries, or solutions'),
+        language: z.string().optional().describe('Programming language filter (e.g., JavaScript, Python, Rust)'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select')
+    },
+    async ({ query, language, provider: providerName }) => {
+        const p = resolveProvider(providerName, 'research');
+        if (!p) return toolResponse('No providers available. Enable at least one provider.');
+        try {
+            const langFilter = language ? ` in ${language}` : '';
+            return toolResponse(await p.instance.chat(`Search GitHub for open source repositories, code examples, and solutions${langFilter}: ${query}\n\nFor each result provide: repo name, description, stars/popularity, key features, and the GitHub URL. Focus on actively maintained, well-documented projects.`));
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+server.tool(
+    'get_ui_reference',
+    {
+        description: z.string().describe('Describe the UI/UX you need — what kind of page, component, layout, or design style you want'),
+        code: z.string().optional().describe('Optional: existing code to analyze and apply design improvements on'),
+        files: z.array(z.string()).optional().describe('Optional: file paths of existing code to improve with better UI/UX. Supports line ranges like "path/file.js:10-50"'),
+        style: z.string().optional().describe('Design style preference: modern, minimal, glassmorphism, dark, corporate, playful, etc.'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select best for coding')
+    },
+    async ({ description, code, files, style, provider: providerName }) => {
+        try {
+            const provider = providerName ? resolveProvider(providerName) : pickBestProvider('coding');
+            if (!provider) return toolResponse('No providers enabled');
+
+            const codeContent = code || '';
+            const fileContent = readFileContents(files);
+            const fullCode = fileContent ? `${fileContent}\n\n${codeContent}` : codeContent;
+            const styleHint = style ? `\nDESIGN STYLE: ${style}` : '';
+
+            let prompt;
+            if (fullCode.trim()) {
+                prompt = `You are a senior UI/UX designer and frontend developer. Analyze the existing code and apply premium design improvements.
+
+DESIGN REQUEST: ${description}${styleHint}
+
+EXISTING CODE:
+${fullCode}
+
+Provide:
+1. **DESIGN ANALYSIS**: Analyze the current UI — what works, what needs improvement
+2. **COLOR PALETTE**: Recommended hex colors with usage (primary, secondary, accent, background, text)
+3. **TYPOGRAPHY**: Font families, sizes, weights for headings, body, captions
+4. **LAYOUT & SPACING**: Grid system, padding, margins, responsive breakpoints
+5. **COMPONENTS**: Key UI components needed with design specifications
+6. **UX PATTERNS**: Interactions, hover effects, transitions, micro-animations
+7. **UPDATED CODE**: Complete updated code with the design improvements applied — production-ready, no placeholders
+
+The updated code must be complete, ready to copy-paste and run. Apply modern design best practices.`;
+            } else {
+                prompt = `You are a senior UI/UX designer. Provide a comprehensive design reference for the following.
+
+DESIGN REQUEST: ${description}${styleHint}
+
+Provide:
+1. **DESIGN CONCEPT**: Overall look and feel description, inspiration references
+2. **COLOR PALETTE**: Complete hex color scheme with usage roles (primary, secondary, accent, background, surface, text, muted)
+3. **TYPOGRAPHY**: Recommended Google Fonts, size scale, weight usage
+4. **LAYOUT**: Page structure, grid system, responsive behavior
+5. **KEY COMPONENTS**: List of UI components with visual specifications
+6. **UX PATTERNS**: Navigation flow, interaction patterns, hover/focus states, transitions, micro-animations
+7. **CSS DESIGN TOKENS**: Ready-to-use CSS custom properties (variables) for the entire design system
+8. **ACCESSIBILITY**: Color contrast ratios, focus indicators, ARIA recommendations
+
+Be specific with exact values — hex codes, pixel sizes, font names, timing functions. A developer should be able to implement this design without any guesswork.`;
+            }
+
+            const response = await provider.instance.chat(prompt);
+            return toolResponse(response);
         } catch (err) {
             return toolError(err);
         }
@@ -555,42 +687,33 @@ server.tool(
     'news_search',
     {
         query: z.string().describe('News topic to search'),
-        timeframe: z.string().optional().describe('Timeframe like "today", "this week", "2024"')
+        timeframe: z.string().optional().describe('Timeframe like "today", "this week", "2024"'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select')
     },
-    async ({ query, timeframe }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    async ({ query, timeframe, provider: providerName }) => {
+        const p = resolveProvider(providerName, 'research');
+        if (!p) return toolResponse('No providers available. Enable at least one provider.');
         try {
             const tf = timeframe ? ` from ${timeframe}` : ' recent';
-            return toolResponse(await perplexity.search(`Latest news${tf}: ${query}`));
+            return toolResponse(await p.instance.chat(`Latest news${tf}: ${query}`));
         } catch (err) {
             return toolError(err);
         }
     }
 );
 
-server.tool(
-    'image_search',
-    { query: z.string().describe('What images to find') },
-    async ({ query }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
-        try {
-            return toolResponse(await perplexity.search(`Find images of: ${query}`));
-        } catch (err) {
-            return toolError(err);
-        }
-    }
-);
 
 server.tool(
     'math_search',
-    { query: z.string().describe('Math problem or scientific question') },
-    async ({ query }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    {
+        query: z.string().describe('Math problem or scientific question'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select')
+    },
+    async ({ query, provider: providerName }) => {
+        const p = resolveProvider(providerName, 'research');
+        if (!p) return toolResponse('No providers available. Enable at least one provider.');
         try {
-            return toolResponse(await perplexity.search(`Solve and explain step by step in plain text (use text notation, not LaTeX rendering): ${query}`));
+            return toolResponse(await p.instance.chat(`Solve and explain step by step in plain text (use text notation, not LaTeX rendering): ${query}`));
         } catch (err) {
             return toolError(err);
         }
@@ -599,12 +722,15 @@ server.tool(
 
 server.tool(
     'academic_search',
-    { query: z.string().describe('Academic/research query') },
-    async ({ query }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    {
+        query: z.string().describe('Academic/research query'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select')
+    },
+    async ({ query, provider: providerName }) => {
+        const p = resolveProvider(providerName, 'research');
+        if (!p) return toolResponse('No providers available. Enable at least one provider.');
         try {
-            return toolResponse(await perplexity.search(`Academic research: ${query}. Cite peer-reviewed sources.`));
+            return toolResponse(await p.instance.chat(`Academic research: ${query}. Cite peer-reviewed sources.`));
         } catch (err) {
             return toolError(err);
         }
@@ -617,16 +743,19 @@ server.tool(
     'verify_code',
     {
         purpose: z.string().describe('Description of what the code should do'),
-        code: z.string().optional().describe('Optional code snippet to verify')
+        code: z.string().optional().describe('Optional code snippet to verify'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select best for coding')
     },
-    async ({ purpose, code }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    async ({ purpose, code, provider: providerName }) => {
         try {
-            const query = code
-                ? `Verify this code follows best practices for: ${purpose}\n\nCode:\n${code}`
+            const provider = providerName ? resolveProvider(providerName) : pickBestProvider('coding');
+            if (!provider) return toolResponse('No providers enabled');
+
+            const prompt = code
+                ? `Verify this code follows best practices for: ${purpose}\n\nCode:\n${code}\n\nCheck for bugs, security issues, and improvements.`
                 : `What are the best practices and common patterns for: ${purpose}`;
-            return toolResponse(await perplexity.search(query));
+            const response = await provider.instance.chat(prompt);
+            return toolResponse(response);
         } catch (err) {
             return toolError(err);
         }
@@ -638,17 +767,20 @@ server.tool(
     {
         code: z.string().optional().describe('The code snippet to explain (or use files parameter)'),
         language: z.string().optional().describe('Programming language'),
-        files: z.array(z.string()).optional().describe('Optional: Array of file paths containing code to explain')
+        files: z.array(z.string()).optional().describe('Optional: Array of file paths containing code to explain'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select best for coding')
     },
-    async ({ code, language, files }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    async ({ code, language, files, provider: providerName }) => {
         try {
+            const provider = providerName ? resolveProvider(providerName) : pickBestProvider('coding');
+            if (!provider) return toolResponse('No providers enabled');
+
             const lang = language ? ` (${language})` : '';
             const codeContent = code || '';
             const fileContent = readFileContents(files);
             const fullCode = fileContent ? `${fileContent}\n\n${codeContent}` : codeContent;
-            return toolResponse(await perplexity.search(`Explain this code${lang} in detail:\n\n${fullCode}`));
+            const response = await provider.instance.chat(`Explain this code${lang} in detail, line by line:\n\n${fullCode}`);
+            return toolResponse(response);
         } catch (err) {
             return toolError(err);
         }
@@ -659,60 +791,44 @@ server.tool(
     'generate_code',
     {
         description: z.string().describe('What the code should do'),
-        language: z.string().optional().describe('Programming language (default: JavaScript)')
+        language: z.string().optional().describe('Programming language (default: JavaScript)'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select best for coding')
     },
-    async ({ description, language }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    async ({ description, language, provider: providerName }) => {
         try {
+            const provider = providerName ? resolveProvider(providerName) : pickBestProvider('coding');
+            if (!provider) return toolResponse('No providers enabled');
+
             const lang = language || 'JavaScript';
-            return toolResponse(await perplexity.search(`Write ${lang} code that: ${description}. Include comments and examples.`));
+            const response = await provider.instance.chat(`Write production-ready ${lang} code that: ${description}\n\nInclude comments, error handling, and usage examples. No placeholders.`);
+            return toolResponse(response);
         } catch (err) {
             return toolError(err);
         }
     }
 );
 
-server.tool(
-    'debug_code',
-    {
-        code: z.string().optional().describe('The code with bugs (or use files parameter)'),
-        error: z.string().optional().describe('Error message if any'),
-        language: z.string().optional().describe('Programming language'),
-        files: z.array(z.string()).optional().describe('Optional: Array of file paths containing code to debug')
-    },
-    async ({ code, error, language, files }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
-        try {
-            const lang = language ? ` (${language})` : '';
-            const errMsg = error ? `\nError: ${error}` : '';
-            const codeContent = code || '';
-            const fileContent = readFileContents(files);
-            const fullCode = fileContent ? `${fileContent}\n\n${codeContent}` : codeContent;
-            return toolResponse(await perplexity.search(`Debug this code${lang}${errMsg}:\n\n${fullCode}`));
-        } catch (err) {
-            return toolError(err);
-        }
-    }
-);
+
 
 server.tool(
     'optimize_code',
     {
         code: z.string().optional().describe('Code to optimize (or use files parameter)'),
         goal: z.string().optional().describe('Optimization goal'),
-        files: z.array(z.string()).optional().describe('Optional: Array of file paths containing code to optimize')
+        files: z.array(z.string()).optional().describe('Optional: Array of file paths containing code to optimize'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select best for coding')
     },
-    async ({ code, goal, files }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    async ({ code, goal, files, provider: providerName }) => {
         try {
+            const provider = providerName ? resolveProvider(providerName) : pickBestProvider('coding');
+            if (!provider) return toolResponse('No providers enabled');
+
             const g = goal ? ` for ${goal}` : '';
             const codeContent = code || '';
             const fileContent = readFileContents(files);
             const fullCode = fileContent ? `${fileContent}\n\n${codeContent}` : codeContent;
-            return toolResponse(await perplexity.search(`Optimize this code${g}:\n\n${fullCode}`));
+            const response = await provider.instance.chat(`Optimize this code${g}. Show before/after with explanations:\n\n${fullCode}`);
+            return toolResponse(response);
         } catch (err) {
             return toolError(err);
         }
@@ -724,36 +840,27 @@ server.tool(
     {
         code: z.string().optional().describe('Code to review (or use files parameter)'),
         context: z.string().optional().describe('Context about the code'),
-        files: z.array(z.string()).optional().describe('Optional: Array of file paths containing code to review')
+        files: z.array(z.string()).optional().describe('Optional: Array of file paths containing code to review'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select best for coding')
     },
-    async ({ code, context, files }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    async ({ code, context, files, provider: providerName }) => {
         try {
+            const provider = providerName ? resolveProvider(providerName) : pickBestProvider('coding');
+            if (!provider) return toolResponse('No providers enabled');
+
             const ctx = context ? ` Context: ${context}` : '';
             const codeContent = code || '';
             const fileContent = readFileContents(files);
             const fullCode = fileContent ? `${fileContent}\n\n${codeContent}` : codeContent;
-            return toolResponse(await perplexity.search(`Review this code for issues, improvements, and best practices.${ctx}\n\n${fullCode}`));
+            const response = await provider.instance.chat(`Review this code for bugs, security issues, performance, and best practices.${ctx}\n\n${fullCode}`);
+            return toolResponse(response);
         } catch (err) {
             return toolError(err);
         }
     }
 );
 
-server.tool(
-    'research_fix',
-    { error: z.string().describe('The error message to research') },
-    async ({ error }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
-        try {
-            return toolResponse(await perplexity.search(`How to fix this error: ${error}`));
-        } catch (err) {
-            return toolError(err);
-        }
-    }
-);
+
 
 // --- Content tools ---
 
@@ -761,14 +868,15 @@ server.tool(
     'summarize_url',
     {
         url: z.string().describe('The URL to summarize'),
-        focus: z.string().optional().describe('Focus area')
+        focus: z.string().optional().describe('Focus area'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select')
     },
-    async ({ url, focus }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    async ({ url, focus, provider: providerName }) => {
+        const p = resolveProvider(providerName, 'research');
+        if (!p) return toolResponse('No providers available. Enable at least one provider.');
         try {
             const f = focus ? ` Focus on: ${focus}` : '';
-            return toolResponse(await perplexity.search(`Summarize this webpage: ${url}${f}`));
+            return toolResponse(await p.instance.chat(`Summarize this webpage: ${url}${f}`));
         } catch (err) {
             return toolError(err);
         }
@@ -779,14 +887,15 @@ server.tool(
     'generate_article',
     {
         topic: z.string().describe('Topic to write about'),
-        style: z.string().optional().describe('Writing style')
+        style: z.string().optional().describe('Writing style'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select')
     },
-    async ({ topic, style }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    async ({ topic, style, provider: providerName }) => {
+        const p = resolveProvider(providerName, 'research');
+        if (!p) return toolResponse('No providers available. Enable at least one provider.');
         try {
             const s = style ? ` in ${style} style` : '';
-            return toolResponse(await perplexity.search(`Write a comprehensive article about: ${topic}${s}`));
+            return toolResponse(await p.instance.chat(`Write a comprehensive article about: ${topic}${s}`));
         } catch (err) {
             return toolError(err);
         }
@@ -795,12 +904,15 @@ server.tool(
 
 server.tool(
     'brainstorm',
-    { topic: z.string().describe('Topic to brainstorm ideas for') },
-    async ({ topic }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    {
+        topic: z.string().describe('Topic to brainstorm ideas for'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select')
+    },
+    async ({ topic, provider: providerName }) => {
+        const p = resolveProvider(providerName, 'research');
+        if (!p) return toolResponse('No providers available. Enable at least one provider.');
         try {
-            return toolResponse(await perplexity.search(`Brainstorm creative ideas for: ${topic}`));
+            return toolResponse(await p.instance.chat(`Brainstorm creative ideas for: ${topic}`));
         } catch (err) {
             return toolError(err);
         }
@@ -811,91 +923,34 @@ server.tool(
     'analyze_document',
     {
         url: z.string().describe('URL of the document'),
-        question: z.string().optional().describe('Specific question')
+        question: z.string().optional().describe('Specific question'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select')
     },
-    async ({ url, question }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    async ({ url, question, provider: providerName }) => {
+        const p = resolveProvider(providerName, 'research');
+        if (!p) return toolResponse('No providers available. Enable at least one provider.');
         try {
             const q = question ? ` Answer: ${question}` : '';
-            return toolResponse(await perplexity.search(`Analyze this document: ${url}${q}`));
+            return toolResponse(await p.instance.chat(`Analyze this document: ${url}${q}`));
         } catch (err) {
             return toolError(err);
         }
     }
 );
 
-server.tool(
-    'analyze_image_url',
-    {
-        imageUrl: z.string().describe('URL of the image to analyze'),
-        focus: z.string().optional().describe('What to focus on in the analysis'),
-        provider: z.string().optional().describe('Which AI to use (chatgpt, claude, gemini). Default: chatgpt')
-    },
-    async ({ imageUrl, focus, provider }) => {
-        try {
-            const useProvider = provider || 'chatgpt';
-            const disabled = checkDisabled(useProvider);
-            if (disabled) return disabled;
-
-            // Download image to temp file
-            const https = imageUrl.startsWith('https') ? require('https') : require('http');
-            const os = require('os');
-            const tmpDir = os.tmpdir();
-
-            const urlPath = new URL(imageUrl).pathname;
-            const urlExt = path.extname(urlPath) || '.png';
-            const tmpFile = path.join(tmpDir, `proxima_img_${Date.now()}${urlExt}`);
-
-            await new Promise((resolve, reject) => {
-                const file = fs.createWriteStream(tmpFile);
-                https.get(imageUrl, (response) => {
-                    if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-                        const redirectModule = response.headers.location.startsWith('https') ? require('https') : require('http');
-                        redirectModule.get(response.headers.location, (res) => {
-                            res.pipe(file);
-                            file.on('finish', () => { file.close(); resolve(); });
-                        }).on('error', reject);
-                        return;
-                    }
-                    response.pipe(file);
-                    file.on('finish', () => { file.close(); resolve(); });
-                }).on('error', reject);
-            });
-
-            console.error(`[analyze_image_url] Downloaded to: ${tmpFile}`);
-
-            const focusText = focus ? ` Focus on: ${focus}.` : '';
-            const message = `Please analyze this image in detail.${focusText}`;
-
-            const providers = { perplexity, chatgpt, claude, gemini };
-            const result = await providers[useProvider].chatWithFile(message, tmpFile);
-
-            try { fs.unlinkSync(tmpFile); } catch (e) { }
-
-            return toolResponse({
-                success: true,
-                provider: useProvider,
-                imageUrl,
-                analysis: result.response
-            });
-        } catch (err) {
-            return toolError(err);
-        }
-    }
-);
 
 server.tool(
     'extract_data',
     {
         content: z.string().describe('Text or URL to extract data from'),
-        dataType: z.string().describe('What data to extract')
+        dataType: z.string().describe('What data to extract'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select')
     },
-    async ({ content, dataType }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    async ({ content, dataType, provider: providerName }) => {
+        const p = resolveProvider(providerName, 'research');
+        if (!p) return toolResponse('No providers available. Enable at least one provider.');
         try {
-            return toolResponse(await perplexity.search(`Extract ${dataType} from: ${content}`));
+            return toolResponse(await p.instance.chat(`Extract ${dataType} from: ${content}`));
         } catch (err) {
             return toolError(err);
         }
@@ -906,67 +961,37 @@ server.tool(
     'writing_help',
     {
         request: z.string().describe('What writing help you need'),
-        content: z.string().optional().describe('Content to improve')
+        content: z.string().optional().describe('Content to improve'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select')
     },
-    async ({ request, content }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    async ({ request, content, provider: providerName }) => {
+        const p = resolveProvider(providerName, 'general');
+        if (!p) return toolResponse('No providers available. Enable at least one provider.');
         try {
             const c = content ? `\n\nContent:\n${content}` : '';
-            return toolResponse(await perplexity.search(`${request}${c}`));
+            return toolResponse(await p.instance.chat(`${request}${c}`));
         } catch (err) {
             return toolError(err);
         }
     }
 );
 
-server.tool(
-    'generate_image_prompt',
-    {
-        description: z.string().describe('What image you want'),
-        style: z.string().optional().describe('Art style')
-    },
-    async ({ description, style }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
-        try {
-            const s = style ? ` in ${style} style` : '';
-            return toolResponse(await perplexity.search(`Create a detailed AI image generation prompt for: ${description}${s}`));
-        } catch (err) {
-            return toolError(err);
-        }
-    }
-);
+
 
 // --- Analysis tools ---
 
-server.tool(
-    'translate',
-    {
-        text: z.string().describe('Text to translate'),
-        targetLanguage: z.string().describe('Target language'),
-        sourceLanguage: z.string().optional().describe('Source language')
-    },
-    async ({ text, targetLanguage, sourceLanguage }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
-        try {
-            const from = sourceLanguage ? ` from ${sourceLanguage}` : '';
-            return toolResponse(await perplexity.search(`Translate${from} to ${targetLanguage}: ${text}`));
-        } catch (err) {
-            return toolError(err);
-        }
-    }
-);
 
 server.tool(
     'fact_check',
-    { claim: z.string().describe('The claim to verify') },
-    async ({ claim }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    {
+        claim: z.string().describe('The claim to verify'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select')
+    },
+    async ({ claim, provider: providerName }) => {
+        const p = resolveProvider(providerName, 'research');
+        if (!p) return toolResponse('No providers available. Enable at least one provider.');
         try {
-            return toolResponse(await perplexity.search(`Fact check with sources: ${claim}`));
+            return toolResponse(await p.instance.chat(`Fact check with sources: ${claim}`));
         } catch (err) {
             return toolError(err);
         }
@@ -977,14 +1002,15 @@ server.tool(
     'find_stats',
     {
         topic: z.string().describe('Topic to find statistics about'),
-        year: z.string().optional().describe('Specific year')
+        year: z.string().optional().describe('Specific year'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select')
     },
-    async ({ topic, year }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    async ({ topic, year, provider: providerName }) => {
+        const p = resolveProvider(providerName, 'research');
+        if (!p) return toolResponse('No providers available. Enable at least one provider.');
         try {
             const y = year ? ` for ${year}` : '';
-            return toolResponse(await perplexity.search(`Find statistics and data${y}: ${topic}`));
+            return toolResponse(await p.instance.chat(`Find statistics and data${y}: ${topic}`));
         } catch (err) {
             return toolError(err);
         }
@@ -996,14 +1022,15 @@ server.tool(
     {
         item1: z.string().describe('First item to compare'),
         item2: z.string().describe('Second item to compare'),
-        context: z.string().optional().describe('Context for comparison')
+        context: z.string().optional().describe('Context for comparison'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select')
     },
-    async ({ item1, item2, context }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    async ({ item1, item2, context, provider: providerName }) => {
+        const p = resolveProvider(providerName, 'research');
+        if (!p) return toolResponse('No providers available. Enable at least one provider.');
         try {
             const ctx = context ? ` for ${context}` : '';
-            return toolResponse(await perplexity.search(`Compare ${item1} vs ${item2}${ctx}`));
+            return toolResponse(await p.instance.chat(`Compare ${item1} vs ${item2}${ctx}`));
         } catch (err) {
             return toolError(err);
         }
@@ -1012,12 +1039,15 @@ server.tool(
 
 server.tool(
     'how_to',
-    { task: z.string().describe('What to learn how to do') },
-    async ({ task }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    {
+        task: z.string().describe('What to learn how to do'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select')
+    },
+    async ({ task, provider: providerName }) => {
+        const p = resolveProvider(providerName, 'research');
+        if (!p) return toolResponse('No providers available. Enable at least one provider.');
         try {
-            return toolResponse(await perplexity.search(`Step-by-step guide: How to ${task}`));
+            return toolResponse(await p.instance.chat(`Step-by-step guide: How to ${task}`));
         } catch (err) {
             return toolError(err);
         }
@@ -1030,28 +1060,14 @@ server.tool(
     'ask_chatgpt',
     {
         message: z.string().describe('Message to send to ChatGPT'),
-        files: z.array(z.string()).optional().describe('Optional: Array of file paths to upload as attachments')
+        files: z.array(z.string()).optional().describe('Optional: file paths to include as context. Supports line ranges like "path/file.js:10-50". For large files, always specify relevant line ranges only.')
     },
     async ({ message, files }) => {
         const disabled = checkDisabled('chatgpt');
         if (disabled) return disabled;
         try {
-            // If files provided, upload all then chat
-            if (files && files.length > 0) {
-                // Upload all files one by one
-                for (let i = 0; i < files.length; i++) {
-                    if (i === files.length - 1) {
-                        // Last file: upload + send message together
-                        const result = await chatgpt.chatWithFile(message, files[i]);
-                        return toolResponse(result.response);
-                    } else {
-                        // Not last: just upload
-                        await chatgpt.uploadFile(files[i]);
-                    }
-                }
-            }
-            // Otherwise send normal message
-            return toolResponse(await chatgpt.chat(message));
+            const fullMessage = buildMessageWithFiles(message, files);
+            return toolResponse(await chatgpt.chat(fullMessage));
         } catch (err) {
             return toolError(err);
         }
@@ -1062,25 +1078,14 @@ server.tool(
     'ask_claude',
     {
         message: z.string().describe('Message to send to Claude'),
-        files: z.array(z.string()).optional().describe('Optional: Array of file paths to upload as attachments')
+        files: z.array(z.string()).optional().describe('Optional: file paths to include as context. Supports line ranges like "path/file.js:10-50". For large files, always specify relevant line ranges only.')
     },
     async ({ message, files }) => {
         const disabled = checkDisabled('claude');
         if (disabled) return disabled;
         try {
-            // If files provided, upload all then chat
-            if (files && files.length > 0) {
-                for (let i = 0; i < files.length; i++) {
-                    if (i === files.length - 1) {
-                        const result = await claude.chatWithFile(message, files[i]);
-                        return toolResponse(result.response);
-                    } else {
-                        await claude.uploadFile(files[i]);
-                    }
-                }
-            }
-            // Otherwise send normal message
-            return toolResponse(await claude.chat(message));
+            const fullMessage = buildMessageWithFiles(message, files);
+            return toolResponse(await claude.chat(fullMessage));
         } catch (err) {
             return toolError(err);
         }
@@ -1091,25 +1096,14 @@ server.tool(
     'ask_gemini',
     {
         message: z.string().describe('Message to send to Gemini'),
-        files: z.array(z.string()).optional().describe('Optional: Array of file paths to upload as attachments')
+        files: z.array(z.string()).optional().describe('Optional: file paths to include as context. Supports line ranges like "path/file.js:10-50". For large files, always specify relevant line ranges only.')
     },
     async ({ message, files }) => {
         const disabled = checkDisabled('gemini');
         if (disabled) return disabled;
         try {
-            // If files provided, upload all then chat
-            if (files && files.length > 0) {
-                for (let i = 0; i < files.length; i++) {
-                    if (i === files.length - 1) {
-                        const result = await gemini.chatWithFile(message, files[i]);
-                        return toolResponse(result.response);
-                    } else {
-                        await gemini.uploadFile(files[i]);
-                    }
-                }
-            }
-            // Otherwise send normal message
-            return toolResponse(await gemini.chat(message));
+            const fullMessage = buildMessageWithFiles(message, files);
+            return toolResponse(await gemini.chat(fullMessage));
         } catch (err) {
             return toolError(err);
         }
@@ -1129,13 +1123,21 @@ server.tool(
             const tasks = [];
             const names = [];
 
-            console.error('[ask_all_ais] Sending to all providers in parallel...');
+            console.error('[ask_all_ais] Sending to all providers with staggered start (prevents UI freeze)...');
 
-            // Send to all providers in PARALLEL
+            // Helper: staggered delay to prevent Electron main process overload
+            // Each provider starts 2s apart but all run concurrently via Promise.all
+            const STAGGER_MS = 2000;
+            let providerIndex = 0;
+            const staggerDelay = (ms) => new Promise(r => setTimeout(r, ms));
+
+            // Build staggered parallel tasks
             if (enabled.has('perplexity')) {
+                const delay = providerIndex++ * STAGGER_MS;
                 names.push('perplexity');
                 tasks.push(
                     (async () => {
+                        if (delay > 0) await staggerDelay(delay);
                         try {
                             return await perplexity.search(fullMessage);
                         } catch (e) {
@@ -1145,9 +1147,11 @@ server.tool(
                 );
             }
             if (enabled.has('chatgpt')) {
+                const delay = providerIndex++ * STAGGER_MS;
                 names.push('chatgpt');
                 tasks.push(
                     (async () => {
+                        if (delay > 0) await staggerDelay(delay);
                         try {
                             return await chatgpt.chat(fullMessage);
                         } catch (e) {
@@ -1157,9 +1161,11 @@ server.tool(
                 );
             }
             if (enabled.has('claude')) {
+                const delay = providerIndex++ * STAGGER_MS;
                 names.push('claude');
                 tasks.push(
                     (async () => {
+                        if (delay > 0) await staggerDelay(delay);
                         try {
                             return await claude.chat(fullMessage);
                         } catch (e) {
@@ -1169,9 +1175,11 @@ server.tool(
                 );
             }
             if (enabled.has('gemini')) {
+                const delay = providerIndex++ * STAGGER_MS;
                 names.push('gemini');
                 tasks.push(
                     (async () => {
+                        if (delay > 0) await staggerDelay(delay);
                         try {
                             return await gemini.chat(fullMessage);
                         } catch (e) {
@@ -1182,7 +1190,7 @@ server.tool(
             }
 
             // Wait for ALL to complete - typing detection is handled inside chat()
-            console.error('[ask_all_ais] Waiting for all providers to complete typing...');
+            console.error('[ask_all_ais] Waiting for all providers to complete...');
             const results = await Promise.all(tasks);
             console.error('[ask_all_ais] All providers completed');
 
@@ -1225,11 +1233,14 @@ server.tool(
 
             const results = {};
             const tasks = [];
+            const staggerDelay = (ms) => new Promise(r => setTimeout(r, ms));
+            const STAGGER_MS = 2000;
+            let idx = 0;
 
-            if (useProviders.includes('perplexity')) tasks.push(perplexity.search(fullQuestion).then(r => results.perplexity = r).catch(e => results.perplexity = { error: e.message }));
-            if (useProviders.includes('chatgpt')) tasks.push(chatgpt.chat(fullQuestion).then(r => results.chatgpt = r).catch(e => results.chatgpt = { error: e.message }));
-            if (useProviders.includes('claude')) tasks.push(claude.chat(fullQuestion).then(r => results.claude = r).catch(e => results.claude = { error: e.message }));
-            if (useProviders.includes('gemini')) tasks.push(gemini.chat(fullQuestion).then(r => results.gemini = r).catch(e => results.gemini = { error: e.message }));
+            if (useProviders.includes('perplexity')) { const d = idx++ * STAGGER_MS; tasks.push((async () => { if (d > 0) await staggerDelay(d); try { results.perplexity = await perplexity.search(fullQuestion); } catch(e) { results.perplexity = { error: e.message }; } })()); }
+            if (useProviders.includes('chatgpt')) { const d = idx++ * STAGGER_MS; tasks.push((async () => { if (d > 0) await staggerDelay(d); try { results.chatgpt = await chatgpt.chat(fullQuestion); } catch(e) { results.chatgpt = { error: e.message }; } })()); }
+            if (useProviders.includes('claude')) { const d = idx++ * STAGGER_MS; tasks.push((async () => { if (d > 0) await staggerDelay(d); try { results.claude = await claude.chat(fullQuestion); } catch(e) { results.claude = { error: e.message }; } })()); }
+            if (useProviders.includes('gemini')) { const d = idx++ * STAGGER_MS; tasks.push((async () => { if (d > 0) await staggerDelay(d); try { results.gemini = await gemini.chat(fullQuestion); } catch(e) { results.gemini = { error: e.message }; } })()); }
 
             await Promise.all(tasks);
 
@@ -1278,16 +1289,22 @@ server.tool(
     }
 );
 
+
+
+// --- ask_perplexity (was missing!) ---
+
 server.tool(
-    'router_stats',
-    {},
-    async () => {
+    'ask_perplexity',
+    {
+        message: z.string().describe('Message to send to Perplexity (best for web search + citations)'),
+        files: z.array(z.string()).optional().describe('Optional: file paths to include as context. Supports line ranges like "path/file.js:10-50". For large files, always specify relevant line ranges only.')
+    },
+    async ({ message, files }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
         try {
-            return toolResponse({
-                success: true,
-                stats: router.getStats(),
-                timestamp: new Date().toISOString()
-            });
+            const fullMessage = buildMessageWithFiles(message, files);
+            return toolResponse(await perplexity.chat(fullMessage));
         } catch (err) {
             return toolError(err);
         }
@@ -1306,6 +1323,685 @@ server.tool(
                 }
             }
             return toolResponse({ success: true, message: 'Started new conversations' });
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+// --- chain_query: Sequential multi-AI pipeline ---
+
+server.tool(
+    'chain_query',
+    {
+        steps: z.array(z.object({
+            provider: z.string().describe('AI provider: chatgpt, claude, gemini, perplexity'),
+            prompt: z.string().describe('Prompt for this step. Use {previous} to inject previous step output.')
+        })).describe('Array of pipeline steps. Each step receives previous output via {previous} placeholder.'),
+        initialContext: z.string().optional().describe('Optional initial context to pass as {previous} to first step')
+    },
+    async ({ steps, initialContext }) => {
+        try {
+            const providers = { perplexity, chatgpt, claude, gemini };
+            const results = [];
+            let previousOutput = initialContext || '';
+
+            for (let i = 0; i < steps.length; i++) {
+                const step = steps[i];
+                const providerName = step.provider.toLowerCase();
+                const provider = providers[providerName];
+
+                if (!provider) {
+                    results.push({ step: i + 1, provider: providerName, error: `Unknown provider: ${providerName}` });
+                    continue;
+                }
+
+                const disabled = checkDisabled(providerName);
+                if (disabled) {
+                    results.push({ step: i + 1, provider: providerName, error: `${providerName} is disabled` });
+                    continue;
+                }
+
+                // Replace {previous} placeholder with output from last step
+                const prompt = step.prompt.replace(/\{previous\}/gi, previousOutput);
+
+                try {
+                    const response = await provider.chat(prompt);
+                    previousOutput = response;
+                    results.push({
+                        step: i + 1,
+                        provider: providerName,
+                        response: response
+                    });
+                } catch (err) {
+                    results.push({ step: i + 1, provider: providerName, error: err.message });
+                    // Don't break chain — next step gets empty previous
+                    previousOutput = `[Step ${i + 1} failed: ${err.message}]`;
+                }
+            }
+
+            return toolResponse({
+                success: true,
+                totalSteps: steps.length,
+                completedSteps: results.filter(r => !r.error).length,
+                finalOutput: previousOutput,
+                pipeline: results,
+                timestamp: new Date().toISOString()
+            });
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+// --- Smart Provider Selection Helper ---
+function pickBestProvider(taskType) {
+    const enabled = getEnabledProviders();
+    const providers = { perplexity, chatgpt, claude, gemini };
+    
+    // Priority order based on task type
+    const priorities = {
+        coding: ['claude', 'chatgpt', 'gemini', 'perplexity'],
+        research: ['perplexity', 'gemini', 'chatgpt', 'claude'],
+        general: ['claude', 'chatgpt', 'gemini', 'perplexity'],
+        review: ['claude', 'chatgpt', 'gemini', 'perplexity']
+    };
+    
+    const order = priorities[taskType] || priorities.general;
+    for (const name of order) {
+        if (enabled.has(name) && providers[name]) {
+            return { name, instance: providers[name] };
+        }
+    }
+    return null;
+}
+
+// --- Dynamic Provider Resolution ---
+function resolveProvider(providerName, taskType) {
+    const providers = { perplexity, chatgpt, claude, gemini };
+    
+    if (providerName) {
+        const name = providerName.toLowerCase();
+        if (!providers[name]) return null;
+        const enabled = getEnabledProviders();
+        if (!enabled.has(name)) return null;
+        return { name, instance: providers[name] };
+    }
+    
+    // No preference — auto-select based on task type
+    return pickBestProvider(taskType || 'general');
+}
+
+// --- solve: One-shot problem solver ---
+
+server.tool(
+    'solve',
+    {
+        task: z.string().describe('What to solve — coding task, bug, feature, anything'),
+        files: z.array(z.string()).optional().describe('Optional: file paths for context'),
+        language: z.string().optional().describe('Programming language if relevant'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select best for coding')
+    },
+    async ({ task, files, language, provider: providerName }) => {
+        try {
+            const provider = providerName ? resolveProvider(providerName) : pickBestProvider('coding');
+            if (!provider) return toolResponse('No providers enabled');
+
+            let context = '';
+            if (files && files.length > 0) {
+                context = readFileContents(files) || '';
+            }
+
+            const langHint = language ? ` (Language: ${language})` : '';
+            const prompt = `You are a senior software engineer. Solve this task completely.${langHint}
+
+TASK: ${task}
+${context ? `\nCODE CONTEXT:\n${context}` : ''}
+
+Provide:
+1. Brief analysis of the problem
+2. Complete working solution with full code
+3. Explanation of key decisions
+4. Any edge cases or gotchas to watch for
+
+Be thorough and production-ready. Do not use placeholder code.`;
+
+            const response = await provider.instance.chat(prompt);
+            return toolResponse(response);
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+// --- verify: Answer confidence checker ---
+
+// --- debate: Multi-provider topic debate ---
+
+server.tool(
+    'debate',
+    {
+        topic: z.string().describe('Topic or question to debate'),
+        sides: z.number().optional().describe('Number of perspectives to gather (default: 2)')
+    },
+    async ({ topic, sides }) => {
+        try {
+            const enabled = getEnabledProviders();
+            const allProviders = { perplexity, chatgpt, claude, gemini };
+            const numSides = Math.min(sides || 2, enabled.size);
+
+            if (enabled.size < 2) {
+                // Single provider — generate both sides
+                const provider = pickBestProvider('general');
+                if (!provider) return toolResponse('No providers enabled');
+                const response = await provider.instance.chat(
+                    `Debate this topic from ${numSides} different perspectives. For each perspective, present strong arguments with evidence.\n\nTopic: ${topic}\n\nFormat each perspective as:\n## Perspective [N]: [Position]\n- Key arguments\n- Supporting evidence\n\nThen provide a balanced conclusion.`
+                );
+                return toolResponse(response);
+            }
+
+            // Multi-provider — each AI argues a different side
+            const providerNames = [...enabled].filter(n => allProviders[n]).slice(0, numSides);
+            const stances = ['FOR / supportive', 'AGAINST / critical', 'NEUTRAL / analytical', 'ALTERNATIVE / unconventional'];
+            const results = {};
+
+            const promises = providerNames.map(async (name, i) => {
+                try {
+                    const stance = stances[i] || `Perspective ${i + 1}`;
+                    const response = await allProviders[name].chat(
+                        `You are debating the following topic. Your assigned position is: ${stance}.\n\nTopic: ${topic}\n\nPresent your strongest arguments for this position. Be persuasive and use evidence. Do NOT present the other side.`
+                    );
+                    results[name] = { stance, response };
+                } catch (e) {
+                    results[name] = { stance: stances[i], error: e.message };
+                }
+            });
+
+            await Promise.all(promises);
+            return toolResponse(results);
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+// --- security_audit: Code security vulnerability scanner ---
+
+server.tool(
+    'security_audit',
+    {
+        code: z.string().optional().describe('Code to audit for security vulnerabilities'),
+        files: z.array(z.string()).optional().describe('Optional: file paths to audit'),
+        language: z.string().optional().describe('Programming language'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select best for coding')
+    },
+    async ({ code, files, language, provider: providerName }) => {
+        try {
+            const provider = providerName ? resolveProvider(providerName) : pickBestProvider('coding');
+            if (!provider) return toolResponse('No providers enabled');
+
+            const lang = language ? ` (${language})` : '';
+            const codeContent = code || '';
+            const fileContent = readFileContents(files);
+            const fullCode = fileContent ? `${fileContent}\n\n${codeContent}` : codeContent;
+
+            if (!fullCode.trim()) return toolResponse('No code provided. Pass code or files parameter.');
+
+            const prompt = `You are a senior security engineer. Perform a thorough security audit of this code${lang}.
+
+CODE:
+${fullCode}
+
+Check for ALL of the following:
+1. **Injection vulnerabilities** (SQL, XSS, command injection, LDAP, etc.)
+2. **Authentication/Authorization flaws** (broken auth, privilege escalation, insecure tokens)
+3. **Data exposure** (hardcoded secrets, PII leaks, insecure logging)
+4. **Input validation** (missing sanitization, type confusion, buffer overflow)
+5. **Cryptographic issues** (weak algorithms, improper key management)
+6. **Configuration problems** (debug mode, CORS, insecure defaults)
+7. **Dependency risks** (known vulnerable packages)
+
+For each issue found:
+- **Severity**: CRITICAL / HIGH / MEDIUM / LOW
+- **Location**: Line or function
+- **Description**: What the vulnerability is
+- **Fix**: Exact code fix
+
+End with a security score (0-100) and summary.`;
+
+            const response = await provider.instance.chat(prompt);
+            return toolResponse(response);
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+
+server.tool(
+    'verify',
+    {
+        question: z.string().describe('Question or claim to verify'),
+        providers: z.array(z.string()).optional().describe('Optional: specific providers to use for verification')
+    },
+    async ({ question, providers: requestedProviders }) => {
+        try {
+            const enabled = getEnabledProviders();
+            const allProviders = { perplexity, chatgpt, claude, gemini };
+            
+            // Determine which providers to use
+            let targetProviders = requestedProviders 
+                ? requestedProviders.filter(p => enabled.has(p))
+                : [...enabled];
+
+            if (targetProviders.length === 0) return toolResponse('No providers enabled');
+
+            const prompt = `Answer this question thoroughly. At the end, rate your confidence (0-100%) and list any counter-arguments or caveats:
+
+${question}
+
+Format:
+ANSWER: [your detailed answer]
+CONFIDENCE: [0-100%]
+CAVEATS: [any counter-arguments, edge cases, or uncertainties]`;
+
+            if (targetProviders.length === 1) {
+                // Single provider — self-verification
+                const p = allProviders[targetProviders[0]];
+                const response = await p.chat(prompt);
+                return toolResponse(`=== ${targetProviders[0].toUpperCase()} ===\n${response}`);
+            }
+
+            // Multiple providers — cross-verify
+            const results = {};
+            for (const name of targetProviders) {
+                const p = allProviders[name];
+                if (p) {
+                    try {
+                        results[name] = await p.chat(prompt);
+                    } catch (e) {
+                        results[name] = `Error: ${e.message}`;
+                    }
+                }
+            }
+
+            let output = '';
+            for (const [name, resp] of Object.entries(results)) {
+                output += `\n=== ${name.toUpperCase()} ===\n${resp}\n`;
+            }
+            return toolResponse(output.trim());
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+// --- fix_error: Smart error fixer ---
+
+server.tool(
+    'fix_error',
+    {
+        error: z.string().describe('Error message or stack trace'),
+        file: z.string().optional().describe('File path where the error occurs'),
+        context: z.string().optional().describe('Additional context about what you were doing'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select best for coding')
+    },
+    async ({ error, file, context: ctx, provider: providerName }) => {
+        try {
+            const provider = providerName ? resolveProvider(providerName) : pickBestProvider('coding');
+            if (!provider) return toolResponse('No providers enabled');
+
+            let fileContent = '';
+            if (file) {
+                fileContent = readFileContents([file]) || '';
+            }
+
+            const prompt = `You are a debugging expert. Fix this error completely.
+
+ERROR:
+${error}
+${ctx ? `\nCONTEXT: ${ctx}` : ''}
+${fileContent ? `\nSOURCE CODE:\n${fileContent}` : ''}
+
+Provide:
+1. ROOT CAUSE: Why this error happens (be specific)
+2. FIX: The exact code changes needed (show before/after)
+3. PREVENTION: How to prevent this in the future
+4. FULL FIXED CODE: Complete corrected code ready to use
+
+Do not give vague advice. Give the exact fix.`;
+
+            const response = await provider.instance.chat(prompt);
+            return toolResponse(response);
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+// --- build_architecture: Project architecture planner ---
+
+server.tool(
+    'build_architecture',
+    {
+        description: z.string().describe('What you want to build'),
+        constraints: z.string().optional().describe('Tech constraints (e.g., "must use Next.js, PostgreSQL")'),
+        scale: z.string().optional().describe('Expected scale (e.g., "10k users", "enterprise")'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select best for coding')
+    },
+    async ({ description, constraints, scale, provider: providerName }) => {
+        try {
+            const provider = providerName ? resolveProvider(providerName) : pickBestProvider('coding');
+            if (!provider) return toolResponse('No providers enabled');
+
+            const prompt = `You are a senior software architect. Design a complete architecture for this project.
+
+PROJECT: ${description}
+${constraints ? `CONSTRAINTS: ${constraints}` : ''}
+${scale ? `SCALE: ${scale}` : ''}
+
+Provide a complete, production-ready architecture:
+
+1. TECH STACK: Every technology with justification
+2. FOLDER STRUCTURE: Complete directory tree with file descriptions
+3. DATABASE SCHEMA: Full schema with tables, columns, types, relations (SQL or NoSQL)
+4. API ENDPOINTS: Complete REST/GraphQL API design with methods, paths, request/response
+5. COMPONENT TREE: Frontend component hierarchy
+6. AUTH & SECURITY: Authentication strategy, security measures
+7. DEPLOYMENT: Hosting, CI/CD, environment setup
+8. THIRD-PARTY SERVICES: Any external APIs or services needed
+
+Be exhaustive. A developer should be able to start coding immediately from this blueprint.`;
+
+            const response = await provider.instance.chat(prompt);
+            return toolResponse(response);
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+// --- write_tests: Auto test generator ---
+
+server.tool(
+    'write_tests',
+    {
+        file: z.string().describe('File path to generate tests for'),
+        framework: z.string().optional().describe('Test framework (jest, vitest, mocha, pytest). Default: auto-detect'),
+        focus: z.string().optional().describe('Focus area: unit, integration, edge-cases, all'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select best for coding')
+    },
+    async ({ file, framework, focus, provider: providerName }) => {
+        try {
+            const provider = providerName ? resolveProvider(providerName) : pickBestProvider('coding');
+            if (!provider) return toolResponse('No providers enabled');
+
+            const fileContent = readFileContents([file]);
+            if (!fileContent) {
+                return toolResponse('Could not read file: ' + file);
+            }
+
+            const fw = framework || 'auto-detect from the code';
+            const focusArea = focus || 'comprehensive (unit + edge cases)';
+
+            const prompt = `You are a testing expert. Write complete tests for this code.
+
+${fileContent}
+
+TEST FRAMEWORK: ${fw}
+FOCUS: ${focusArea}
+
+Requirements:
+1. Cover ALL exported functions/classes/methods
+2. Include happy path + edge cases + error scenarios
+3. Use descriptive test names that explain what's being tested
+4. Include setup/teardown if needed
+5. Mock external dependencies properly
+6. Aim for high coverage
+
+Return ONLY the complete test file code, ready to save and run.`;
+
+            const response = await provider.instance.chat(prompt);
+            return toolResponse(response);
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+// --- explain_error: Error explainer in simple terms ---
+
+server.tool(
+    'explain_error',
+    {
+        error: z.string().describe('Error message or stack trace to explain'),
+        context: z.string().optional().describe('What you were doing when the error occurred'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select')
+    },
+    async ({ error, context: ctx, provider: providerName }) => {
+        try {
+            const provider = providerName ? resolveProvider(providerName) : pickBestProvider('general');
+            if (!provider) return toolResponse('No providers enabled');
+
+            const prompt = `Explain this error in simple terms and provide step-by-step fix instructions.
+
+ERROR:
+${error}
+${ctx ? `\nCONTEXT: ${ctx}` : ''}
+
+Provide:
+1. WHAT HAPPENED: Plain English explanation (no jargon)
+2. WHY: The most common causes of this error (ranked by likelihood)
+3. HOW TO FIX: Step-by-step fix instructions for each cause
+4. QUICK FIX: The single most likely fix in one code snippet
+
+Be practical and specific. Not theory — actual commands and code.`;
+
+            const response = await provider.instance.chat(prompt);
+            return toolResponse(response);
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+// --- convert_code: Code language/framework converter ---
+
+server.tool(
+    'convert_code',
+    {
+        file: z.string().optional().describe('File path to convert'),
+        code: z.string().optional().describe('Code snippet to convert (if no file)'),
+        from: z.string().optional().describe('Source language/framework (auto-detected if not specified)'),
+        to: z.string().describe('Target language/framework (e.g., "TypeScript", "Python/FastAPI", "Vue 3")'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select best for coding')
+    },
+    async ({ file, code, from, to, provider: providerName }) => {
+        try {
+            const provider = providerName ? resolveProvider(providerName) : pickBestProvider('coding');
+            if (!provider) return toolResponse('No providers enabled');
+
+            let sourceCode = code || '';
+            if (file) {
+                sourceCode = readFileContents([file]) || sourceCode;
+            }
+            if (!sourceCode) {
+                return toolResponse('No code provided. Use file path or code parameter.');
+            }
+
+            const fromHint = from ? `from ${from} ` : '';
+
+            const prompt = `Convert this code ${fromHint}to ${to}. Preserve ALL functionality.
+
+SOURCE CODE:
+${sourceCode}
+
+Requirements:
+1. Maintain the exact same logic and behavior
+2. Use idiomatic patterns for ${to} (not a literal translation)
+3. Handle framework-specific differences (routing, state, lifecycle, etc.)
+4. Add necessary imports/dependencies
+5. Include comments where the conversion required significant changes
+
+Return the complete converted code, ready to use.`;
+
+            const response = await provider.instance.chat(prompt);
+            return toolResponse(response);
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+// --- ask_selected: Ask specific providers (user picks which ones) ---
+
+server.tool(
+    'ask_selected',
+    {
+        message: z.string().describe('Message to send to selected providers'),
+        providers: z.array(z.string()).describe('Which providers to ask: ["chatgpt", "claude", "gemini", "perplexity"]'),
+        files: z.array(z.string()).optional().describe('Optional: file paths to include as context')
+    },
+    async ({ message, providers: selectedProviders, files }) => {
+        try {
+            const enabled = getEnabledProviders();
+            const allProviders = { perplexity, chatgpt, claude, gemini };
+            
+            let fileContext = '';
+            if (files && files.length > 0) {
+                fileContext = readFileContents(files) || '';
+            }
+
+            const fullMessage = fileContext ? `${fileContext}\n\n${message}` : message;
+            const results = {};
+
+            for (const name of selectedProviders) {
+                if (!enabled.has(name)) {
+                    results[name] = { error: `${name} is not enabled` };
+                    continue;
+                }
+                const p = allProviders[name];
+                if (!p) {
+                    results[name] = { error: `Unknown provider: ${name}` };
+                    continue;
+                }
+                try {
+                    const response = await p.chat(fullMessage);
+                    results[name] = { success: true, response };
+                } catch (e) {
+                    results[name] = { error: e.message };
+                }
+            }
+
+            // Build clean text output
+            let output = '';
+            for (const [name, data] of Object.entries(results)) {
+                output += `\n=== ${name.toUpperCase()} ===\n`;
+                if (data.error) {
+                    output += `Error: ${data.error}\n`;
+                } else {
+                    output += data.response + '\n';
+                }
+            }
+            return toolResponse(output.trim());
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+// --- conversation_export: Extract full conversation from currently open chat ---
+
+server.tool(
+    'conversation_export',
+    {
+        provider: z.string().optional().describe('Provider to export from: chatgpt, claude, gemini, perplexity. Default: all enabled')
+    },
+    async ({ provider }) => {
+        try {
+            const enabled = getEnabledProviders();
+            const targetProviders = provider
+                ? [provider.toLowerCase()]
+                : [...enabled];
+
+            const extractionPrompt = `Tell our entire conversation history in this from the very beginning to the very end.
+
+Extract everything and present it in the following structure:
+
+PROJECT
+
+What are we building? Include the name, the core idea, the purpose, and the problem it solves.
+
+DECISIONS MADE
+
+Everything that has been finalized. Tech stack, architecture, tools, libraries, design choices, folder structure, database schema, API design — anything that was decided and agreed upon.
+
+REQUIREMENTS
+
+Every single requirement the user mentioned. Features, constraints, what the user wants and does not want, priorities, tone, style preferences — everything.
+
+WORK DONE SO FAR
+
+What has already been built, written, or implemented. Include file names, code written, components created, APIs built — be specific.
+
+IDEAS AND DIRECTION
+
+Any ideas, suggestions, directions, or approaches that were discussed even if not finalized. Include things that were considered and rejected too, with the reason why.
+
+PENDING AND NEXT STEPS
+
+Everything that still needs to be done. What was the last thing discussed? What was about to happen next?
+
+KEY DETAILS AND CONTEXT
+
+Any important user preferences, specific instructions, edge cases, constraints, or anything unique about this project that a new AI picking this up must know.
+
+Be exhaustive. Do not summarize loosely. A coding AI is going to read this and start building without asking the user a single question — so include everything.`;
+
+            const providers = { perplexity, chatgpt, claude, gemini };
+            const results = {};
+
+            for (const prov of targetProviders) {
+                if (!enabled.has(prov)) {
+                    results[prov] = { error: prov + ' is not enabled' };
+                    continue;
+                }
+
+                try {
+                    console.error('[conversation_export] Extracting from ' + prov + ' (forceDOM)...');
+
+                    // forceDOM: true — skips API inject, types into currently open conversation
+                    // Same IPC flow as all tools, just with forceDOM flag
+                    await ipcClient.send('sendMessage', prov, { message: extractionPrompt, forceDOM: true });
+
+                    // Wait for response — same getResponseWithTyping as every other tool
+                    const result = await ipcClient.send('getResponseWithTyping', prov, {});
+                    const response = result.response || 'No response captured';
+
+                    results[prov] = {
+                        success: true,
+                        provider: prov,
+                        export: response,
+                        exportedAt: new Date().toISOString()
+                    };
+                    console.error('[conversation_export] ' + prov + ' export complete');
+                } catch (err) {
+                    results[prov] = { error: err.message };
+                }
+            }
+
+            // Build clean text output (not JSON — so newlines render properly)
+            let output = '';
+            for (const [prov, data] of Object.entries(results)) {
+                output += `\n=== ${prov.toUpperCase()} ===\n`;
+                if (data.error) {
+                    output += `Error: ${data.error}\n`;
+                } else {
+                    output += data.export + '\n';
+                }
+            }
+
+            return toolResponse(output.trim());
         } catch (err) {
             return toolError(err);
         }
@@ -1337,31 +2033,17 @@ server.tool(
         question: z.string().optional().describe('Specific question about the file'),
         provider: z.string().optional().describe('Which AI to use (chatgpt, claude, gemini, perplexity). Default: claude')
     },
-    async ({ filePath, question, provider }) => {
+    async ({ filePath, question, provider: providerName }) => {
         try {
-            const useProvider = provider || 'claude';
-            const disabled = checkDisabled(useProvider);
-            if (disabled) return disabled;
+            const p = resolveProvider(providerName || 'claude', 'coding');
+            if (!p) return toolResponse(`Provider '${providerName || 'claude'}' is not available. Enable it in Agent Hub.`);
 
             // Check if file is an image (binary) - use upload method instead of text read
             const ext = path.extname(filePath).toLowerCase();
             const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico'];
-            const providers = { perplexity, chatgpt, claude, gemini };
 
             if (imageExtensions.includes(ext)) {
-                // Image file: upload to provider and ask about it
-                const imageQuestion = question
-                    ? `Please analyze this image and answer: ${question}`
-                    : `Please analyze this image and describe its contents, purpose, and any notable aspects.`;
-
-                const result = await providers[useProvider].chatWithFile(imageQuestion, filePath);
-                return toolResponse({
-                    success: true,
-                    provider: useProvider,
-                    filePath,
-                    type: 'image',
-                    analysis: result.response
-                });
+                return toolResponse({ success: false, error: 'Image analysis is not available yet. This tool currently supports text/code files only.' });
             }
 
             // Text file: read and paste as context
@@ -1374,11 +2056,11 @@ server.tool(
                 ? `${fileContent}\n\nPlease analyze this file and answer: ${question}`
                 : `${fileContent}\n\nPlease analyze this file and explain its contents, purpose, and any notable aspects.`;
 
-            const response = await providers[useProvider].chat(message);
+            const response = await p.instance.chat(message);
 
             return toolResponse({
                 success: true,
-                provider: useProvider,
+                provider: p.name,
                 filePath,
                 analysis: response
             });
@@ -1395,11 +2077,10 @@ server.tool(
         focus: z.string().optional().describe('What to focus on (bugs, performance, security, style)'),
         provider: z.string().optional().describe('Which AI to use. Default: claude')
     },
-    async ({ filePath, focus, provider }) => {
+    async ({ filePath, focus, provider: providerName }) => {
         try {
-            const useProvider = provider || 'claude';
-            const disabled = checkDisabled(useProvider);
-            if (disabled) return disabled;
+            const p = resolveProvider(providerName || 'claude', 'coding');
+            if (!p) return toolResponse(`Provider '${providerName || 'claude'}' is not available. Enable it in Agent Hub.`);
 
             const fileContent = readFileContents([filePath]);
             if (!fileContent) {
@@ -1409,12 +2090,11 @@ server.tool(
             const focusText = focus ? ` Focus on: ${focus}.` : '';
             const message = `${fileContent}\n\nPlease review this code file.${focusText} Identify issues, suggest improvements, and follow best practices.`;
 
-            const providers = { perplexity, chatgpt, claude, gemini };
-            const response = await providers[useProvider].chat(message);
+            const response = await p.instance.chat(message);
 
             return toolResponse({
                 success: true,
-                provider: useProvider,
+                provider: p.name,
                 filePath,
                 review: response
             });
@@ -1483,50 +2163,6 @@ server.tool(
     }
 );
 
-// Tool to check typing status
-server.tool(
-    'get_typing_status',
-    {
-        provider: z.string().optional().describe('Provider to check (chatgpt, claude, perplexity, gemini). If not specified, checks all.')
-    },
-    async ({ provider }) => {
-        try {
-            const enabled = getEnabledProviders();
-            const results = {};
-
-            if (provider) {
-                // Check specific provider
-                if (!enabled.has(provider)) {
-                    return toolResponse({ error: `${provider} is not enabled` });
-                }
-                const providers = { perplexity, chatgpt, claude, gemini };
-                const p = providers[provider];
-                if (p) {
-                    const status = await p.getTypingStatus();
-                    return toolResponse({ [provider]: status });
-                }
-            } else {
-                // Check all enabled providers
-                if (enabled.has('chatgpt')) {
-                    results.chatgpt = await chatgpt.getTypingStatus();
-                }
-                if (enabled.has('claude')) {
-                    results.claude = await claude.getTypingStatus();
-                }
-                if (enabled.has('perplexity')) {
-                    results.perplexity = await perplexity.getTypingStatus();
-                }
-                if (enabled.has('gemini')) {
-                    results.gemini = await gemini.getTypingStatus();
-                }
-            }
-
-            return toolResponse(results);
-        } catch (err) {
-            return toolError(err);
-        }
-    }
-);
 
 // --- Resources (MCP compat) ---
 
@@ -1542,7 +2178,7 @@ server.resource(
                 mimeType: 'application/json',
                 text: JSON.stringify({
                     server: 'Proxima MCP Server',
-                    version: '3.0.0',
+                    version: '4.1.0',
                     enabledProviders: Array.from(enabled),
                     connected: ipcClient.connected
                 }, null, 2)
