@@ -35,6 +35,11 @@ to work on your projects - SAVE tokens as these don't need API keys and are free
 ![brAInstorm Provider View](assets/brainstorm-screenshot.jpg)
 
 
+## WORK IN PROGRESS
+We modify this and have more work to do. We welcome your help. Fork our GIT, add some improvements for 
+the features you need, and then send us a pull request. We grow stronger together and this tool helps 
+our AI tokens go further!
+
 **One API. One URL. One function field. Any enabled model.**
 
 ```json
