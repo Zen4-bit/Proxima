@@ -6,26 +6,36 @@
 
 ### Multi-AI Gateway — One API, All Models
 
-[![Version](https://img.shields.io/badge/version-4.0.0-blue.svg)](https://github.com/Zen4-bit/Proxima/releases)
+[![Version](https://img.shields.io/badge/version-4.0.0-blue.svg)](https://github.com/mindflowgo/brAInstorm/releases)
 [![License](https://img.shields.io/badge/license-Personal%20Use-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey.svg)]()
 [![MCP Tools](https://img.shields.io/badge/MCP%20Tools-62%2B-orange.svg)]()
 [![Providers](https://img.shields.io/badge/AI%20Providers-11-blue.svg)]()
 
-brAInstorm turns logged-in browser AI sessions into a local MCP server and OpenAI-compatible API.
-ChatGPT, Claude, Gemini, Google AI, Perplexity, DeepSeek, Grok, Z.AI, Copilot, Meta AI, and Qwen are available through the same local instance. Just log in to each provider inside the embedded browser shell. No API keys needed.
+## Introduction
+
+For those people that went between pasting their code into their favorite AI engines because they liked 
+the responses and wished their Antigravity or CLI tools would be able to simulate that, we built this.
+
+brAInstorm creates cocooned webservers for each of your AI tools, that then provides MCP services that 
+your Antigravity, Codex, or other CLI tools can interface with.
+
+We also provide a customizable skills section where you can build out skills to brief the AI's on.
+
+Now you can pull in the power of:
+
+- ChatGPT, Claude, Gemini, Google AI, Perplexity, DeepSeek, Grok, Z.AI, Copilot, Meta AI, and Qwen
+
+to work on your projects - SAVE tokens as these don't need API keys and are freely available to you.
 
 [Getting Started](#getting-started) · [API Usage](#api-usage) · [Skills](#skills) · [SDKs](#sdks) · [MCP](#mcp) · [Troubleshooting](#troubleshooting)
 
 </div>
 
-![brAInstorm Settings](assets/proxima-provider.jpg)
+![brAInstorm Settings](assets/brainstorm-settings.jpg)
 
-![brAInstorm Provider View](assets/proxima-screenshot.jpg)
+![brAInstorm Provider View](assets/brainstorm-screenshot.jpg)
 
-## Overview
-
-brAInstorm is a local AI gateway for coding tools and MCP clients.
 
 **One API. One URL. One function field. Any enabled model.**
 
@@ -73,12 +83,12 @@ POST /v1/chat/completions
 
 Download the latest release and run the installer. Windows installers are published. macOS can run from source or be built locally from this repo.
 
-[Download for Windows →](https://github.com/Zen4-bit/Proxima/releases)
+[Download for Windows →](https://github.com/mindflowgo/brAInstorm/releases)
 
 **Run from Source**
 
 ```bash
-git clone https://github.com/Zen4-bit/Proxima.git brAInstorm
+git clone https://github.com/mindflowgo/brAInstorm
 cd brAInstorm
 npm install
 npm start
@@ -119,25 +129,6 @@ Build commands automatically generate a minimal packaged MCP runtime in `build/p
 | Copilot | `copilot` | No | `chat` |
 | Meta AI | `metaai` | No | `chat` |
 | Qwen | `qwen` | No | `chat` |
-
-### Common Aliases
-
-| Provider | Aliases |
-|----------|---------|
-| ChatGPT | `chatgpt`, `gpt`, `gpt-4`, `gpt-4o`, `openai` |
-| Claude | `claude`, `claude-3`, `claude-4`, `anthropic`, `sonnet`, `opus`, `haiku` |
-| Gemini | `gemini`, `gemini-pro`, `gemini-2`, `gemini-2.5`, `google`, `bard` |
-| Google AI | `googleai`, `google ai`, `google ai mode`, `google-ai`, `aimode` |
-| Perplexity | `perplexity`, `pplx`, `sonar` |
-| DeepSeek | `deepseek`, `deepseek-chat`, `deepseek-r1`, `r1` |
-| Grok | `grok`, `grok-3`, `xai`, `x.ai` |
-| Z.AI | `zai`, `z.ai`, `z ai`, `z-ai`, `glm`, `glm-5`, `glm-5.1` |
-| Copilot | `copilot`, `microsoft copilot`, `ms copilot` |
-| Meta AI | `metaai`, `meta ai`, `meta.ai` |
-| Qwen | `qwen`, `qwen3`, `qwen-max`, `qwen studio` |
-| Auto | `auto` |
-
-> **Image responses:** ChatGPT, Gemini, Grok, Copilot, Meta AI, and Qwen can return generated images. brAInstorm downloads those images locally and returns absolute file paths.
 
 ## API Usage
 
@@ -574,66 +565,58 @@ brAInstorm/
 
 ## Troubleshooting
 
-<details>
-<summary><strong>Windows Firewall prompt</strong></summary>
+### Windows Firewall prompt
 
 Click "Allow". brAInstorm only accepts local connections on `localhost:3210` and `localhost:19222`.
-</details>
 
-<details>
-<summary><strong>Provider shows "Not logged in"</strong></summary>
+### Provider shows "Not logged in"
 
 Click the provider tab and log in inside the embedded browser.
-</details>
 
-<details>
-<summary><strong>MCP says a provider is disabled</strong></summary>
+### MCP says a provider is disabled
 
 Enable that provider in brAInstorm Settings first. Direct provider tools only work when the provider is enabled.
-</details>
 
-<details>
-<summary><strong>API not responding</strong></summary>
+### API not responding
 
 1. Make sure the brAInstorm app is running.
 2. Visit `http://localhost:3210` in a browser.
 3. Check that at least one provider is enabled and logged in.
-</details>
 
-<details>
-<summary><strong>MCP tools are missing in Cursor or VS Code</strong></summary>
+### MCP tools are missing in Cursor or VS Code
 
 1. Ensure brAInstorm is running.
 2. Recopy the MCP JSON from Settings if you are using a packaged install.
 3. Verify the MCP server path and `cwd`.
 4. Restart the MCP client app.
-</details>
 
-<details>
-<summary><strong>A new skill is not showing up</strong></summary>
+### A new skill is not showing up
 
 1. Make sure the file ends with `.md`.
 2. Put it inside `skills/` or your `BRAINSTORM_SKILLS_DIR`.
 3. Call `GET /v1/skills` or the MCP `list_skills` tool.
 4. Check the startup logs for the discovered skill list.
-</details>
 
-<details>
-<summary><strong>File-based MCP tools are not attaching files</strong></summary>
+### File-based MCP tools are not attaching files
 
 Enable **File Attachments** in brAInstorm Settings and use absolute paths for `files` or `filePath`.
-</details>
 
 ## License
 
 This software is for **personal, non-commercial use only**.
 See [LICENSE](LICENSE) for details.
 
-<div align="center">
+## Contributing
+This project is made for the community. Any contributions are welcome.
 
-**brAInstorm v4.0.0** — One API, All AI Models
+I put time into evolving it as I needed the tools and I'm sure you will need more features - well 
+add them and let's evolve this together. 
 
-Made by [Zen4-bit](https://github.com/Zen4-bit)  
-Extended models and features by [MindFlowGo](https://github.com/mindflowgo/)
+Original idea came from [Zen4-bit](https://github.com/Zen4-bit). He didn't want to built out the 
+modular provider architecture so we forked and reworked it. But let's not keep reforking - lets 
+work on this together!
 
-</div>
+Current models and features by [MindFlowGo](https://github.com/mindflowgo/)
+
+Contributors will be tracked in [CONTRIBUTORS.md](CONTRIBUTORS.md).
+
