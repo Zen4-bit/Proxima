@@ -281,7 +281,7 @@ function getProviderInterceptorScript(provider) {
                         // Perplexity emits: 'query_progress', 'query_completed', 'answer', 'search_results'
                         var text = '';
                         if (typeof payload === 'object') {
-                            text = payload.text || payload.answer || payload.output || '';
+                            text = payload.text || payload.answer || payload.output || payload.report || payload.file_content || '';
                             // Some frames wrap in .chunks[]
                             if (!text && Array.isArray(payload.chunks)) {
                                 text = payload.chunks.join('');
@@ -292,7 +292,7 @@ function getProviderInterceptorScript(provider) {
                             }
                         }
 
-                        if (text && text.length > 10) {
+                        if (text && text.length > 5) {
                             // Only update if longer (progressive streaming)
                             if (text.length > (window.__proxima_captured_response || '').length) {
                                 window.__proxima_captured_response = text;
@@ -306,6 +306,12 @@ function getProviderInterceptorScript(provider) {
                                 console.log('[Proxima-WS] Perplexity done: ' + text.length + ' chars via event: ' + eventName);
                             } else {
                                 window.__proxima_is_streaming = true;
+                            }
+                        } else if (typeof payload === 'string' && payload.length > 100) {
+                            // Fallback for raw string payloads (reports/files)
+                            if (payload.length > (window.__proxima_captured_response || '').length) {
+                                window.__proxima_captured_response = payload;
+                                window.__proxima_last_capture_time = Date.now();
                             }
                         }
 

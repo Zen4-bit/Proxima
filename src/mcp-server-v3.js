@@ -100,7 +100,7 @@ class IPCClient {
                     this.pendingRequests.delete(requestId);
                     reject(new Error('Request timeout'));
                 }
-            }, 120000);
+            }, 300000);
         });
     }
 
@@ -250,7 +250,7 @@ class AIProvider {
         return result;
     }
 
-    async chat(message, useCache = true) {
+    async chat(message, useCache = true, options = {}) {
         // Check cache
         if (useCache && this.cache.has(message)) {
             const cached = this.cache.get(message);
@@ -300,7 +300,7 @@ class AIProvider {
 
         // Send message
         console.error(`[${this.name}] Sending message...`);
-        await this.ipc.send('sendMessage', this.name, { message: finalMessage });
+        await this.ipc.send('sendMessage', this.name, { message: finalMessage, ...options });
 
         // Use smart response capture with typing detection
         console.error(`[${this.name}] Waiting for response (with typing detection)...`);
@@ -319,7 +319,7 @@ class AIProvider {
     }
 
     // Chat with file attachment - Upload file first, then send message normally
-    async chatWithFile(message, filePath, useCache = false) {
+    async chatWithFile(message, filePath, useCache = false, options = {}) {
         await this.ensureInitialized();
 
         console.error(`[${this.name}] Uploading file first: ${filePath}`);
@@ -337,7 +337,7 @@ class AIProvider {
 
         // Step 2: Send message normally (this already has proper response capture)
         console.error(`[${this.name}] Sending message...`);
-        const response = await this.chat(message, useCache);
+        const response = await this.chat(message, useCache, options);
 
         return {
             response,
@@ -377,8 +377,8 @@ class AIProvider {
         return response;
     }
 
-    async search(query, useCache = true) {
-        return await this.chat(query, useCache);
+    async search(query, useCache = true, options = {}) {
+        return await this.chat(query, useCache, options);
     }
 
     async executeScript(script) {
@@ -497,12 +497,12 @@ server.tool(
         try {
             // If files provided, upload first then search
             if (files && files.length > 0) {
-                const result = await perplexity.chatWithFile(query, files[0]);
+                const result = await perplexity.chatWithFile(query, files[0], false, { deepSearch: true });
                 // Return just the response like backup format
                 return toolResponse(result.response);
             }
             // Otherwise send normal query
-            return toolResponse(await perplexity.search(query));
+            return toolResponse(await perplexity.search(query, false, { deepSearch: true }));
         } catch (err) {
             return toolError(err);
         }
@@ -516,7 +516,7 @@ server.tool(
         const disabled = checkDisabled('perplexity');
         if (disabled) return disabled;
         try {
-            return toolResponse(await perplexity.search(`Provide a comprehensive, detailed answer with sources: ${query}`));
+            return toolResponse(await perplexity.search(`Provide a comprehensive, detailed answer with sources: ${query}`, true, { deepSearch: false }));
         } catch (err) {
             return toolError(err);
         }
@@ -530,7 +530,7 @@ server.tool(
         const disabled = checkDisabled('perplexity');
         if (disabled) return disabled;
         try {
-            return toolResponse(await perplexity.search(`Find YouTube videos about: ${query}`));
+            return toolResponse(await perplexity.search(`Find YouTube videos about: ${query}`, true, { deepSearch: false }));
         } catch (err) {
             return toolError(err);
         }
