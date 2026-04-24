@@ -8,6 +8,9 @@ contextBridge.exposeInMainWorld('agentHub', {
     getProviderCatalog: () => ipcRenderer.invoke('get-provider-catalog'),
     saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
     saveEnabledProviders: () => ipcRenderer.invoke('save-enabled-providers'),
+    listSkills: () => ipcRenderer.invoke('list-skills'),
+    getSkill: (skillName) => ipcRenderer.invoke('get-skill', skillName),
+    saveSkill: (skill) => ipcRenderer.invoke('save-skill', skill),
 
     // Provider Management
     initProvider: (provider) => ipcRenderer.invoke('init-provider', provider),

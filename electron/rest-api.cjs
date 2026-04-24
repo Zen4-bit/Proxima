@@ -1,17 +1,34 @@
-// Proxima REST API — OpenAI-compatible gateway for all providers
+// brAInstorm REST API — OpenAI-compatible gateway for all providers
 // POST /v1/chat/completions  { "model": "claude", "messages": [...] }
 
 const http = require('http');
 const { URL } = require('url');
+const {
+    getSkillRegistrySummary,
+    hasSkill,
+    refreshSkillRegistry,
+    renderSkillPrompt
+} = require('../src/skill-prompts.cjs');
 const {
     providers: providerCatalog,
     modelAliases,
     restAutoOrder
 } = require('../src/provider-catalog.cjs');
 
+function readPackageVersion() {
+    try {
+        return require('../package.json').version;
+    } catch (error) {
+        return process.env.npm_package_version || '4.0.0';
+    }
+}
+
 // ─── Config ──────────────────────────────────────────────
-const REST_PORT = parseInt(process.env.PROXIMA_REST_PORT) || 3210;
-const VERSION = '2.1.0';
+const APP_NAME = 'brAInstorm';
+const APP_SLUG = 'brainstorm';
+const LEGACY_METADATA_KEY = 'proxima';
+const REST_PORT = parseInt(process.env.BRAINSTORM_REST_PORT || process.env.PROXIMA_REST_PORT, 10) || 3210;
+const VERSION = readPackageVersion();
 const API_PREFIX = '/v1';
 
 // ─── Model Aliases ───────────────────────────────────────
@@ -113,7 +130,7 @@ function sendJSON(res, code, data) {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        'X-Powered-By': 'Proxima AI'
+        'X-Powered-By': `${APP_NAME} AI`
     });
     res.end(JSON.stringify(data, null, 2));
 }
@@ -195,6 +212,43 @@ function extractMessage(body) {
     return body.message || body.query || body.prompt || body.content || body.text || body.question || null;
 }
 
+function joinPromptSections(...sections) {
+    return sections
+        .flat()
+        .filter((section) => typeof section === 'string' && section.trim())
+        .join('\n\n');
+}
+
+function buildResponseMetadata(payload) {
+    return {
+        [APP_SLUG]: payload,
+        [LEGACY_METADATA_KEY]: payload
+    };
+}
+
+function buildSkillVariablesFromBody(body) {
+    const variables = body.variables && typeof body.variables === 'object' && !Array.isArray(body.variables)
+        ? { ...body.variables }
+        : {};
+
+    for (const [key, value] of Object.entries(body || {})) {
+        if (['model', 'function', 'messages', 'variables'].includes(key)) {
+            continue;
+        }
+
+        if (value !== undefined) {
+            variables[key] = value;
+        }
+    }
+
+    const message = extractMessage(body);
+    if (message && variables.message === undefined) {
+        variables.message = message;
+    }
+
+    return variables;
+}
+
 // ─── Core: Send to Provider with Timing ──────────────────
 async function queryProvider(provider, message) {
     initProviderStats(provider);
@@ -265,7 +319,7 @@ async function queryMultiple(providers, message) {
 // ─── OpenAI-Compatible Response Format ───────────────────
 function formatChatResponse(result, model) {
     return {
-        id: `proxima-${Date.now()}`,
+        id: `${APP_SLUG}-${Date.now()}`,
         object: 'chat.completion',
         created: Math.floor(Date.now() / 1000),
         model: result.model || model,
@@ -279,10 +333,10 @@ function formatChatResponse(result, model) {
             completion_tokens: 0,
             total_tokens: 0
         },
-        proxima: {
+        ...buildResponseMetadata({
             provider: result.model,
             responseTimeMs: result.responseTimeMs
-        }
+        })
     };
 }
 
@@ -301,12 +355,12 @@ function formatAllResponse(allResults) {
         }
     }
     return {
-        id: `proxima-${Date.now()}`,
+        id: `${APP_SLUG}-${Date.now()}`,
         object: 'chat.completion',
         created: Math.floor(Date.now() / 1000),
         model: 'all',
         choices,
-        proxima: { providers: allResults.models, timings: allResults.timings }
+        ...buildResponseMetadata({ providers: allResults.models, timings: allResults.timings })
     };
 }
 
@@ -320,7 +374,7 @@ function getDocsPage() {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proxima API</title>
+    <title>${APP_NAME} API</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
@@ -365,7 +419,7 @@ function getDocsPage() {
     <div class="grid-bg"></div>
     <div class="wrap">
         <div class="head">
-            <div class="logo">⚡ Proxima API</div>
+            <div class="logo">⚡ ${APP_NAME} API</div>
             <p class="sub">Unified AI Gateway · Port ${REST_PORT} · v${VERSION}</p>
             <div class="chips">
                 ${providerCatalog.map((provider) =>
@@ -427,7 +481,11 @@ POST /v1/chat/completions
             <tr style="border-bottom:1px solid rgba(255,255,255,.06)"><td style="padding:8px;color:#f97316;font-weight:600">translate</td><td style="padding:8px">"function": "translate", "to": "Hindi"</td><td style="padding:8px;color:#888">Translate text</td></tr>
             <tr style="border-bottom:1px solid rgba(255,255,255,.06)"><td style="padding:8px;color:#a855f7;font-weight:600">brainstorm</td><td style="padding:8px">"function": "brainstorm"</td><td style="padding:8px;color:#888">Generate ideas</td></tr>
             <tr style="border-bottom:1px solid rgba(255,255,255,.06)"><td style="padding:8px;color:#ef4444;font-weight:600">code</td><td style="padding:8px">"function": "code", "action": "generate|review|debug|explain"</td><td style="padding:8px;color:#888">Code tools</td></tr>
-            <tr><td style="padding:8px;color:#06b6d4;font-weight:600">analyze</td><td style="padding:8px">"function": "analyze", "url": "..."</td><td style="padding:8px;color:#888">Analyze URL/content</td></tr>
+            <tr style="border-bottom:1px solid rgba(255,255,255,.06)"><td style="padding:8px;color:#06b6d4;font-weight:600">analyze</td><td style="padding:8px">"function": "analyze", "url": "..."</td><td style="padding:8px;color:#888">Analyze URL/content</td></tr>
+            <tr style="border-bottom:1px solid rgba(255,255,255,.06)"><td style="padding:8px;color:#dc2626;font-weight:600">security_audit</td><td style="padding:8px">"function": "security_audit", "code": "..."</td><td style="padding:8px;color:#888">Security review of code</td></tr>
+            <tr style="border-bottom:1px solid rgba(255,255,255,.06)"><td style="padding:8px;color:#22c55e;font-weight:600">github_search</td><td style="padding:8px">"function": "github_search", "query": "..."</td><td style="padding:8px;color:#888">GitHub repo and code search</td></tr>
+            <tr style="border-bottom:1px solid rgba(255,255,255,.06)"><td style="padding:8px;color:#8b5cf6;font-weight:600">get_ui_reference</td><td style="padding:8px">"function": "get_ui_reference", "description": "..."</td><td style="padding:8px;color:#888">UI/UX direction and implementation prompt</td></tr>
+            <tr><td style="padding:8px;color:#eab308;font-weight:600">convo_history_summarize</td><td style="padding:8px">"function": "convo_history_summarize", "conversationHistory": "..."</td><td style="padding:8px;color:#888">Summarize full project conversation context</td></tr>
             </table>
         </div>
 
@@ -458,21 +516,21 @@ POST /v1/chat/completions
             </div>
             <div class="ex" style="margin-top:6px">
                 <h4>Any Model — Same Pattern</h4>
-                <pre>// ChatGPT se search
+                <pre>// Search with ChatGPT
 {"model": "chatgpt", "message": "AI trends", "function": "search"}
 
-// Gemini se code
+// Code with Gemini
 {"model": "gemini", "message": "REST API", "function": "code"}
 
-// Perplexity se chat
+// Chat with Perplexity
 {"model": "perplexity", "message": "Explain quantum computing"}
 
-// Auto pick — har cheez ke liye
+// Auto-pick for any request
 {"model": "auto", "message": "Hello"}</pre>
             </div>
         </div>
 
-        <div class="foot">Proxima API v${VERSION} — Zen4-bit ⚡</div>
+        <div class="foot">${APP_NAME} API v${VERSION} — Zen4-bit ⚡</div>
     </div>
     <script>setTimeout(()=>location.reload(),10000);</script>
 </body>
@@ -531,7 +589,11 @@ async function handleRoute(method, pathname, body, res) {
         if (fn === 'brainstorm') {
             const topic = body.topic || extractMessage(body);
             if (!topic) return sendError(res, 400, 'message or topic required');
-            const prompt = `Brainstorm creative ideas for: ${topic}\n\nProvide diverse, practical suggestions.`;
+            const prompt = renderSkillPrompt('brainstorm', {
+                subject: topic
+            }, {
+                fallbackText: 'Brainstorm creative and innovative ideas about: ${subject}\n\nProvide at least 5-8 diverse ideas with brief explanations.'
+            });
             return run(prompt, 'auto', { function: 'brainstorm', topic });
         }
 
@@ -548,7 +610,14 @@ async function handleRoute(method, pathname, body, res) {
                 }
                 case 'review':
                     if (!body.code) return sendError(res, 400, 'code field required');
-                    prompt = `Review this ${body.language || ''} code for bugs, performance, security:\n\`\`\`${body.language || ''}\n${body.code}\n\`\`\``;
+                    prompt = renderSkillPrompt('code_review', {
+                        desc: joinPromptSections(
+                            body.context ? `Additional context:\n${body.context}` : '',
+                            `\`\`\`${body.language || ''}\n${body.code}\n\`\`\``
+                        )
+                    }, {
+                        fallbackText: 'Review this code for bugs, improvements, and best practices:\n\n${desc}'
+                    });
                     break;
                 case 'debug':
                     if (!body.code && !body.error) return sendError(res, 400, 'code or error required');
@@ -567,6 +636,20 @@ async function handleRoute(method, pathname, body, res) {
             return run(prompt, 'claude', { function: 'code', action });
         }
 
+        // ── function: "security_audit" ──
+        if (fn === 'security_audit') {
+            const code = body.code || extractMessage(body);
+            if (!code) return sendError(res, 400, 'code or message required');
+
+            const prompt = renderSkillPrompt('security_audit', {
+                lang: body.language ? ` (${body.language})` : '',
+                fullCode: code
+            }, {
+                fallbackText: 'You are a senior security engineer. Perform a thorough security audit of this code${lang}.\n\nCODE:\n${fullCode}\n\nCheck for ALL of the following:\n1. **Injection vulnerabilities** (SQL, XSS, command injection, LDAP, etc.)\n2. **Authentication/Authorization flaws** (broken auth, privilege escalation, insecure tokens)\n3. **Data exposure** (hardcoded secrets, PII leaks, insecure logging)\n4. **Input validation** (missing sanitization, type confusion, buffer overflow)\n5. **Cryptographic issues** (weak algorithms, improper key management)\n6. **Configuration problems** (debug mode, CORS, insecure defaults)\n7. **Dependency risks** (known vulnerable packages)\n\nFor each issue found:\n- **Severity**: CRITICAL / HIGH / MEDIUM / LOW\n- **Location**: Line or function\n- **Description**: What the vulnerability is\n- **Fix**: Exact code fix\n\nEnd with a security score (0-100) and summary.'
+            });
+            return run(prompt, 'claude', { function: 'security_audit' });
+        }
+
         // ── function: "analyze" ──
         if (fn === 'analyze') {
             const url = body.url;
@@ -576,6 +659,54 @@ async function handleRoute(method, pathname, body, res) {
                 ? `Analyze this URL: ${url}${body.question ? `\nQuestion: ${body.question}` : ''}${body.focus ? `\nFocus: ${body.focus}` : ''}`
                 : `Analyze: ${content}${body.question ? `\nQuestion: ${body.question}` : ''}`;
             return run(prompt, url ? 'perplexity' : 'auto', { function: 'analyze' });
+        }
+
+        // ── function: "github_search" ──
+        if (fn === 'github_search') {
+            const query = body.query || extractMessage(body);
+            if (!query) return sendError(res, 400, 'query or message required');
+
+            const prompt = renderSkillPrompt('github_search', {
+                query,
+                langFilter: body.language ? ` in ${body.language}` : ''
+            }, {
+                fallbackText: 'Search GitHub for open source repositories, code examples, and solutions${langFilter}: ${query}\n\nFor each result provide: repo name, description, stars/popularity, key features, and the GitHub URL. Focus on actively maintained, well-documented projects.'
+            });
+            return run(prompt, 'perplexity', { function: 'github_search' });
+        }
+
+        // ── function: "get_ui_reference" ──
+        if (fn === 'get_ui_reference') {
+            const description = body.description || extractMessage(body);
+            if (!description) return sendError(res, 400, 'description or message required');
+
+            const prompt = renderSkillPrompt('get_ui_reference', {
+                description,
+                styleHint: body.style ? `\nSTYLE PREFERENCE: ${body.style}` : '',
+                fullCode: body.code || 'No existing code was provided. Produce a detailed UI reference and implementation guidance from the request.'
+            }, {
+                fallbackText: 'You are a senior UI/UX designer and frontend developer. Analyze the existing code and apply premium design improvements.\n\nDESIGN REQUEST: ${description}${styleHint}\n\nEXISTING CODE:\n${fullCode}\n\nProvide:\n1. **DESIGN ANALYSIS**: Analyze the current UI — what works, what needs improvement\n2. **COLOR PALETTE**: Recommended hex colors with usage (primary, secondary, accent, background, text)\n3. **TYPOGRAPHY**: Font families, sizes, weights for headings, body, captions\n4. **LAYOUT & SPACING**: Grid system, padding, margins, responsive breakpoints\n5. **COMPONENTS**: Key UI components needed with design specifications\n6. **UX PATTERNS**: Interactions, hover effects, transitions, micro-animations\n7. **UPDATED CODE**: Complete updated code with the design improvements applied — production-ready, no placeholders\n\nThe updated code must be complete, ready to copy-paste and run. Apply modern design best practices.'
+            });
+            return run(prompt, 'claude', { function: 'get_ui_reference' });
+        }
+
+        // ── function: "convo_history_summarize" ──
+        if (fn === 'convo_history_summarize') {
+            const conversationHistory = body.conversationHistory || body.history || extractMessage(body);
+            if (!conversationHistory) return sendError(res, 400, 'conversationHistory, history, or message required');
+
+            const prompt = renderSkillPrompt('convo_history_summarize', {
+                conversationHistory
+            }, {
+                fallbackText: 'Tell our entire conversation history in this from the very beginning to the very end.\n\nExtract everything and present it in the following structure:\n\nPROJECT\nWhat are we building? Include the name, the core idea, the purpose, and the problem it solves.\n\nDECISIONS MADE\nEverything that has been finalized. Tech stack, architecture, tools, libraries, design choices, folder structure, database schema, API design — anything that was decided and agreed upon.\n\nREQUIREMENTS\nEvery single requirement the user mentioned. Features, constraints, what the user wants and does not want, priorities, tone, style preferences — everything.\n\nWORK DONE SO FAR\nWhat has already been built, written, or implemented. Include file names, code written, components created, APIs built — be specific.\n\nIDEAS AND DIRECTION\nAny ideas, suggestions, directions, or approaches that were discussed even if not finalized. Include things that were considered and rejected too, with the reason why.\n\nPENDING AND NEXT STEPS\nEverything that still needs to be done. What was the last thing discussed? What was about to happen next?\n\nKEY DETAILS AND CONTEXT\nAny important user preferences, specific instructions, edge cases, constraints, or anything unique about this project that a new AI picking this up must know.\n\nBe exhaustive. Do not summarize loosely. A coding AI is going to read this and start building without asking the user a single question — so include everything.\n\nCONVERSATION HISTORY:\n${conversationHistory}'
+            });
+            return run(prompt, 'claude', { function: 'convo_history_summarize' });
+        }
+
+        refreshSkillRegistry();
+        if (hasSkill(fn, { refresh: false })) {
+            const prompt = renderSkillPrompt(fn, buildSkillVariablesFromBody(body));
+            return run(prompt, body.model || 'auto', { function: fn, skill: fn });
         }
 
         // ── No function = Normal Chat (default) ──
@@ -604,29 +735,40 @@ async function handleRoute(method, pathname, body, res) {
         const enabled = getEnabled();
         const models = enabled.map(p => ({
             id: p, object: 'model', created: Math.floor(Date.now() / 1000),
-            owned_by: 'proxima', status: 'enabled',
+            owned_by: APP_SLUG, status: 'enabled',
             aliases: Object.entries(MODEL_ALIASES).filter(([_, v]) => v === p).map(([k]) => k).filter(k => k !== p)
         }));
         // Also show disabled ones
         const allProviders = providerCatalog.map((provider) => provider.id);
         allProviders.filter(p => !enabled.includes(p)).forEach(p => {
             models.push({
-                id: p, object: 'model', owned_by: 'proxima', status: 'disabled',
+                id: p, object: 'model', owned_by: APP_SLUG, status: 'disabled',
                 aliases: Object.entries(MODEL_ALIASES).filter(([_, v]) => v === p).map(([k]) => k).filter(k => k !== p)
             });
         });
-        models.push({ id: 'auto', object: 'model', owned_by: 'proxima', description: 'Auto-picks best available model' });
+        models.push({ id: 'auto', object: 'model', owned_by: APP_SLUG, description: 'Auto-picks best available model' });
         sendJSON(res, 200, { object: 'list', data: models });
+        return;
+    }
+
+    if (method === 'GET' && pathname === `${API_PREFIX}/skills`) {
+        refreshSkillRegistry();
+        sendJSON(res, 200, {
+            success: true,
+            ...getSkillRegistrySummary({ includeTemplate: true })
+        });
         return;
     }
 
     // /v1/functions
     if (method === 'GET' && pathname === `${API_PREFIX}/functions`) {
+        refreshSkillRegistry();
         sendJSON(res, 200, {
             version: VERSION,
             endpoint: 'POST /v1/chat/completions',
-            description: 'ONE endpoint for everything. Use the "function" field to change behavior.',
+            description: 'ONE endpoint for everything. Use the "function" field to change behavior or to run any discovered skills/<name>.md prompt.',
             models: { available: getEnabled(), aliases: MODEL_ALIASES },
+            skills: getSkillRegistrySummary({ includeTemplate: true }),
             functions: {
                 chat: {
                     description: 'Normal chat (default when no function specified)',
@@ -664,6 +806,30 @@ async function handleRoute(method, pathname, body, res) {
                     body: { model: 'string', message: 'string or url', function: 'analyze' },
                     optional: { url: 'URL to analyze', question: 'specific question', focus: 'focus area' },
                     example: { model: 'perplexity', function: 'analyze', url: 'https://example.com', question: 'What is this?' }
+                },
+                security_audit: {
+                    description: 'Run a security-focused audit of source code',
+                    body: { model: 'string', code: 'string', function: 'security_audit' },
+                    optional: { language: 'programming language' },
+                    example: { model: 'claude', function: 'security_audit', language: 'JavaScript', code: 'app.get("/user", (req, res) => db.query("SELECT * FROM users WHERE id=" + req.query.id))' }
+                },
+                github_search: {
+                    description: 'Find GitHub repositories, code examples, and open source solutions',
+                    body: { model: 'string', query: 'string', function: 'github_search' },
+                    optional: { language: 'language or ecosystem filter' },
+                    example: { model: 'perplexity', function: 'github_search', query: 'headless browser automation library', language: 'TypeScript' }
+                },
+                get_ui_reference: {
+                    description: 'Generate a UI/UX reference and upgraded implementation guidance',
+                    body: { model: 'string', description: 'string', function: 'get_ui_reference' },
+                    optional: { code: 'existing code', style: 'visual direction' },
+                    example: { model: 'claude', function: 'get_ui_reference', description: 'dashboard redesign for a small analytics app', style: 'editorial and bold' }
+                },
+                convo_history_summarize: {
+                    description: 'Turn full conversation history into a build-ready project handoff',
+                    body: { model: 'string', conversationHistory: 'string', function: 'convo_history_summarize' },
+                    optional: { history: 'alias for conversationHistory' },
+                    example: { model: 'claude', function: 'convo_history_summarize', conversationHistory: 'User: we need a billing page ...' }
                 }
             }
         });
@@ -819,7 +985,7 @@ async function handleRoute(method, pathname, body, res) {
     if (method === 'GET' && pathname === '/api/status') {
         const statusResult = await handleMCPRequest({ action: 'getStatus', provider: 'all', data: {} });
         sendJSON(res, 200, {
-            success: true, server: 'Proxima API', version: VERSION,
+            success: true, server: `${APP_NAME} API`, version: VERSION,
             port: REST_PORT, enabledProviders: getEnabled(),
             providers: statusResult.providers || {},
             stats: getFormattedStats()
@@ -849,6 +1015,17 @@ function startRestAPI() {
         return;
     }
 
+    refreshSkillRegistry();
+    const skillSummary = getSkillRegistrySummary();
+    console.log(`[API] Loaded ${skillSummary.skills.length} skills from ${skillSummary.directory}`);
+    console.log(
+        '[API] Skills:',
+        skillSummary.skills.map((skill) => {
+            const variables = skill.variables.length > 0 ? ` [${skill.variables.join(', ')}]` : '';
+            return `${skill.name}${variables}`;
+        }).join(', ') || '(none)'
+    );
+
     httpServer = http.createServer(async (req, res) => {
         if (req.method === 'OPTIONS') {
             res.writeHead(204, {
@@ -872,7 +1049,7 @@ function startRestAPI() {
 
     httpServer.listen(REST_PORT, '127.0.0.1', () => {
         stats.startTime = new Date();
-        console.log(`[API] ⚡ Proxima API v${VERSION} running at http://localhost:${REST_PORT}`);
+        console.log(`[API] ⚡ ${APP_NAME} API v${VERSION} running at http://localhost:${REST_PORT}`);
     });
 
     httpServer.on('error', (err) => {

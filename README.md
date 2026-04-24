@@ -1,138 +1,108 @@
 <div align="center">
 
-# ⚡ Proxima
+<img src="assets/brainstorm-icon.png" alt="brAInstorm logo" width="64" height="64">
+
+# brAInstorm
 
 ### Multi-AI Gateway — One API, All Models
 
-[![Version](https://img.shields.io/badge/version-3.5.2-blue.svg)](https://github.com/Zen4-bit/Proxima/releases)
+[![Version](https://img.shields.io/badge/version-4.0.0-blue.svg)](https://github.com/Zen4-bit/Proxima/releases)
 [![License](https://img.shields.io/badge/license-Personal%20Use-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey.svg)]()
-[![MCP Tools](https://img.shields.io/badge/MCP%20Tools-55-orange.svg)]()
-[![Providers](https://img.shields.io/badge/AI%20Providers-10-purple.svg)]()
+[![MCP Tools](https://img.shields.io/badge/MCP%20Tools-62%2B-orange.svg)]()
+[![Providers](https://img.shields.io/badge/AI%20Providers-11-blue.svg)]()
 
-Proxima turns logged-in browser AI sessions into a local MCP server and OpenAI-compatible API.
-ChatGPT, Claude, Gemini, Perplexity, DeepSeek, Grok, Z.AI, Copilot, Meta AI, and Qwen are all available through the same Proxima instance. Just log in to each provider inside the Proxima browser shell. No API keys needed.
+brAInstorm turns logged-in browser AI sessions into a local MCP server and OpenAI-compatible API.
+ChatGPT, Claude, Gemini, Google AI, Perplexity, DeepSeek, Grok, Z.AI, Copilot, Meta AI, and Qwen are available through the same local instance. Just log in to each provider inside the embedded browser shell. No API keys needed.
 
-[Getting Started](#getting-started) · [API Usage](#api-usage) · [SDKs](#sdks) · [MCP Tools](#mcp-tools) · [Configuration](#configuration)
-
----
-
-## Demo
-
-https://github.com/user-attachments/assets/6eb76618-2c1d-4dad-b753-aaaee9e93310
-
----
-
-![Proxima Settings](assets/proxima-provider.jpg)
-
-![Proxima Provider View](assets/proxima-screenshot.jpg)
+[Getting Started](#getting-started) · [API Usage](#api-usage) · [Skills](#skills) · [SDKs](#sdks) · [MCP](#mcp) · [Troubleshooting](#troubleshooting)
 
 </div>
 
+![brAInstorm Settings](assets/proxima-provider.jpg)
+
+![brAInstorm Provider View](assets/proxima-screenshot.jpg)
+
 ## Overview
 
-Proxima is a local AI gateway that connects multiple AI providers to your coding environment.
+brAInstorm is a local AI gateway for coding tools and MCP clients.
 
-**One API. One URL. One function. Any model. Any task.**
+**One API. One URL. One function field. Any enabled model.**
 
-```
+```json
 POST /v1/chat/completions
-{"model": "claude", "message": "Hello"}                                          → Chat
-{"model": "perplexity", "message": "AI news", "function": "search"}              → Search
-{"model": "gemini", "message": "Hello", "function": "translate", "to": "Hindi"}  → Translate
-{"model": "claude", "message": "Sort algo", "function": "code"}                  → Code
+{"model":"claude","message":"Give me the risky edge cases in this auth flow."}
+{"model":"perplexity","message":"What changed in AI this week?","function":"search"}
+{"model":"claude","function":"security_audit","code":"async function login(req,res){...}"}
+{"model":"claude","function":"code_review","desc":"Please review this Express middleware for bugs:\\n\\nconst allow = req.user?.role === 'admin';"}
 ```
 
-> **No API keys required.** Proxima uses your existing browser sessions to talk to AI providers directly.
+> **No API keys required.** brAInstorm uses your existing browser sessions to talk to AI providers directly.
 
-### Why Proxima?
+## Why brAInstorm?
 
 | Feature | Description |
 |---------|-------------|
-| **One Endpoint** | Everything through `/v1/chat/completions` — no separate URLs |
-| **10 AI Providers** | ChatGPT, Claude, Gemini, Perplexity, DeepSeek, Grok, Z.AI, Copilot, Meta AI, Qwen |
-| **55 MCP Tools** | Search, code, translate, analyze, provider control, file workflows |
+| **One Endpoint** | Everything through `/v1/chat/completions` |
+| **11 AI Providers** | ChatGPT, Claude, Gemini, Google AI, Perplexity, DeepSeek, Grok, Z.AI, Copilot, Meta AI, Qwen |
+| **62+ MCP Tools** | Search, code, translation, file analysis, provider control, dynamic skills |
+| **Dynamic Skills** | Any `skills/<name>.md` file becomes a callable prompt automatically |
 | **REST API** | OpenAI-compatible API on `localhost:3210` |
-| **SDKs** | Python & JavaScript — one function each |
-| **No API Keys** | Use your existing account logins |
-| **Local & Private** | Runs on localhost, your data stays on your machine |
-| **Smart Router** | Auto-picks the best available AI for your query |
+| **SDKs** | Python and JavaScript clients, plus legacy compatibility aliases |
+| **Local and Private** | Runs on localhost, data stays on your machine |
+| **Smart Router** | Auto-picks the best available AI for a request |
 
----
+## What’s New in This Build
 
-## What's New in v3.5.2
-
-- 🆕 **6 additional providers** — DeepSeek, Grok, Z.AI, Copilot, Meta AI, Qwen
-- 🆕 **27 new MCP tools** — content, analysis, file analysis, window control, session management
-- 🆕 **Provider inspection tools** — `init_provider`, `provider_status`, `navigate_provider`, `debug_provider_dom`, `execute_provider_script`
-- 🆕 **REST API** — OpenAI-compatible endpoint at `localhost:3210`
-- 🆕 **Python & JavaScript SDKs** — one function to do everything
-- 🆕 **Smart Router** — auto-picks best AI with retry logic
-- 🆕 **Math Search** — solve math & science problems step-by-step
-- 🆕 **Image Search** — find images on any topic
-- 🆕 **File Analysis** — upload and analyze local files with any AI
-- 🆕 **Window Controls** — show, hide, toggle, headless mode
-- 🆕 **macOS build targets** — `npm run build:mac` and `npm run build:mac:dir`
--    **Navigation & Login** - Allows direct URL changes, and setting localStorage values for login.
-- 🔧 **Enhanced typing detection** — better response capture for all providers
-- 🔧 **Claude code hack** — forces inline code instead of artifacts for reliable capture
-
----
+- Added **Google AI** as a provider with `ask_googleai` and REST model support.
+- Added **dynamic skills** backed by `skills/*.md`.
+- Added **`GET /v1/skills`**, **`list_skills`**, **`run_skill`**, and **`brainstorm://skills`**.
+- Added **Cloudflare / human verification surfacing** so blocked providers tell you to complete the check in the app.
+- Rebranded the app and docs to **brAInstorm** while keeping legacy compatibility where it matters.
 
 ## Getting Started
 
 ### Requirements
 
-- **Windows 10/11 or macOS**
-- **Node.js 18+** → [Download Node.js](https://nodejs.org/)
+- Windows 10/11 or macOS
+- Node.js 18+
 
 ### Installation
 
-<table>
-<tr>
-<td width="50%">
-
 **Download Installer**
 
-Download the latest release and run the installer. Windows installers are published; macOS can be run from source or built locally from this repo with `npm run build:mac` or `npm run build:mac:dir`.
+Download the latest release and run the installer. Windows installers are published. macOS can run from source or be built locally from this repo.
 
 [Download for Windows →](https://github.com/Zen4-bit/Proxima/releases)
-
-</td>
-<td width="50%">
 
 **Run from Source**
 
 ```bash
-git clone https://github.com/Zen4-bit/Proxima.git
-cd proxima
+git clone https://github.com/Zen4-bit/Proxima.git brAInstorm
+cd brAInstorm
 npm install
 npm start
 ```
-
-</td>
-</tr>
-</table>
 
 ### Build Commands
 
 | Command | Output |
 |---------|--------|
-| `npm start` | Run Proxima locally |
+| `npm start` | Run brAInstorm locally |
 | `npm run mcp` | Launch the stdio MCP server directly |
 | `npm run build:win` | Build the Windows app |
 | `npm run build:installer` | Build the Windows NSIS installer |
-| `npm run build:mac` | Build macOS universal `dmg` + `zip` artifacts into `dist/` |
-| `npm run build:mac:dir` | Build an unpacked macOS `.app` directory into `dist/` |
+| `npm run build:mac` | Build macOS universal `dmg` and `zip` artifacts |
+| `npm run build:mac:dir` | Build an unpacked macOS `.app` directory |
+
+Build commands automatically generate a minimal packaged MCP runtime in `build/packaged-runtime/` so the packaged app can expose `src/mcp-server-v3.js`, `skills/`, and only the Node dependencies that runtime actually needs.
 
 ### Quick Setup
 
-1. **Open Proxima**, enable the providers you want, and log in to each one
-2. **Copy MCP config** from the Settings panel so the path matches your current source or packaged install
-3. **Connect your MCP client** and start using provider tools like `ask_deepseek`, `ask_grok`, `ask_zai`, `ask_copilot`, `ask_metaai`, or `ask_qwen`
-4. **API is live** at `http://localhost:3210`
-
----
+1. Open brAInstorm, enable the providers you want, and log in to each one.
+2. Copy the MCP config from the Settings panel.
+3. Connect your MCP client or call the REST API at `http://localhost:3210`.
+4. Add or edit files in `skills/` if you want custom reusable prompts.
 
 ## Supported Providers
 
@@ -141,6 +111,7 @@ npm start
 | ChatGPT | `chatgpt` | Yes | `chat` |
 | Claude | `claude` | No | `chat` |
 | Gemini | `gemini` | Yes | `chat` |
+| Google AI | `googleai` | No | `chat` |
 | Perplexity | `perplexity` | Yes | `search` |
 | DeepSeek | `deepseek` | No | `chat` |
 | Grok | `grok` | No | `chat` |
@@ -149,129 +120,78 @@ npm start
 | Meta AI | `metaai` | No | `chat` |
 | Qwen | `qwen` | No | `chat` |
 
-> **Note:** Perplexity is search-first for shared tools. All other providers default to chat behavior.
->
-> **Image responses:** ChatGPT, Gemini, Grok, Copilot, Meta AI, and Qwen can return image responses. When they do, Proxima downloads the generated images locally and returns file paths through the MCP response.
-
-### Model Aliases
-
-You can use familiar names — they all resolve to the right provider:
+### Common Aliases
 
 | Provider | Aliases |
 |----------|---------|
-| ChatGPT | `chatgpt`, `gpt`, `gpt-4`, `gpt-4o`, `gpt-4.5`, `openai` |
-| Claude | `claude`, `claude-3`, `claude-3.5`, `claude-4`, `anthropic`, `sonnet`, `opus`, `haiku` |
+| ChatGPT | `chatgpt`, `gpt`, `gpt-4`, `gpt-4o`, `openai` |
+| Claude | `claude`, `claude-3`, `claude-4`, `anthropic`, `sonnet`, `opus`, `haiku` |
 | Gemini | `gemini`, `gemini-pro`, `gemini-2`, `gemini-2.5`, `google`, `bard` |
+| Google AI | `googleai`, `google ai`, `google ai mode`, `google-ai`, `aimode` |
 | Perplexity | `perplexity`, `pplx`, `sonar` |
 | DeepSeek | `deepseek`, `deepseek-chat`, `deepseek-r1`, `r1` |
 | Grok | `grok`, `grok-3`, `xai`, `x.ai` |
 | Z.AI | `zai`, `z.ai`, `z ai`, `z-ai`, `glm`, `glm-5`, `glm-5.1` |
 | Copilot | `copilot`, `microsoft copilot`, `ms copilot` |
 | Meta AI | `metaai`, `meta ai`, `meta.ai` |
-| Qwen | `qwen`, `qwen-chat`, `qwen3`, `qwen-max`, `qwen studio` |
-| Auto | `auto` — picks the best available |
+| Qwen | `qwen`, `qwen3`, `qwen-max`, `qwen studio` |
+| Auto | `auto` |
 
-### Provider-Specific MCP Tools
-
-Each provider also has a direct MCP tool path for targeted calls. These tools accept `message` and optional `files`.
-
-| Provider | MCP Tool |
-|----------|----------|
-| ChatGPT | `ask_chatgpt` |
-| Claude | `ask_claude` |
-| Gemini | `ask_gemini` |
-| DeepSeek | `ask_deepseek` |
-| Grok | `ask_grok` |
-| Z.AI | `ask_zai` |
-| Copilot | `ask_copilot` |
-| Meta AI | `ask_metaai` |
-| Qwen | `ask_qwen` |
-
-Perplexity is exposed through the search-oriented MCP tools such as `deep_search`, `pro_search`, `news_search`, `reddit_search`, and `academic_search` rather than a dedicated `ask_perplexity` tool.
-
----
+> **Image responses:** ChatGPT, Gemini, Grok, Copilot, Meta AI, and Qwen can return generated images. brAInstorm downloads those images locally and returns absolute file paths.
 
 ## API Usage
 
-### ONE Endpoint — Everything
+### Main Endpoint
 
-```
+```text
 POST http://localhost:3210/v1/chat/completions
 Content-Type: application/json
 ```
 
-The `"function"` field in the body determines what happens. No function = normal chat.
+No `function` field means normal chat. If `function` matches a built-in mode or a discovered skill file, brAInstorm changes behavior automatically.
 
-### Functions
+### Common Functions
 
 | Function | Body Fields | What It Does |
-|----------|-------------|-------------|
+|----------|-------------|--------------|
 | *(none)* | `model`, `message` | Normal chat |
-| `"search"` | `model`, `message`, `function` | Web search + AI analysis |
-| `"translate"` | `model`, `message`, `function`, `to` | Translate text |
-| `"brainstorm"` | `model`, `message`, `function` | Generate creative ideas |
-| `"code"` | `model`, `message`, `function`, `action` | Code generate/review/debug/explain |
-| `"analyze"` | `model`, `function`, `url` | Analyze URL or content |
+| `search` | `model`, `message`, `function` | Web search plus AI analysis |
+| `translate` | `model`, `message`, `function`, `to` | Translate text |
+| `brainstorm` | `model`, `message`, `function` | Run the `skills/brainstorm.md` prompt |
+| `code` | `model`, `message`, `function`, `action` | Generate, review, debug, or explain code |
+| `analyze` | `model`, `function`, `url` or `message` | Analyze a URL or content |
+| `<skill_name>` | `model`, `function`, skill variables | Run any discovered `skills/<skill_name>.md` prompt |
 
-### Examples (All Same URL)
+### System Endpoints
 
-**Chat:**
-```bash
-curl http://localhost:3210/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model": "claude", "message": "What is AI?"}'
-```
-
-**Search:**
-```bash
-curl http://localhost:3210/v1/chat/completions \
-  -d '{"model": "perplexity", "message": "AI news 2026", "function": "search"}'
-```
-
-**Translate:**
-```bash
-curl http://localhost:3210/v1/chat/completions \
-  -d '{"model": "gemini", "message": "Hello world", "function": "translate", "to": "Hindi"}'
-```
-
-**Code Generate:**
-```bash
-curl http://localhost:3210/v1/chat/completions \
-  -d '{"model": "claude", "message": "Sort algorithm", "function": "code", "action": "generate", "language": "Python"}'
-```
-
-**Code Review:**
-```bash
-curl http://localhost:3210/v1/chat/completions \
-  -d '{"model": "claude", "function": "code", "action": "review", "code": "def add(a,b): return a+b"}'
-```
-
-**Brainstorm:**
-```bash
-curl http://localhost:3210/v1/chat/completions \
-  -d '{"model": "auto", "message": "Startup ideas", "function": "brainstorm"}'
-```
-
-**Analyze URL:**
-```bash
-curl http://localhost:3210/v1/chat/completions \
-  -d '{"model": "perplexity", "function": "analyze", "url": "https://example.com"}'
-```
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/v1/models` | List models and their enabled status |
+| `GET` | `/v1/functions` | Function catalog plus current skill registry |
+| `GET` | `/v1/skills` | List discovered skills, variables, and templates |
+| `GET` | `/v1/stats` | Response time stats |
+| `POST` | `/v1/conversations/new` | Start fresh conversations |
 
 ### Response Format
 
-Every call returns the **same format**:
+Every request returns the same OpenAI-style envelope:
 
 ```json
 {
-  "id": "proxima-abc123",
+  "id": "brainstorm-abc123",
   "model": "claude",
-  "choices": [{
-    "message": {
-      "role": "assistant",
-      "content": "AI response here..."
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "AI response here..."
+      }
     }
-  }],
+  ],
+  "brainstorm": {
+    "provider": "claude",
+    "responseTimeMs": 2400
+  },
   "proxima": {
     "provider": "claude",
     "responseTimeMs": 2400
@@ -279,339 +199,441 @@ Every call returns the **same format**:
 }
 ```
 
-### System Endpoints
+`brainstorm` is the new metadata key. `proxima` is still included for compatibility with older SDKs and clients.
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/v1/models` | List models and their status |
-| `GET` | `/v1/functions` | API function catalog |
-| `GET` | `/v1/stats` | Response time stats |
-| `POST` | `/v1/conversations/new` | Fresh start |
+### API Examples
 
----
+**Chat**
 
-## SDKs
-
-### Python SDK — One Function
-
-```python
-from proxima import Proxima
-client = Proxima()
-
-# Chat — any model
-response = client.chat("Hello", model="claude")
-response = client.chat("Hello", model="chatgpt")
-response = client.chat("Hello", model="gemini")
-response = client.chat("Hello")  # auto picks best
-print(response.text)
-print(response.model)
-print(response.response_time_ms)
-
-# Search — same function, add function="search"
-result = client.chat("AI news 2026", model="perplexity", function="search")
-print(result.text)
-
-# Translate — same function, add function="translate"
-hindi = client.chat("Hello world", model="gemini", function="translate", to="Hindi")
-print(hindi.text)
-
-# Code generate
-code = client.chat("Sort algorithm", model="claude", function="code", action="generate", language="Python")
-
-# Code review
-review = client.chat(function="code", model="claude", action="review", code="def add(a,b): return a+b")
-
-# Brainstorm
-ideas = client.chat("Startup ideas", function="brainstorm")
-
-# Analyze URL
-analysis = client.chat(function="analyze", url="https://example.com")
-
-# System
-models = client.get_models()
-stats = client.get_stats()
-client.new_conversation()
+```bash
+curl http://localhost:3210/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"claude","message":"Give me the obvious failure modes in a password reset flow."}'
 ```
 
-**Installation:** `pip install requests`, then copy `sdk/proxima.py` to your project.
+**Search**
 
-### JavaScript SDK — One Function
-
-```javascript
-const { Proxima } = require('./sdk/proxima');
-const client = new Proxima();
-
-// Chat — any model
-const res = await client.chat("Hello", { model: "claude" });
-console.log(res.text);
-
-// Search
-const news = await client.chat("AI news", { model: "perplexity", function: "search" });
-
-// Translate
-const hindi = await client.chat("Hello", { model: "gemini", function: "translate", to: "Hindi" });
-
-// Code generate
-const code = await client.chat("Sort algo", { model: "claude", function: "code", action: "generate" });
-
-// Brainstorm
-const ideas = await client.chat("Startup ideas", { function: "brainstorm" });
-
-// Analyze
-const analysis = await client.chat("", { function: "analyze", url: "https://example.com" });
-
-// System
-const models = await client.getModels();
-const stats = await client.getStats();
+```bash
+curl http://localhost:3210/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"perplexity","message":"What happened in AI this week?","function":"search"}'
 ```
 
-Works with Node.js 18+ (uses native `fetch`).
+**Dynamic skill: `code_review`**
 
-Any supported provider ID or alias can be used from the SDKs, including `deepseek`, `grok`, `zai`, `copilot`, `metaai`, and `qwen`.
-
-### SDK Configuration
-
-```python
-# Custom URL
-client = Proxima(base_url="http://192.168.1.100:3210")
-
-# Default model for all calls
-client = Proxima(default_model="claude")
+```bash
+curl http://localhost:3210/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"claude","function":"code_review","desc":"Please review this Express auth middleware for bugs and obvious improvements:\n\napp.use(async (req,res,next)=>{ if(req.headers.authorization===process.env.ADMIN_TOKEN){ req.user={role:\"admin\"}; } next(); })"}'
 ```
 
----
+**Dynamic skill: `security_audit`**
 
-## MCP Tools
+```bash
+curl http://localhost:3210/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"claude","function":"security_audit","language":"TypeScript","code":"async function login(req,res){ const user = await db.find(req.body.email); if(user.password === req.body.password){ res.json({token: sign(user.id)}) } }"}'
+```
 
-### Configuration
+**List current skills**
 
-Add this to your AI coding app's MCP settings:
+```bash
+curl http://localhost:3210/v1/skills
+```
+
+### How Skill Variables Work Over REST
+
+For REST requests, brAInstorm builds skill variables from:
+
+- Top-level JSON body fields other than `model`, `function`, `messages`, and `variables`
+- The optional `variables` object
+- Standard message aliases like `message`, `query`, `prompt`, `content`, or `text`
+
+That means all of these work:
+
+```json
+{"model":"claude","function":"brainstorm","subject":"Ways to onboard new consultants faster"}
+```
+
+```json
+{"model":"claude","function":"brainstorm","variables":{"subject":"Ways to onboard new consultants faster"}}
+```
+
+## Skills
+
+### How Discovery Works
+
+Skills are never hardcoded. brAInstorm scans the `skills/` directory and builds the registry from the files it finds.
+
+- `skills/<name>.md` becomes a skill named `<name>`
+- File contents are the full prompt template
+- `${variable}` placeholders are filled from request data
+- The registry is loaded at startup and refreshed on skill reads
+- Startup logs print the discovered skills and their variable names
+- `GET /v1/skills`, `list_skills`, and `brainstorm://skills` expose the live registry
+
+Optional override:
+
+- `BRAINSTORM_SKILLS_DIR=/absolute/path/to/skills`
+- Legacy alias still supported: `PROXIMA_SKILLS_DIR`
+
+### Current Bundled Skills
+
+| Skill | Variables | Purpose |
+|-------|-----------|---------|
+| `brainstorm` | `subject` | Idea generation |
+| `code_review` | `desc` | Code review prompt |
+| `convo_history_summarize` | `conversationHistory` | Full project-context summary |
+| `get_ui_reference` | `description`, `fullCode`, `styleHint` | UI/UX reference and implementation prompt |
+| `github_search` | `langFilter`, `query` | GitHub repo and code discovery |
+| `security_audit` | `fullCode`, `lang` | Security review prompt |
+
+### Add a New Skill
+
+1. Create a new file in `skills/`, for example `skills/new_skill.md`.
+2. Put the full prompt in that file.
+3. Use `${variable}` placeholders anywhere you want runtime substitution.
+4. Call it with `function: "new_skill"` over REST or `run_skill` over MCP.
+
+Example:
+
+```md
+<!-- skills/new_skill.md -->
+Write a calm, practical migration plan for this system:
+
+SYSTEM
+${system_name}
+
+CONSTRAINTS
+${constraints}
+```
+
+Then call it over REST:
+
+```bash
+curl http://localhost:3210/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"claude","function":"new_skill","system_name":"legacy billing sync","constraints":"no downtime, no schema freeze longer than 10 minutes"}'
+```
+
+### MCP Skill Usage
+
+**List skills**
 
 ```json
 {
-  "mcpServers": {
-    "proxima": {
-      "command": "node",
-      "args": ["/absolute/path/to/Proxima/src/mcp-server-v3.js"],
-      "cwd": "/absolute/path/to/Proxima"
+  "tool": "list_skills",
+  "arguments": {
+    "includeTemplate": true
+  }
+}
+```
+
+**Run a skill**
+
+```json
+{
+  "tool": "run_skill",
+  "arguments": {
+    "skill": "security_audit",
+    "provider": "claude",
+    "variables": {
+      "lang": " (TypeScript)",
+      "fullCode": "async function login(req,res){ const user = await db.find(req.body.email); if(user.password === req.body.password){ res.json({token: sign(user.id)}) } }"
     }
   }
 }
 ```
 
-### MCP Server Paths
+`run_skill` also supports `files`. If you pass files, brAInstorm exposes their contents as `filesContent`, `fileContent`, `fullCode`, and `desc` when those variables are not already set.
 
-Proxima generates the correct JSON for the current install in the Settings panel. These are the common path patterns:
+### Skill Resources
+
+- `brainstorm://skills`
+- `brainstorm://status`
+
+Legacy compatibility is still available:
+
+- `proxima://skills`
+- `proxima://status`
+
+## SDKs
+
+### Python
+
+Primary entrypoint:
+
+```python
+from brainstorm import Brainstorm
+
+client = Brainstorm()
+
+reply = client.chat(
+    "I need five realistic B2B SaaS ideas for accountants who hate manual month-end work.",
+    model="claude",
+    function="brainstorm",
+)
+print(reply.text)
+
+review = client.chat(
+    model="claude",
+    function="code_review",
+    desc="Please review this login handler for bugs and weak spots:\n\nasync function login(req,res){ const user = await db.find(req.body.email); if(user.password === req.body.password){ res.json({token: sign(user.id)}) } }",
+)
+print(review.text)
+
+skills = client.get_skills()
+print(skills["skills"][0]["name"])
+```
+
+Installation:
+
+- `pip install requests`
+- Copy `sdk/brainstorm.py` into your project
+
+### JavaScript
+
+Primary entrypoint:
+
+```javascript
+const { Brainstorm } = require('./brainstorm');
+
+const client = new Brainstorm();
+
+const ideas = await client.chat(
+  "Give me seven practical launch ideas for a solo founder selling into local service businesses.",
+  { model: "claude", function: "brainstorm" }
+);
+console.log(ideas.text);
+
+const review = await client.chat("", {
+  model: "claude",
+  function: "code_review",
+  desc: "Please review this Express middleware for auth bugs:\\n\\napp.use(async (req,res,next)=>{ if(req.headers.authorization===process.env.ADMIN_TOKEN){ req.user={role:'admin'}; } next(); })"
+});
+console.log(review.text);
+
+const skills = await client.getSkills();
+console.log(skills.skills.map((skill) => skill.name));
+```
+
+Works with Node.js 18+.
+
+Installation:
+
+- Copy `sdk/brainstorm.js` into your project
+
+### Legacy SDK Compatibility
+
+Old SDK files still work:
+
+- `sdk/proxima.py`
+- `sdk/proxima.js`
+
+They now understand both the new `brainstorm` response metadata and the legacy `proxima` metadata.
+
+## MCP
+
+### MCP Config
+
+Copy the exact JSON from the brAInstorm Settings panel when possible. A typical source checkout config looks like this:
+
+```json
+{
+  "mcpServers": {
+    "brainstorm": {
+      "command": "node",
+      "args": ["/absolute/path/to/brAInstorm/src/mcp-server-v3.js"],
+      "cwd": "/absolute/path/to/brAInstorm"
+    }
+  }
+}
+```
+
+### Typical MCP Paths
 
 | Install Type | Example MCP Server Path | Example `cwd` |
 |--------------|-------------------------|---------------|
-| Source checkout on macOS | `/Users/you/Dev/Proxima/src/mcp-server-v3.js` | `/Users/you/Dev/Proxima` |
-| Source checkout on Windows | `C:/path/to/Proxima/src/mcp-server-v3.js` | `C:/path/to/Proxima` |
-| Packaged macOS app | `/Applications/Proxima.app/Contents/Resources/app.asar.unpacked/src/mcp-server-v3.js` | `/Applications/Proxima.app/Contents/Resources/app.asar.unpacked` |
-| Packaged Windows app | `C:/Program Files/Proxima/resources/app.asar.unpacked/src/mcp-server-v3.js` | `C:/Program Files/Proxima/resources/app.asar.unpacked` |
-
-> **Tip:** Copy the exact config from Proxima's Settings panel instead of typing paths manually.
->
-> **Packaged installs:** Proxima now emits `cwd` pointing at `app.asar.unpacked` so the standalone MCP `node` process can resolve unpacked runtime dependencies on both Windows and macOS.
->
-> **Fresh installs:** Current packaged builds unpack `src`, `package.json`, `node_modules`, and native runtime libraries into `app.asar.unpacked`, so external MCP clients can launch Proxima immediately without manual path or dependency fixes.
->
-> **File attachments:** Turn on **Enable File Attachments** in Settings if you want MCP tools to use `files` or `filePath`.
+| Source checkout on macOS | `/Users/you/Dev/brAInstorm/src/mcp-server-v3.js` | `/Users/you/Dev/brAInstorm` |
+| Source checkout on Windows | `C:/path/to/brAInstorm/src/mcp-server-v3.js` | `C:/path/to/brAInstorm` |
+| Packaged macOS app | `/Applications/brAInstorm.app/Contents/Resources/runtime/src/mcp-server-v3.js` | `/Applications/brAInstorm.app/Contents/Resources/runtime` |
+| Packaged Windows app | `C:/Program Files/brAInstorm/resources/runtime/src/mcp-server-v3.js` | `C:/Program Files/brAInstorm/resources/runtime` |
 
 ### Compatible Apps
 
-- **Cursor**
-- **VS Code** (with MCP extension)
-- **Claude Desktop**
-- **Windsurf**
-- **Gemini CLI**
+- Cursor
+- VS Code with an MCP extension
+- Claude Desktop
+- Windsurf
+- Gemini CLI
 
----
+### Tool Highlights
 
-### 🔍 Search Tools (8)
+**Search and Research**
 
-| Tool | Provider | Description |
-|------|----------|-------------|
-| `deep_search` | Perplexity | Comprehensive web search with file attachment support |
-| `pro_search` | Perplexity | Advanced detailed research with sources |
-| `youtube_search` | Perplexity | Find YouTube videos on any topic |
-| `reddit_search` | Perplexity | Search Reddit discussions & threads |
-| `news_search` | Perplexity | Latest news with timeframe filter |
-| `academic_search` | Perplexity | Scholarly papers & peer-reviewed research |
-| `image_search` | Perplexity | Find images on any topic |
-| `math_search` | Perplexity | Solve math & science problems step-by-step |
+- `deep_search`
+- `pro_search`
+- `news_search`
+- `academic_search`
+- `reddit_search`
+- `youtube_search`
+- `image_search`
+- `math_search`
 
-### 💻 Code Tools (7)
+**Provider Tools**
 
-| Tool | Description |
-|------|-------------|
-| `generate_code` | Generate code in any language from description |
-| `explain_code` | Get detailed code explanations |
-| `debug_code` | Find and fix bugs with error context |
-| `optimize_code` | Performance & readability improvements |
-| `review_code` | Full code review with best practices |
-| `verify_code` | Verify code follows standards |
-| `research_fix` | Research how to fix specific errors |
+- `ask_chatgpt`
+- `ask_claude`
+- `ask_gemini`
+- `ask_googleai`
+- `ask_deepseek`
+- `ask_grok`
+- `ask_zai`
+- `ask_copilot`
+- `ask_metaai`
+- `ask_qwen`
+- `ask_all_ais`
+- `compare_ais`
+- `smart_query`
+- `init_provider`
+- `provider_status`
+- `navigate_provider`
+- `debug_provider_dom`
+- `execute_provider_script`
 
-### 🤖 AI Provider Tools (17)
+**Skills**
 
-| Tool | Description |
-|------|-------------|
-| `ask_chatgpt` | Direct query to ChatGPT (with file support) |
-| `ask_claude` | Direct query to Claude (with file support) |
-| `ask_gemini` | Direct query to Gemini (with file support) |
-| `ask_deepseek` | Direct query to DeepSeek (with file support) |
-| `ask_grok` | Direct query to Grok (with file support) |
-| `ask_zai` | Direct query to Z.AI (with file support) |
-| `ask_copilot` | Direct query to Microsoft Copilot (with file support) |
-| `ask_metaai` | Direct query to Meta AI (with file support) |
-| `ask_qwen` | Direct query to Qwen (with file support) |
-| `ask_all_ais` | Query ALL enabled AIs simultaneously |
-| `compare_ais` | Compare responses from multiple AIs side-by-side |
-| `smart_query` | Auto-route to best AI via Smart Router |
-| `init_provider` | Initialize a provider tab/session inside Proxima |
-| `provider_status` | Inspect login, typing, and current page status for a provider |
-| `navigate_provider` | Open a provider home page or a custom URL |
-| `debug_provider_dom` | Collect provider DOM/debug info for troubleshooting |
-| `execute_provider_script` | Run JavaScript in a provider page context |
+- `list_skills`
+- `run_skill`
 
-### 📝 Content & Research Tools (8)
+**Code and Analysis**
 
-| Tool | Description |
-|------|-------------|
-| `brainstorm` | Generate creative ideas on any topic |
-| `translate` | Translate text between languages |
-| `fact_check` | Verify claims with sources |
-| `find_stats` | Find statistics by topic & year |
-| `how_to` | Step-by-step guides for any task |
-| `writing_help` | Improve and edit writing content |
-| `summarize_url` | Summarize any webpage with focus area |
-| `generate_article` | Write articles in any style |
+- `generate_code`
+- `review_code`
+- `debug_code`
+- `optimize_code`
+- `verify_code`
+- `analyze_file`
+- `review_code_file`
+- `analyze_document`
+- `analyze_image_url`
 
-### 🔬 Analysis Tools (5)
+**Window and Session**
 
-| Tool | Description |
-|------|-------------|
-| `analyze_document` | Analyze documents from URL |
-| `analyze_image_url` | Analyze images via any AI provider |
-| `extract_data` | Extract specific data types from text or URL |
-| `compare` | Compare two items in detail |
-| `generate_image_prompt` | Create detailed AI image generation prompts |
-
-### 📁 File Analysis Tools (2)
-
-| Tool | Description |
-|------|-------------|
-| `analyze_file` | Upload & analyze local files with any AI |
-| `review_code_file` | Upload code file for focused review (bugs, performance, security, style) |
-
-### 🪟 Window Control Tools (4)
-
-| Tool | Description |
-|------|-------------|
-| `show_window` | Show the Proxima app window |
-| `hide_window` | Hide the Proxima app window |
-| `toggle_window` | Toggle window visibility |
-| `set_headless_mode` | Enable/disable headless mode |
-
-### 🔄 Session Tools (2)
-
-| Tool | Description |
-|------|-------------|
-| `new_conversation` | Start fresh conversations on all providers |
-| `clear_cache` | Clear all cached responses |
-
-### 📊 Status & Monitoring Tools (2)
-
-| Tool | Description |
-|------|-------------|
-| `router_stats` | View Smart Router success/failure statistics |
-| `get_typing_status` | Check if any AI provider is currently typing |
-
----
+- `show_window`
+- `hide_window`
+- `toggle_window`
+- `set_headless_mode`
+- `new_conversation`
+- `clear_cache`
+- `router_stats`
+- `get_typing_status`
 
 ## Project Structure
 
-```
-proxima/
+```text
+brAInstorm/
+├── assets/
+│   ├── brainstorm-icon.webp
+│   └── brainstorm-icon.png
 ├── electron/
-│   ├── main-v2.cjs             # Electron main process + MCP config generation
-│   ├── browser-manager.cjs     # Browser view management
-│   ├── rest-api.cjs            # REST API server (OpenAI-compatible)
-│   ├── provider-senders/       # Provider-specific message automation
-│   ├── index-v2.html           # Application UI
-│   ├── preload.cjs             # Renderer preload bridge
-│   └── provider-preload.cjs    # Provider page preload
-├── src/
-│   ├── mcp-server-v3.js        # MCP server (55 tools)
-│   ├── provider-catalog.cjs    # Provider IDs, aliases, URLs, defaults
-│   └── provider-automation.cjs # Typing and response extraction logic
+│   ├── main-v2.cjs
+│   ├── rest-api.cjs
+│   ├── browser-manager.cjs
+│   ├── provider-runtime.cjs
+│   ├── provider-senders/
+│   │   └── googleai.cjs
+│   └── index-v2.html
 ├── sdk/
-│   ├── proxima.py              # Python SDK — one function
-│   └── proxima.js              # JavaScript SDK — one function
-├── assets/                     # Icons, logos, screenshots & demo
+│   ├── brainstorm.py
+│   ├── brainstorm.js
+│   ├── proxima.py
+│   └── proxima.js
+├── skills/
+│   ├── brainstorm.md
+│   ├── code_review.md
+│   ├── convo_history_summarize.md
+│   ├── get_ui_reference.md
+│   ├── github_search.md
+│   └── security_audit.md
+├── src/
+│   ├── mcp-server-v3.js
+│   ├── provider-catalog.cjs
+│   ├── provider-automation.cjs
+│   └── skill-prompts.cjs
 └── package.json
 ```
 
----
+## Compatibility Notes
+
+- brAInstorm is the new external brand.
+- Legacy `proxima` response metadata is still returned.
+- Legacy `proxima://...` MCP resource URIs still work.
+- Legacy SDK filenames still work.
+- Legacy `PROXIMA_SKILLS_DIR` and `PROXIMA_REST_PORT` are still accepted.
 
 ## Troubleshooting
 
 <details>
 <summary><strong>Windows Firewall prompt</strong></summary>
 
-Click "Allow" — Proxima only accepts local connections on `localhost:3210` and `localhost:19222`.
+Click "Allow". brAInstorm only accepts local connections on `localhost:3210` and `localhost:19222`.
 </details>
 
 <details>
 <summary><strong>Provider shows "Not logged in"</strong></summary>
 
-Click the provider tab and login in the embedded browser. Session will be saved.
+Click the provider tab and log in inside the embedded browser.
 </details>
 
 <details>
 <summary><strong>MCP says a provider is disabled</strong></summary>
 
-Enable that provider in Proxima Settings first. The direct provider tools (`ask_deepseek`, `ask_grok`, `ask_zai`, `ask_copilot`, `ask_metaai`, `ask_qwen`, etc.) only work when the provider is enabled.
+Enable that provider in brAInstorm Settings first. Direct provider tools only work when the provider is enabled.
 </details>
 
 <details>
 <summary><strong>API not responding</strong></summary>
 
-1. Make sure Proxima app is running
-2. Visit `http://localhost:3210` in browser
-3. Check at least one provider is enabled and logged in
+1. Make sure the brAInstorm app is running.
+2. Visit `http://localhost:3210` in a browser.
+3. Check that at least one provider is enabled and logged in.
 </details>
 
 <details>
-<summary><strong>MCP tools not showing in Cursor/VS Code</strong></summary>
+<summary><strong>MCP tools are missing in Cursor or VS Code</strong></summary>
 
-1. Ensure Proxima is running
-2. If you are using a packaged install, recopy the MCP JSON from Proxima Settings so it includes the unpacked `cwd`
-3. Verify the path in your MCP config is correct
-4. Restart your AI coding app
+1. Ensure brAInstorm is running.
+2. Recopy the MCP JSON from Settings if you are using a packaged install.
+3. Verify the MCP server path and `cwd`.
+4. Restart the MCP client app.
+</details>
+
+<details>
+<summary><strong>A new skill is not showing up</strong></summary>
+
+1. Make sure the file ends with `.md`.
+2. Put it inside `skills/` or your `BRAINSTORM_SKILLS_DIR`.
+3. Call `GET /v1/skills` or the MCP `list_skills` tool.
+4. Check the startup logs for the discovered skill list.
 </details>
 
 <details>
 <summary><strong>File-based MCP tools are not attaching files</strong></summary>
 
-Enable **File Attachments** in Proxima Settings and use absolute paths for `files` or `filePath`.
+Enable **File Attachments** in brAInstorm Settings and use absolute paths for `files` or `filePath`.
 </details>
-
----
 
 ## License
 
 This software is for **personal, non-commercial use only**.
 See [LICENSE](LICENSE) for details.
 
----
-
 <div align="center">
 
-**Proxima v3.5.2** — One API, All AI Models ⚡
+**brAInstorm v4.0.0** — One API, All AI Models
 
-Made by [Zen4-bit](https://github.com/Zen4-bit)
-Extended models and features [MindFlowGo](https://github.com/mindflowgo/)
+Made by [Zen4-bit](https://github.com/Zen4-bit)  
+Extended models and features by [MindFlowGo](https://github.com/mindflowgo/)
 
 </div>

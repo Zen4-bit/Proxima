@@ -1,18 +1,11 @@
 """
 brAInstorm SDK - Python client
-Legacy file kept for compatibility with older imports.
-
-Usage:
-    from proxima import Proxima
-    client = Proxima()
-    response = client.chat("Hello", model="claude")
-    print(response.text)
 """
 
 import requests
 
 
-class ProximaResponse:
+class BrainstormResponse:
     """Standardized response from any brAInstorm API call."""
 
     def __init__(self, data: dict):
@@ -33,25 +26,15 @@ class ProximaResponse:
         return self.text
 
     def __repr__(self):
-        return f"ProximaResponse(model='{self.model}', text='{self.text[:50]}...')"
+        return f"BrainstormResponse(model='{self.model}', text='{self.text[:50]}...')"
 
     def to_dict(self):
         return self._data
 
 
-class Proxima:
+class Brainstorm:
     """
-    brAInstorm API client. Legacy class kept for compatibility.
-
-    Usage:
-        client = Proxima()
-        response = client.chat("Hello", model="claude")
-        print(response.text)
-
-    Args:
-        base_url:      API server URL (default: http://localhost:3210)
-        api_key:       Optional API key
-        default_model: Default model for all calls (default: auto)
+    brAInstorm API client.
     """
 
     def __init__(self, base_url="http://localhost:3210", api_key=None, default_model="auto"):
@@ -63,99 +46,39 @@ class Proxima:
             self.session.headers.update({"Authorization": f"Bearer {api_key}"})
 
     def chat(self, message="", *, model=None, function=None, **kwargs):
-        """
-        ONE function for everything. Change the model or function to change behavior.
-
-        Args:
-            message:  Your message/prompt
-            model:    "chatgpt", "claude", "gemini", "googleai", "perplexity", or "auto"
-            function: None="chat", "search", "translate", "brainstorm", "code", "analyze", or any discovered skill name
-
-        Extra kwargs based on function:
-            function="translate": to="Hindi", from_lang="English"
-            function="code":     action="generate|review|debug|explain", language="Python", code="...", error="..."
-            function="analyze":  url="https://...", question="...", focus="..."
-            function="brainstorm": topic="..." (or use message)
-            function="search":   query="..." (or use message)
-
-        Returns:
-            ProximaResponse with .text, .model, .response_time_ms
-
-        Examples:
-            # Chat
-            client.chat("Hello", model="claude")
-            client.chat("Hello", model="chatgpt")
-            client.chat("Hello")  # auto picks best
-
-            # Search
-            client.chat("AI news 2026", model="perplexity", function="search")
-
-            # Translate
-            client.chat("Hello world", model="gemini", function="translate", to="Hindi")
-
-            # Code generate
-            client.chat("Sort algo", model="claude", function="code", action="generate", language="Python")
-
-            # Code review
-            client.chat(function="code", model="claude", action="review", code="def add(a,b): return a+b")
-
-            # Brainstorm
-            client.chat("Startup ideas", function="brainstorm")
-
-            # Dynamic skill from skills/<name>.md
-            client.chat(model="claude", function="code_review", desc="const total = subtotal + tax;")
-
-            # Analyze URL
-            client.chat(function="analyze", url="https://example.com", question="What is this?")
-        """
         body = {
             "model": model or self.default_model,
         }
 
-        # Set message
         if message:
             body["message"] = message
 
-        # Set function if specified
         if function:
             body["function"] = function
 
-        # Pass through all extra kwargs
-        # Supports: to, from_lang→from, action, language, code, error, url, question, focus, topic, query, etc.
         for key, value in kwargs.items():
             if value is not None:
-                # Rename from_lang to from (since 'from' is Python keyword)
                 api_key_name = "from" if key == "from_lang" else key
                 body[api_key_name] = value
 
         return self._post("/v1/chat/completions", body)
 
-    # System functions
-
     def get_models(self):
-        """List all available models and their status."""
         return self._get("/v1/models").get("data", [])
 
     def get_functions(self):
-        """Get the API function catalog — shows how to use the ONE endpoint."""
         return self._get("/v1/functions")
 
     def get_skills(self):
-        """List all discovered skills from the skills directory."""
         return self._get("/v1/skills")
 
     def get_stats(self):
-        """Get response time statistics per provider."""
         return self._get("/v1/stats")
 
     def new_conversation(self):
-        """Start fresh conversations for all providers."""
         return self._post_raw("/v1/conversations/new", {})
 
-    # Internals
-
     def _request(self, method, endpoint, body=None, timeout=120, max_retries=3):
-        """Internal request handler with retry logic and connection error handling."""
         url = f"{self.base_url}{endpoint}"
         last_error = None
 
@@ -176,11 +99,10 @@ class Proxima:
                     f"Request to {endpoint} timed out after {timeout}s. "
                     f"The AI provider may be slow. (attempt {attempt + 1}/{max_retries})"
                 )
-            except requests.exceptions.RequestException as e:
-                last_error = Exception(f"Request failed: {e}")
-                break  # Don't retry on unknown errors
+            except requests.exceptions.RequestException as error:
+                last_error = Exception(f"Request failed: {error}")
+                break
 
-            # Wait before retry (exponential backoff: 1s, 2s)
             if attempt < max_retries - 1:
                 import time
                 time.sleep(1 * (attempt + 1))
@@ -193,7 +115,7 @@ class Proxima:
             error_data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
             error_msg = error_data.get("error", {}).get("message", f"API error: {resp.status_code}")
             raise Exception(error_msg)
-        return ProximaResponse(resp.json())
+        return BrainstormResponse(resp.json())
 
     def _post_raw(self, endpoint, body):
         resp = self._request("POST", endpoint, body=body, timeout=30)

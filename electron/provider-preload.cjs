@@ -55,4 +55,4 @@ if (document.readyState === 'loading') {
     setupResponseMonitor();
 }
 
-console.log('[Agent Hub] Provider preload script loaded');
+console.log('[brAInstorm] Provider preload script loaded');

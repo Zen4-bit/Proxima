@@ -201,6 +201,50 @@ class BrowserManager {
                         });
                     } catch(e) {}
 
+                    // 10. Cloudflare Turnstile compatibility
+                    try {
+                        const screenProps = {
+                            colorDepth: 24,
+                            pixelDepth: 24,
+                            availWidth: screen.availWidth || 1920,
+                            availHeight: screen.availHeight || 1040,
+                            width: screen.width || 1920,
+                            height: screen.height || 1080
+                        };
+                        Object.entries(screenProps).forEach(([key, val]) => {
+                            try {
+                                Object.defineProperty(screen, key, { get: () => val, configurable: true });
+                            } catch (e) {}
+                        });
+                    } catch(e) {}
+
+                    try {
+                        if (!window.outerWidth || window.outerWidth === 0) {
+                            Object.defineProperty(window, 'outerWidth', {
+                                get: () => window.innerWidth || 1920,
+                                configurable: true
+                            });
+                        }
+                        if (!window.outerHeight || window.outerHeight === 0) {
+                            Object.defineProperty(window, 'outerHeight', {
+                                get: () => (window.innerHeight || 1040) + 85,
+                                configurable: true
+                            });
+                        }
+                    } catch(e) {}
+
+                    try {
+                        if (typeof Notification !== 'undefined' && !Notification.requestPermission) {
+                            Notification.requestPermission = function(callback) {
+                                const permissionPromise = Promise.resolve('default');
+                                if (typeof callback === 'function') {
+                                    permissionPromise.then(callback);
+                                }
+                                return permissionPromise;
+                            };
+                        }
+                    } catch(e) {}
+
                     console.log('[Stealth] v4.0 active');
                 } catch(e) {
                     console.log('[Stealth] Error:', e.message);

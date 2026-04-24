@@ -29,6 +29,7 @@
             align-items: center;
             justify-content: space-between;
             padding: 12px 20px;
+            gap: 16px;
             background: rgba(0, 0, 0, 0.4);
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
             -webkit-app-region: drag;
@@ -37,7 +38,9 @@
         .header-left {
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 14px;
+            min-width: 0;
+            flex: 1;
         }
 
         .logo {
@@ -64,6 +67,19 @@
             -webkit-app-region: no-drag;
         }
 
+        .brand-lockup {
+            display: flex;
+            align-items: center;
+            flex: 0 0 auto;
+            -webkit-app-region: drag;
+        }
+
+        .header-tabs {
+            min-width: 0;
+            flex: 1;
+            -webkit-app-region: no-drag;
+        }
+
         .header-btn {
             background: rgba(255, 255, 255, 0.1);
             border: 1px solid rgba(255, 255, 255, 0.2);
@@ -83,33 +99,36 @@
             transform: translateY(-1px);
         }
 
-        /* Tab Navigation */
-        .tab-nav {
-            display: flex;
-            align-items: center;
-            background: rgba(0, 0, 0, 0.3);
-            padding: 8px 12px;
-            gap: 8px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
         .provider-tabs {
             display: flex;
             align-items: center;
             gap: 8px;
+            overflow-x: auto;
+            overflow-y: hidden;
+            scrollbar-width: none;
+            padding-bottom: 2px;
+        }
+
+        .provider-tabs::-webkit-scrollbar {
+            display: none;
         }
 
         .tab {
             display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 10px 16px;
-            border-radius: 10px;
+            gap: 0;
+            padding: 9px;
+            min-width: 46px;
+            min-height: 46px;
+            border-radius: 14px;
             background: rgba(255, 255, 255, 0.05);
             border: 2px solid transparent;
             cursor: pointer;
             transition: all 0.2s;
             position: relative;
+            overflow: visible;
+            flex: 0 0 auto;
+            justify-content: center;
         }
 
         .tab:hover {
@@ -124,6 +143,32 @@
         .tab.disabled {
             opacity: 0.4;
             cursor: not-allowed;
+        }
+
+        .tab.active {
+            gap: 8px;
+            padding: 9px 14px 9px 10px;
+            justify-content: flex-start;
+        }
+
+        .tab[data-tooltip]:not(.active):hover::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            left: 50%;
+            bottom: calc(100% + 10px);
+            transform: translateX(-50%);
+            background: rgba(8, 12, 24, 0.96);
+            color: #f9fafb;
+            padding: 7px 10px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            font-size: 0.76rem;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+            white-space: nowrap;
+            pointer-events: none;
+            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
+            z-index: 30;
         }
 
         .tab-icon {
@@ -176,8 +221,19 @@
         }
 
         .tab-name {
-            font-weight: 500;
-            font-size: 0.9rem;
+            font-weight: 600;
+            font-size: 0.84rem;
+            max-width: 0;
+            opacity: 0;
+            overflow: hidden;
+            white-space: nowrap;
+            transition: max-width 0.2s ease, opacity 0.15s ease, margin-left 0.2s ease;
+        }
+
+        .tab.active .tab-name {
+            max-width: 120px;
+            opacity: 1;
+            margin-left: 2px;
         }
 
         .tab-status {
@@ -185,8 +241,8 @@
             height: 8px;
             border-radius: 50%;
             position: absolute;
-            top: 6px;
-            right: 6px;
+            top: 7px;
+            right: 7px;
         }
 
         .tab-status.ready {
@@ -215,10 +271,6 @@
             }
         }
 
-        .tab-spacer {
-            flex: 1;
-        }
-
         /* Main Content Area */
         .main-content {
             flex: 1;
@@ -239,104 +291,603 @@
         .settings-panel {
             display: none;
             flex: 1;
-            padding: 30px 40px;
+            padding: 24px 28px 34px;
             overflow-y: auto;
-            background: linear-gradient(180deg, rgba(15, 15, 35, 0.95) 0%, rgba(10, 10, 26, 0.98) 100%);
+            background:
+                radial-gradient(circle at top left, rgba(37, 99, 235, 0.14), transparent 32%),
+                radial-gradient(circle at top right, rgba(14, 165, 233, 0.08), transparent 26%),
+                linear-gradient(180deg, rgba(12, 15, 29, 0.98) 0%, rgba(8, 10, 22, 1) 100%);
         }
 
         .settings-panel.active {
             display: block;
         }
 
-        .settings-section {
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.03) 100%);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 28px;
-            margin-bottom: 24px;
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            box-shadow:
-                0 8px 32px rgba(0, 0, 0, 0.3),
-                inset 0 1px 0 rgba(255, 255, 255, 0.1);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        .settings-shell {
+            max-width: 1480px;
+            margin: 0 auto;
+            display: grid;
+            gap: 18px;
         }
 
-        .settings-section:hover {
-            transform: translateY(-2px);
-            box-shadow:
-                0 12px 40px rgba(0, 0, 0, 0.4),
-                inset 0 1px 0 rgba(255, 255, 255, 0.15);
+        .settings-hero {
+            display: grid;
+            grid-template-columns: minmax(0, 1.55fr) auto;
+            gap: 20px;
+            align-items: end;
+            padding: 28px 30px;
+            border-radius: 28px;
+            background:
+                linear-gradient(135deg, rgba(17, 24, 39, 0.96) 0%, rgba(10, 14, 28, 0.92) 100%);
+            border: 1px solid rgba(148, 163, 184, 0.16);
+            box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+        }
+
+        .settings-kicker {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+            color: #93c5fd;
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+        }
+
+        .settings-hero-title {
+            margin: 0;
+            font-size: clamp(1.65rem, 2vw, 2.2rem);
+            font-weight: 800;
+            line-height: 1.1;
+            color: #f8fafc;
+            letter-spacing: -0.03em;
+        }
+
+        .settings-hero-copy {
+            margin: 14px 0 0;
+            max-width: 760px;
+            color: #94a3b8;
+            font-size: 0.96rem;
+            line-height: 1.65;
+        }
+
+        .settings-overview {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            justify-content: flex-end;
+        }
+
+        .settings-overview-pill {
+            max-width: 250px;
+            padding: 12px 14px;
+            border-radius: 16px;
+            border: 1px solid rgba(148, 163, 184, 0.14);
+            background: rgba(15, 23, 42, 0.68);
+            color: #cbd5e1;
+            font-size: 0.84rem;
+            line-height: 1.45;
+        }
+
+        .settings-overview-pill strong {
+            display: block;
+            margin-bottom: 4px;
+            color: #f8fafc;
+            font-size: 0.84rem;
+        }
+
+        .settings-section {
+            min-width: 0;
+            padding: 24px 26px;
+            border-radius: 24px;
+            background: linear-gradient(180deg, rgba(15, 19, 34, 0.94) 0%, rgba(10, 13, 26, 0.98) 100%);
+            border: 1px solid rgba(148, 163, 184, 0.12);
+            box-shadow: 0 14px 38px rgba(0, 0, 0, 0.18);
+        }
+
+        .settings-two-column {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 18px;
+        }
+
+        .settings-section-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 18px;
+            margin-bottom: 18px;
+            flex-wrap: wrap;
+        }
+
+        .settings-section-copy {
+            min-width: 0;
+            max-width: 760px;
         }
 
         .settings-title {
-            font-size: 1.4rem;
-            font-weight: 700;
-            margin-bottom: 24px;
             display: flex;
             align-items: center;
             gap: 12px;
-            color: #fff;
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-            letter-spacing: 0.5px;
+            margin: 0;
+            color: #f8fafc;
+            font-size: 1.08rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+
+        .settings-description {
+            margin: 10px 0 0;
+            color: #94a3b8;
+            font-size: 0.92rem;
+            line-height: 1.6;
         }
 
         .section-icon {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            padding: 6px 10px;
-            border-radius: 8px;
-            font-size: 0.75rem;
-            font-weight: 700;
+            min-width: 42px;
+            height: 28px;
+            padding: 0 11px;
+            border-radius: 999px;
+            font-size: 0.72rem;
+            font-weight: 800;
             color: #fff;
             text-transform: uppercase;
-            letter-spacing: 1px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            letter-spacing: 0.12em;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+        }
+
+        .section-icon.providers {
+            background: linear-gradient(135deg, #a855f7, #4f46e5);
+        }
+
+        .section-icon.skills {
+            background: linear-gradient(135deg, #0ea5e9, #2563eb);
+        }
+
+        .section-icon.identity {
+            background: linear-gradient(135deg, #2563eb, #0f766e);
+        }
+
+        .section-icon.images {
+            background: linear-gradient(135deg, #f59e0b, #ea580c);
+        }
+
+        .section-icon.mcp {
+            background: linear-gradient(135deg, #6b7280, #4b5563);
+        }
+
+        .section-icon.files {
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+        }
+
+        .settings-inline-code {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.08);
+            color: #f8fafc;
+            font-size: 0.82rem;
+            font-family: 'SFMono-Regular', 'Consolas', 'Monaco', monospace;
+        }
+
+        .settings-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .settings-method-row {
+            margin-bottom: 16px;
+        }
+
+        .settings-btn {
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            background: rgba(255, 255, 255, 0.05);
+            color: #e2e8f0;
+            border-radius: 12px;
+            padding: 10px 16px;
+            font-size: 0.88rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+        }
+
+        .settings-btn:hover {
+            transform: translateY(-1px);
+            border-color: rgba(191, 219, 254, 0.35);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .settings-btn.primary {
+            border-color: transparent;
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            box-shadow: 0 10px 24px rgba(37, 99, 235, 0.28);
+        }
+
+        .settings-btn.primary:hover {
+            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+        }
+
+        .settings-field {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .settings-label {
+            font-size: 0.83rem;
+            font-weight: 700;
+            color: #dbe4f0;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .settings-input,
+        .settings-textarea {
+            width: 100%;
+            border-radius: 16px;
+            border: 1px solid rgba(148, 163, 184, 0.16);
+            background: linear-gradient(180deg, rgba(10, 13, 24, 0.96) 0%, rgba(7, 10, 20, 1) 100%);
+            color: #dbe4f0;
+            padding: 14px 16px;
+            font-size: 0.85rem;
+            line-height: 1.55;
+            font-family: 'SFMono-Regular', 'Consolas', 'Monaco', monospace;
+            box-shadow: inset 0 2px 12px rgba(0, 0, 0, 0.28);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+        }
+
+        .settings-input {
+            min-height: 48px;
+            resize: none;
+        }
+
+        .settings-textarea {
+            min-height: 110px;
+            resize: vertical;
+        }
+
+        .settings-input:disabled,
+        .settings-textarea:disabled {
+            opacity: 0.72;
+            cursor: not-allowed;
+        }
+
+        .settings-input:focus,
+        .settings-textarea:focus {
+            outline: none;
+            border-color: rgba(96, 165, 250, 0.56);
+            box-shadow:
+                inset 0 2px 12px rgba(0, 0, 0, 0.28),
+                0 0 0 3px rgba(96, 165, 250, 0.14);
+        }
+
+        .settings-help {
+            color: #94a3b8;
+            font-size: 0.84rem;
+            line-height: 1.55;
+        }
+
+        .settings-meta-strip {
+            display: grid;
+            grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.9fr);
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+
+        .skills-directory-box,
+        .settings-note-block {
+            min-width: 0;
+            padding: 16px 18px;
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.035);
+            border: 1px solid rgba(148, 163, 184, 0.12);
+        }
+
+        .settings-note-label,
+        .skills-directory-label {
+            color: #cbd5e1;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        .skills-directory-path {
+            margin-top: 10px;
+            color: #f8fafc;
+            font-size: 0.86rem;
+            line-height: 1.55;
+            word-break: break-all;
+            font-family: 'SFMono-Regular', 'Consolas', 'Monaco', monospace;
+        }
+
+        .skills-directory-meta {
+            margin-top: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .settings-note-block p {
+            margin: 10px 0 0;
+            color: #94a3b8;
+            font-size: 0.86rem;
+            line-height: 1.55;
+        }
+
+        .skills-status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 999px;
+            padding: 6px 12px;
+            font-size: 0.74rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.06);
+            color: #d1d5db;
+        }
+
+        .skills-status-pill.good {
+            background: rgba(34, 197, 94, 0.16);
+            border-color: rgba(34, 197, 94, 0.32);
+            color: #86efac;
+        }
+
+        .skills-status-pill.warn {
+            background: rgba(245, 158, 11, 0.16);
+            border-color: rgba(245, 158, 11, 0.32);
+            color: #fcd34d;
+        }
+
+        .skills-status-pill.info {
+            background: rgba(59, 130, 246, 0.16);
+            border-color: rgba(59, 130, 246, 0.32);
+            color: #93c5fd;
+        }
+
+        .skills-manager {
+            display: grid;
+            grid-template-columns: minmax(280px, 330px) minmax(0, 1fr);
+            gap: 16px;
+            align-items: stretch;
+        }
+
+        .skills-sidebar,
+        .skill-editor-shell {
+            min-height: 480px;
+            background: rgba(8, 12, 24, 0.62);
+            border-radius: 20px;
+            border: 1px solid rgba(148, 163, 184, 0.12);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            overflow: hidden;
+        }
+
+        .skills-sidebar {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .skills-sidebar-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 18px 20px 14px;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+        }
+
+        .skills-sidebar-title {
+            font-size: 0.92rem;
+            font-weight: 700;
+            color: #f8fafc;
+        }
+
+        .skills-sidebar-count {
+            color: #94a3b8;
+            font-size: 0.74rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        .skills-list {
+            flex: 1;
+            padding: 14px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .skill-list-item {
+            border: 1px solid rgba(148, 163, 184, 0.12);
+            border-radius: 16px;
+            padding: 14px 15px;
+            background: rgba(255, 255, 255, 0.03);
+            cursor: pointer;
+            transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+        }
+
+        .skill-list-item:hover {
+            transform: translateY(-1px);
+            border-color: rgba(148, 163, 184, 0.22);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .skill-list-item.active {
+            border-color: rgba(96, 165, 250, 0.42);
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.14) 0%, rgba(15, 23, 42, 0.5) 100%);
+            box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
+        }
+
+        .skill-list-name {
+            color: #f8fafc;
+            font-size: 0.94rem;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
+        .skill-list-file {
+            color: #94a3b8;
+            font-size: 0.76rem;
+            font-family: 'SFMono-Regular', 'Consolas', 'Monaco', monospace;
+            line-height: 1.45;
+            word-break: break-all;
+        }
+
+        .skill-variable-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .skill-variable-chip {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 4px 9px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: #bfdbfe;
+            background: rgba(59, 130, 246, 0.14);
+            border: 1px solid rgba(59, 130, 246, 0.22);
+            font-family: 'SFMono-Regular', 'Consolas', 'Monaco', monospace;
+        }
+
+        .skill-empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            color: #94a3b8;
+            padding: 30px 24px;
+            min-height: 220px;
+            line-height: 1.6;
+        }
+
+        .skill-empty-state strong {
+            color: #f8fafc;
+            margin-bottom: 6px;
+        }
+
+        .skill-editor-shell {
+            padding: 22px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .skill-editor-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+
+        .skill-editor-title {
+            color: #f8fafc;
+            font-size: 1.06rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .skill-editor-meta {
+            color: #94a3b8;
+            font-size: 0.78rem;
+            line-height: 1.5;
+            font-family: 'SFMono-Regular', 'Consolas', 'Monaco', monospace;
+            word-break: break-all;
+        }
+
+        .skill-editor-subtle {
+            color: #94a3b8;
+            font-size: 0.82rem;
+            line-height: 1.55;
+        }
+
+        .skill-editor-mode {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 7px 12px;
+            font-size: 0.74rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #bfdbfe;
+            background: rgba(37, 99, 235, 0.16);
+            border: 1px solid rgba(37, 99, 235, 0.28);
+        }
+
+        .skill-editor-textarea {
+            min-height: 390px;
+            flex: 1;
+        }
+
+        .skill-editor-readonly-note {
+            color: #fcd34d;
+            font-size: 0.82rem;
+            line-height: 1.5;
         }
 
         /* Provider Cards in Settings */
         .provider-grid {
             display: grid;
             grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 12px;
+            gap: 14px;
         }
 
         .provider-card {
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%);
-            border-radius: 14px;
-            padding: 12px 14px;
+            background: rgba(255, 255, 255, 0.04);
+            border-radius: 18px;
+            padding: 14px 16px;
             display: flex;
             align-items: center;
-            gap: 10px;
-            border: 2px solid transparent;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            gap: 12px;
+            border: 1px solid rgba(148, 163, 184, 0.12);
+            transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
             min-width: 0;
         }
 
         .provider-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+            transform: translateY(-1px);
+            border-color: rgba(191, 219, 254, 0.25);
+            background: rgba(255, 255, 255, 0.06);
         }
 
         .provider-card.enabled {
-            border-color: rgba(34, 197, 94, 0.6);
-            background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(34, 197, 94, 0.05) 100%);
+            border-color: rgba(34, 197, 94, 0.3);
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.12) 0%, rgba(15, 23, 42, 0.45) 100%);
         }
 
         .provider-card.disabled {
-            opacity: 0.5;
+            opacity: 0.58;
         }
 
         .provider-card-icon {
-            width: 28px;
-            height: 28px;
-            border-radius: 8px;
+            width: 32px;
+            height: 32px;
+            border-radius: 10px;
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 0.95rem;
-            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
             flex: 0 0 auto;
         }
 
@@ -347,34 +898,62 @@
 
         .provider-card-name {
             font-weight: 700;
-            font-size: 0.9rem;
-            margin-bottom: 3px;
-            letter-spacing: 0.2px;
-            line-height: 1.15;
-        }
-
-        .provider-card-status {
-            font-size: 0.72rem;
-            color: #888;
+            font-size: 0.92rem;
+            margin-bottom: 4px;
             line-height: 1.2;
         }
 
+        .provider-card-status {
+            font-size: 0.74rem;
+            color: #94a3b8;
+            line-height: 1.3;
+        }
+
         .provider-card-status.ready {
-            color: #22c55e;
+            color: #86efac;
         }
 
         .provider-card-status.not-ready {
-            color: #f59e0b;
+            color: #fbbf24;
+        }
+
+        /* Feature Toggle Row */
+        .feature-toggle-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 16px;
+            padding: 18px 20px;
+            background: rgba(255, 255, 255, 0.04);
+            border-radius: 18px;
+            border: 1px solid rgba(148, 163, 184, 0.12);
+        }
+
+        .feature-info {
+            min-width: 0;
+        }
+
+        .feature-name {
+            font-weight: 700;
+            font-size: 0.98rem;
+            color: #f8fafc;
+            margin-bottom: 6px;
+        }
+
+        .feature-desc {
+            font-size: 0.86rem;
+            color: #94a3b8;
+            line-height: 1.5;
         }
 
         .toggle-switch {
-            width: 32px;
-            height: 18px;
-            background: #333;
+            width: 38px;
+            height: 22px;
+            background: rgba(71, 85, 105, 0.9);
             border-radius: 999px;
             position: relative;
             cursor: pointer;
-            transition: background 0.3s;
+            transition: background 0.3s ease;
             flex: 0 0 auto;
         }
 
@@ -385,17 +964,49 @@
         .toggle-switch::after {
             content: '';
             position: absolute;
-            width: 14px;
-            height: 14px;
+            width: 16px;
+            height: 16px;
             background: white;
             border-radius: 50%;
-            top: 2px;
-            left: 2px;
-            transition: transform 0.3s;
+            top: 3px;
+            left: 3px;
+            transition: transform 0.3s ease;
         }
 
         .toggle-switch.active::after {
-            transform: translateX(14px);
+            transform: translateX(16px);
+        }
+
+        .feature-inline-note {
+            margin-top: 14px;
+            padding: 16px 18px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.14), rgba(21, 128, 61, 0.08));
+            border: 1px solid rgba(34, 197, 94, 0.22);
+            color: #bbf7d0;
+            line-height: 1.55;
+        }
+
+        .feature-inline-note strong {
+            display: block;
+            margin-bottom: 6px;
+            color: #dcfce7;
+            font-size: 0.95rem;
+        }
+
+        .feature-inline-note code {
+            background: rgba(34, 197, 94, 0.18);
+            padding: 2px 6px;
+            border-radius: 8px;
+            color: #f8fafc;
+            font-family: 'SFMono-Regular', 'Consolas', 'Monaco', monospace;
+        }
+
+        .settings-footer {
+            padding: 6px 0 0;
+            text-align: center;
+            color: #64748b;
+            font-size: 0.8rem;
         }
 
         @media (max-width: 1400px) {
@@ -404,166 +1015,83 @@
             }
         }
 
-        @media (max-width: 1080px) {
-            .provider-grid {
-                grid-template-columns: repeat(2, minmax(0, 1fr));
+        @media (max-width: 1200px) {
+            .settings-hero {
+                grid-template-columns: 1fr;
             }
-        }
 
-        @media (max-width: 720px) {
-            .provider-grid {
+            .settings-overview {
+                justify-content: flex-start;
+            }
+
+            .settings-meta-strip,
+            .settings-two-column {
                 grid-template-columns: 1fr;
             }
         }
 
-        /* Feature Toggle Row */
-        .feature-toggle-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.03) 100%);
-            border-radius: 14px;
-            padding: 18px 20px;
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-            transition: all 0.2s ease;
+        @media (max-width: 1020px) {
+            .skills-manager,
+            .provider-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .skills-sidebar,
+            .skill-editor-shell {
+                min-height: 0;
+            }
         }
 
-        .feature-toggle-row:hover {
-            border-color: rgba(255, 255, 255, 0.2);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
-        }
+        @media (max-width: 720px) {
+            .settings-panel {
+                padding: 18px 16px 24px;
+            }
 
-        .feature-info {
-            flex: 1;
-        }
-
-        .feature-name {
-            font-weight: 700;
-            font-size: 1rem;
-            color: #fff;
-            margin-bottom: 6px;
-        }
-
-        .feature-desc {
-            font-size: 0.85rem;
-            color: #9ca3af;
-            line-height: 1.4;
-        }
-
-        .settings-field {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .settings-label {
-            font-size: 0.92rem;
-            font-weight: 600;
-            color: #e5e7eb;
-        }
-
-        .settings-textarea {
-            width: 100%;
-            min-height: 96px;
-            resize: vertical;
-            border-radius: 14px;
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            background: linear-gradient(180deg, rgba(13, 13, 26, 0.96) 0%, rgba(10, 10, 21, 0.98) 100%);
-            color: #d1d5db;
-            padding: 14px 16px;
-            font-size: 0.85rem;
-            line-height: 1.5;
-            font-family: 'SFMono-Regular', 'Consolas', 'Monaco', monospace;
-            box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.25);
-            transition: border-color 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        .settings-textarea:focus {
-            outline: none;
-            border-color: rgba(96, 165, 250, 0.55);
-            box-shadow:
-                inset 0 2px 10px rgba(0, 0, 0, 0.25),
-                0 0 0 3px rgba(96, 165, 250, 0.16);
-        }
-
-        .settings-actions {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-
-        .settings-btn {
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            background: rgba(255, 255, 255, 0.08);
-            color: #e5e7eb;
-            border-radius: 10px;
-            padding: 10px 16px;
-            font-size: 0.88rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
-        }
-
-        .settings-btn:hover {
-            transform: translateY(-1px);
-            border-color: rgba(255, 255, 255, 0.2);
-            background: rgba(255, 255, 255, 0.12);
-        }
-
-        .settings-btn.primary {
-            border-color: transparent;
-            background: linear-gradient(135deg, #2563eb, #1d4ed8);
-            box-shadow: 0 6px 18px rgba(37, 99, 235, 0.28);
-        }
-
-        .settings-help {
-            color: #9ca3af;
-            font-size: 0.84rem;
-            line-height: 1.5;
+            .settings-hero,
+            .settings-section {
+                padding: 22px 18px;
+            }
         }
 
         /* MCP Config */
         .config-box {
-            background: linear-gradient(180deg, #0d0d1a 0%, #0a0a15 100%);
-            border-radius: 14px;
-            padding: 20px;
+            background: linear-gradient(180deg, rgba(8, 12, 24, 0.98) 0%, rgba(5, 8, 18, 1) 100%);
+            border-radius: 18px;
+            padding: 58px 18px 18px;
             font-family: 'Consolas', 'Monaco', monospace;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(148, 163, 184, 0.12);
+            box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.28);
             font-size: 0.85rem;
             overflow-x: auto;
             position: relative;
-            border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
         .config-box pre {
             margin: 0;
             white-space: pre-wrap;
             word-break: break-all;
-            color: #a5f3fc;
+            color: #bfdbfe;
         }
 
         .copy-btn {
             position: absolute;
             top: 12px;
             right: 12px;
-            background: linear-gradient(135deg, #22c55e, #16a34a);
-            border: none;
-            padding: 10px 18px;
+            background: rgba(34, 197, 94, 0.14);
+            border: 1px solid rgba(34, 197, 94, 0.24);
+            padding: 9px 14px;
             border-radius: 10px;
-            color: white;
+            color: #dcfce7;
             cursor: pointer;
-            font-size: 0.85rem;
+            font-size: 0.82rem;
             font-weight: 600;
-            transition: all 0.2s ease;
-            box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+            transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
         }
 
         .copy-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 16px rgba(34, 197, 94, 0.4);
+            transform: translateY(-1px);
+            background: rgba(34, 197, 94, 0.2);
+            border-color: rgba(34, 197, 94, 0.34);
         }
 
         .copy-btn:active {
@@ -572,27 +1100,28 @@
 
         /* Method Toggle Buttons */
         .method-btn {
-            background: rgba(255, 255, 255, 0.08);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            padding: 10px 20px;
-            border-radius: 10px;
-            color: #9ca3af;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(148, 163, 184, 0.14);
+            padding: 10px 16px;
+            border-radius: 12px;
+            color: #94a3b8;
             cursor: pointer;
-            font-size: 0.9rem;
+            font-size: 0.88rem;
             font-weight: 600;
-            transition: all 0.2s ease;
+            transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
         }
 
         .method-btn:hover {
-            background: rgba(255, 255, 255, 0.12);
-            color: #fff;
+            transform: translateY(-1px);
+            background: rgba(255, 255, 255, 0.08);
+            color: #f8fafc;
         }
 
         .method-btn.active {
-            background: linear-gradient(135deg, #00d4ff, #a855f7);
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.92), rgba(99, 102, 241, 0.92));
             border-color: transparent;
             color: #fff;
-            box-shadow: 0 4px 15px rgba(0, 212, 255, 0.3);
+            box-shadow: 0 10px 24px rgba(37, 99, 235, 0.24);
         }
 
         /* Welcome Panel */
@@ -1040,24 +1569,20 @@
             box-shadow: 0 4px 15px rgba(168, 85, 247, 0.4);
         }
 
-        /* Proxima Cute Mascot */
+        /* brAInstorm brand lockup */
         .proxima-mascot {
             display: inline-flex;
             align-items: center;
-            gap: 10px;
+            gap: 12px;
         }
 
-        .proxima-cube {
-            width: 32px;
-            height: 32px;
-            background: linear-gradient(135deg, #00d4ff, #a855f7);
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 4px;
-            box-shadow: 0 4px 15px rgba(0, 212, 255, 0.4);
-            position: relative;
+        .brand-logo {
+            width: 64px;
+            max-width: 64px;
+            height: 64px;
+            display: block;
+            object-fit: contain;
+            filter: drop-shadow(0 10px 22px rgba(0, 212, 255, 0.22));
         }
 
         .proxima-eye {
@@ -1124,27 +1649,16 @@
     <!-- Header -->
     <div class="header">
         <div class="header-left">
-            <div class="proxima-mascot">
-                <div class="proxima-cube">
-                    <div class="proxima-eye">
-                        <div class="proxima-pupil"></div>
-                    </div>
-                    <div class="proxima-eye">
-                        <div class="proxima-pupil"></div>
-                    </div>
-                </div>
-                <span class="proxima-name">Proxima</span>
+            <div class="proxima-mascot brand-lockup">
+                <img class="brand-logo" src="../assets/brainstorm-icon.webp" alt="brAInstorm logo">
             </div>
+            <div class="provider-tabs header-tabs" id="provider-tabs"></div>
         </div>
-    </div>
-
-    <!-- Tab Navigation -->
-    <div class="tab-nav">
-        <div class="provider-tabs" id="provider-tabs"></div>
-        <div class="tab-spacer"></div>
-        <div class="tab" data-tab="settings" onclick="switchTab('settings')">
-            <div class="tab-icon settings">⚙️</div>
-            <span class="tab-name">Settings</span>
+        <div class="header-right">
+            <div class="tab" data-tab="settings" data-tooltip="Settings" onclick="switchTab('settings')" title="Settings">
+                <div class="tab-icon settings">⚙️</div>
+                <span class="tab-name">Settings</span>
+            </div>
         </div>
     </div>
 
@@ -1172,7 +1686,7 @@
         <div id="browser-container">
             <!-- Welcome Panel (shown when no tab selected) -->
             <div class="welcome-panel" id="welcome-panel">
-                <h1 class="welcome-title">Proxima</h1>
+                <h1 class="welcome-title">brAInstorm</h1>
                 <p class="welcome-subtitle">
                     Free Multi-AI MCP Server<br>
                     <span class="welcome-sub-light">No API keys required. Connect your enabled AI providers locally.</span>
@@ -1209,123 +1723,204 @@
 
         <!-- Settings Panel -->
         <div class="settings-panel" id="settings-panel">
-            <!-- Provider Settings -->
-            <div class="settings-section">
-                <h2 class="settings-title"><span class="section-icon"
-                        style="background: linear-gradient(135deg, #a855f7, #6366f1);">AI</span> Providers</h2>
-                <div class="provider-grid" id="provider-grid"></div>
-            </div>
-
-            <div class="settings-section">
-                <h2 class="settings-title"><span class="section-icon"
-                        style="background: linear-gradient(135deg, #2563eb, #0f766e);">UA</span> Browser Identity</h2>
-                <p style="color: #b3b3b3; margin-bottom: 16px; font-size: 0.95rem; line-height: 1.5;">
-                    Proxima uses this browser user-agent for provider views, auth popups, and request header spoofing.
-                    Changes apply to future requests immediately, but open tabs may need a reload to fully pick up the new value.
-                </p>
-                <div class="settings-field">
-                    <label class="settings-label" for="user-agent-input">Browser User Agent</label>
-                    <textarea class="settings-textarea" id="user-agent-input" rows="3" spellcheck="false"
-                        autocapitalize="off" autocomplete="off" onkeydown="handleUserAgentKeydown(event)"
-                        placeholder="Leave blank to restore the bundled Chrome-style default."></textarea>
-                    <div class="settings-actions">
-                        <button class="settings-btn primary" onclick="saveUserAgent()">Save User Agent</button>
-                        <button class="settings-btn" onclick="resetUserAgent()">Reset Default</button>
+            <div class="settings-shell">
+                <section class="settings-hero">
+                    <div>
+                        <div class="settings-kicker">Settings Workspace</div>
+                        <h1 class="settings-hero-title">Control providers, skills, and local integrations from one place.</h1>
+                        <p class="settings-hero-copy">
+                            brAInstorm scans live skills, manages browser-backed providers, and exposes everything through the local MCP server. This panel keeps the operational pieces aligned without burying them in separate cards.
+                        </p>
                     </div>
-                    <div class="settings-help">
-                        The default stays in the provider catalog. Clear the field or use reset if you want Proxima's bundled Chrome-style identity back.
+                    <div class="settings-overview">
+                        <div class="settings-overview-pill">
+                            <strong>Providers</strong>
+                            Toggle the browser-backed services that should be available in the app and through MCP.
+                        </div>
+                        <div class="settings-overview-pill">
+                            <strong>Skills</strong>
+                            Scan, inspect, and edit reusable prompt templates from the live <code class="settings-inline-code">skills/</code> directory.
+                        </div>
+                        <div class="settings-overview-pill">
+                            <strong>MCP</strong>
+                            Copy exact config JSON or an AI-friendly setup prompt for another coding assistant.
+                        </div>
                     </div>
-                </div>
-            </div>
+                </section>
 
-            <div class="settings-section">
-                <h2 class="settings-title"><span class="section-icon"
-                        style="background: linear-gradient(135deg, #f59e0b, #ea580c);">IM</span> Captured Images</h2>
-                <p style="color: #b3b3b3; margin-bottom: 16px; font-size: 0.95rem; line-height: 1.5;">
-                    When a provider generates images, Proxima downloads them locally first and returns those local file
-                    paths in the MCP response.
-                </p>
-                <div class="settings-field">
-                    <label class="settings-label" for="captured-image-dir-input">Image Download Directory</label>
-                    <textarea class="settings-textarea" id="captured-image-dir-input" rows="2" spellcheck="false"
-                        autocapitalize="off" autocomplete="off" onkeydown="handleCapturedImageDownloadDirKeydown(event)"
-                        placeholder="Leave blank to use Proxima's temp image folder."></textarea>
-                    <div class="settings-actions">
-                        <button class="settings-btn primary" onclick="saveCapturedImageDownloadDir()">Save Image Directory</button>
-                        <button class="settings-btn" onclick="resetCapturedImageDownloadDir()">Use Temp Folder</button>
+                <section class="settings-section">
+                    <div class="settings-section-header">
+                        <div class="settings-section-copy">
+                            <h2 class="settings-title"><span class="section-icon providers">AI</span> Providers</h2>
+                            <p class="settings-description">
+                                Enable the services brAInstorm should initialize and expose. Enabled providers appear in the top navigation and can be launched on startup.
+                            </p>
+                        </div>
                     </div>
-                    <div class="settings-help">
-                        Absolute paths are recommended. If left blank, Proxima stores generated images in a temporary local folder and returns those absolute file paths to MCP clients.
+                    <div class="provider-grid" id="provider-grid"></div>
+                </section>
+
+                <section class="settings-section">
+                    <div class="settings-section-header">
+                        <div class="settings-section-copy">
+                            <h2 class="settings-title"><span class="section-icon skills">SK</span> Skills</h2>
+                            <p class="settings-description">
+                                Skills are always discovered by scanning the live <code class="settings-inline-code">skills/</code> directory. Select any prompt to inspect or edit it, or create a new one and draft the template in the editor.
+                            </p>
+                        </div>
+                        <div class="settings-actions">
+                            <button class="settings-btn" onclick="refreshSkills()">Refresh</button>
+                            <button class="settings-btn primary" id="new-skill-btn" onclick="startNewSkill()">New Skill</button>
+                        </div>
                     </div>
+                    <div class="settings-meta-strip">
+                        <div class="skills-directory-box">
+                            <div class="skills-directory-label">Scanned Directory</div>
+                            <div class="skills-directory-path" id="skills-directory-path">Loading skill registry…</div>
+                            <div class="skills-directory-meta" id="skills-directory-meta"></div>
+                        </div>
+                        <div class="settings-note-block">
+                            <div class="settings-note-label">Template Variables</div>
+                            <p>
+                                Use placeholders such as <code class="settings-inline-code">${subject}</code>,
+                                <code class="settings-inline-code">${desc}</code>, or
+                                <code class="settings-inline-code">${fullCode}</code>. brAInstorm detects them from the prompt file and exposes them automatically when the skill is used.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="skills-manager">
+                        <div class="skills-sidebar">
+                            <div class="skills-sidebar-head">
+                                <div class="skills-sidebar-title">Discovered Prompts</div>
+                                <div class="skills-sidebar-count" id="skills-sidebar-count">Loading…</div>
+                            </div>
+                            <div class="skills-list" id="skills-list">
+                                <div class="skill-empty-state">
+                                    <strong>Loading skills…</strong>
+                                    <span>The scanned prompt files will appear here.</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="skill-editor-shell" id="skill-editor-shell">
+                            <div class="skill-empty-state">
+                                <strong>No skill selected yet</strong>
+                                <span>Choose a discovered skill or start a new one to edit its prompt template.</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <div class="settings-two-column">
+                    <section class="settings-section">
+                        <div class="settings-section-header">
+                            <div class="settings-section-copy">
+                                <h2 class="settings-title"><span class="section-icon identity">UA</span> Browser Identity</h2>
+                                <p class="settings-description">
+                                    brAInstorm uses this browser user-agent for provider views, auth popups, and request header spoofing. Changes apply to future requests immediately, while existing tabs may need a reload.
+                                </p>
+                            </div>
+                        </div>
+                        <div class="settings-field">
+                            <label class="settings-label" for="user-agent-input">Browser User Agent</label>
+                            <textarea class="settings-textarea" id="user-agent-input" rows="3" spellcheck="false"
+                                autocapitalize="off" autocomplete="off" onkeydown="handleUserAgentKeydown(event)"
+                                placeholder="Leave blank to restore the bundled Chrome-style default."></textarea>
+                            <div class="settings-actions">
+                                <button class="settings-btn primary" onclick="saveUserAgent()">Save User Agent</button>
+                                <button class="settings-btn" onclick="resetUserAgent()">Reset Default</button>
+                            </div>
+                            <div class="settings-help">
+                                The default stays in the provider catalog. Clear the field or use reset if you want brAInstorm's bundled Chrome-style identity back.
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="settings-section">
+                        <div class="settings-section-header">
+                            <div class="settings-section-copy">
+                                <h2 class="settings-title"><span class="section-icon images">IM</span> Captured Images</h2>
+                                <p class="settings-description">
+                                    When a provider generates images, brAInstorm downloads them locally first and returns those local file paths in the MCP response.
+                                </p>
+                            </div>
+                        </div>
+                        <div class="settings-field">
+                            <label class="settings-label" for="captured-image-dir-input">Image Download Directory</label>
+                            <textarea class="settings-textarea" id="captured-image-dir-input" rows="2" spellcheck="false"
+                                autocapitalize="off" autocomplete="off" onkeydown="handleCapturedImageDownloadDirKeydown(event)"
+                                placeholder="Leave blank to use brAInstorm's temp image folder."></textarea>
+                            <div class="settings-actions">
+                                <button class="settings-btn primary" onclick="saveCapturedImageDownloadDir()">Save Image Directory</button>
+                                <button class="settings-btn" onclick="resetCapturedImageDownloadDir()">Use Temp Folder</button>
+                            </div>
+                            <div class="settings-help">
+                                Absolute paths are recommended. If left blank, brAInstorm stores generated images in a temporary local folder and returns those absolute file paths to MCP clients.
+                            </div>
+                        </div>
+                    </section>
                 </div>
-            </div>
 
-            <!-- MCP Configuration -->
-            <div class="settings-section">
-                <h2 class="settings-title"><span class="section-icon"
-                        style="background: linear-gradient(135deg, #6b7280, #4b5563);">MCP</span> MCP Configuration</h2>
-                <p style="color: #b3b3b3; margin-bottom: 16px; font-size: 0.95rem; line-height: 1.5;">
-                    Add Proxima MCP server to your AI coding assistant. Choose your preferred method:
-                </p>
+                <div class="settings-two-column">
+                    <section class="settings-section">
+                        <div class="settings-section-header">
+                            <div class="settings-section-copy">
+                                <h2 class="settings-title"><span class="section-icon mcp">MCP</span> MCP Configuration</h2>
+                                <p class="settings-description">
+                                    Add the brAInstorm MCP server to your AI coding assistant. Use the exact manual config or hand another assistant a prewritten setup prompt.
+                                </p>
+                            </div>
+                        </div>
 
-                <!-- Method Toggle -->
-                <div style="display: flex; gap: 10px; margin-bottom: 16px;">
-                    <button class="method-btn active" id="method-manual" onclick="switchConfigMethod('manual')">Manual
-                        Config</button>
-                    <button class="method-btn" id="method-ai" onclick="switchConfigMethod('ai')">AI Prompt</button>
-                </div>
+                        <div class="settings-actions settings-method-row">
+                            <button class="method-btn active" id="method-manual" onclick="switchConfigMethod('manual')">Manual Config</button>
+                            <button class="method-btn" id="method-ai" onclick="switchConfigMethod('ai')">AI Prompt</button>
+                        </div>
 
-                <!-- Manual Config -->
-                <div id="config-manual" class="config-box">
-                    <button class="copy-btn" onclick="copyConfig()">Copy Config</button>
-                    <pre id="mcp-config">Loading...</pre>
-                </div>
+                        <div id="config-manual" class="config-box">
+                            <button class="copy-btn" onclick="copyConfig()">Copy Config</button>
+                            <pre id="mcp-config">Loading...</pre>
+                        </div>
 
-                <!-- AI Prompt -->
-                <div id="config-ai" class="config-box" style="display: none;">
-                    <button class="copy-btn" onclick="copyAIPrompt()">Copy Prompt</button>
-                    <pre id="ai-prompt" style="white-space: pre-wrap; word-wrap: break-word;">Add the Proxima MCP server to this application’s MCP configuration.
+                        <div id="config-ai" class="config-box" style="display: none;">
+                            <button class="copy-btn" onclick="copyAIPrompt()">Copy Prompt</button>
+                            <pre id="ai-prompt" style="white-space: pre-wrap; word-wrap: break-word;">Add the brAInstorm MCP server to this application's MCP configuration.
 
-Proxima is a Multi-AI MCP server that connects your enabled providers through a local server.
+brAInstorm is a multi-AI MCP server that connects your enabled providers through a local server.
 Here is the MCP configuration to add:
 
 <span id="ai-prompt-config"></span>
 
 
 Confirm when done</pre>
-                </div>
-            </div>
+                        </div>
+                    </section>
 
-            <!-- File Reference Feature -->
-            <div class="settings-section">
-                <h2 class="settings-title"><span class="section-icon"
-                        style="background: linear-gradient(135deg, #22c55e, #16a34a);">FI</span> File Reference</h2>
-                <p style="color: #b3b3b3; margin-bottom: 16px; font-size: 0.95rem; line-height: 1.5;">
-                    When enabled, MCP calls can include file paths that will be uploaded as attachments to AI providers.
-                </p>
-                <div class="feature-toggle-row">
-                    <div class="feature-info">
-                        <div class="feature-name">Enable File Attachments</div>
-                        <div class="feature-desc">Allow MCP to upload files (images, code, documents) to AI chats</div>
-                    </div>
-                    <div class="toggle-switch" id="file-reference-toggle" onclick="toggleFileReference(this)"></div>
+                    <section class="settings-section">
+                        <div class="settings-section-header">
+                            <div class="settings-section-copy">
+                                <h2 class="settings-title"><span class="section-icon files">FI</span> File Reference</h2>
+                                <p class="settings-description">
+                                    When enabled, MCP calls can include local file paths that brAInstorm uploads as attachments to AI providers.
+                                </p>
+                            </div>
+                        </div>
+                        <div class="feature-toggle-row">
+                            <div class="feature-info">
+                                <div class="feature-name">Enable File Attachments</div>
+                                <div class="feature-desc">Allow MCP to upload images, code, and documents directly into provider chats.</div>
+                            </div>
+                            <div class="toggle-switch" id="file-reference-toggle" onclick="toggleFileReference(this)"></div>
+                        </div>
+                        <div id="file-reference-info" class="feature-inline-note" style="display: none;">
+                            <strong>File Reference Active</strong>
+                            Use the <code>filePath</code> parameter in MCP calls to attach local files to the prompt.
+                        </div>
+                    </section>
                 </div>
-                <div id="file-reference-info"
-                    style="margin-top: 16px; padding: 16px 20px; background: linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(34, 197, 94, 0.1)); border-radius: 12px; display: none; border-left: 4px solid #22c55e; border: 1px solid rgba(34, 197, 94, 0.3);">
-                    <p style="color: #4ade80; font-size: 0.95rem; margin: 0; font-weight: 500;">
-                        <strong style="color: #22c55e; font-size: 1rem;">File Reference Active!</strong><br>
-                        <span style="color: #86efac;">Use <code
-                                style="background: rgba(34, 197, 94, 0.3); padding: 3px 8px; border-radius: 6px; color: #fff; font-weight: 600;">filePath</code>
-                            parameter in MCP calls to attach files.</span>
-                    </p>
+
+                <div class="settings-footer">
+                    <span>brAInstorm v4.0.0 • Multi-AI MCP Server</span>
                 </div>
-            </div>
-
-
-            <!-- Version Footer -->
-            <div
-                style="text-align: center; padding: 20px 0; margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.05);">
-                <span style="color: #666; font-size: 0.8rem;">Proxima v3.5.2 • Multi-AI MCP Server</span>
             </div>
         </div>
     </div>
@@ -1383,6 +1978,21 @@ Confirm when done</pre>
         let providerCatalog = [];
         let providerMap = {};
         let cookieModalProvider = null;
+        let skillsState = {
+            directory: '',
+            exists: false,
+            writable: false,
+            loadedAt: null,
+            skills: []
+        };
+        let skillEditorState = {
+            mode: 'new',
+            originalName: '',
+            name: '',
+            filePath: '',
+            template: '',
+            variables: []
+        };
         const providerNavigationState = {};
         const localStorageDumpSnippet = `(() => {
   const out = { localStorage: {}, sessionStorage: {} };
@@ -1401,13 +2011,13 @@ Confirm when done</pre>
 
   if (typeof copy === 'function') {
     copy(json);
-    console.log('localStorage saved to your clipboard. Now paste into Proxima.');
+    console.log('localStorage saved to your clipboard. Now paste into brAInstorm.');
   } else if (navigator.clipboard?.writeText) {
     navigator.clipboard.writeText(json)
-      .then(() => console.log('localStorage saved to your clipboard. Now paste into Proxima.'))
-      .catch(() => console.log('Clipboard copy failed. Copy the JSON below and paste it into Proxima.'));
+      .then(() => console.log('localStorage saved to your clipboard. Now paste into brAInstorm.'))
+      .catch(() => console.log('Clipboard copy failed. Copy the JSON below and paste it into brAInstorm.'));
   } else {
-    console.log('Clipboard copy unavailable. Copy the JSON below and paste it into Proxima.');
+    console.log('Clipboard copy unavailable. Copy the JSON below and paste it into brAInstorm.');
   }
 
   console.log(out);
@@ -1431,17 +2041,17 @@ Confirm when done</pre>
             },
             zai: {
                 title: 'Z.ai localStorage required:',
-                body: 'Z.ai needs browser storage in addition to cookies. In your normal browser on <code>chat.z.ai</code>, run the snippet below in the console and paste the JSON output here. If DevTools still shows escaped text with <code>\\n</code> or outer quotes, paste it anyway and Proxima will normalize it.',
+                body: 'Z.ai needs browser storage in addition to cookies. In your normal browser on <code>chat.z.ai</code>, run the snippet below in the console and paste the JSON output here. If DevTools still shows escaped text with <code>\\n</code> or outer quotes, paste it anyway and brAInstorm will normalize it.',
                 placeholder: 'Required for Z.ai: paste {"localStorage":{...}}'
             },
             copilot: {
                 title: 'Copilot localStorage required:',
-                body: 'Copilot may need browser storage in addition to cookies. In your normal browser on <code>copilot.microsoft.com</code>, run the snippet below in the console and paste the JSON output here. If DevTools still shows escaped text with <code>\\n</code> or outer quotes, paste it anyway and Proxima will normalize it.',
+                body: 'Copilot may need browser storage in addition to cookies. In your normal browser on <code>copilot.microsoft.com</code>, run the snippet below in the console and paste the JSON output here. If DevTools still shows escaped text with <code>\\n</code> or outer quotes, paste it anyway and brAInstorm will normalize it.',
                 placeholder: 'Required for Copilot when cookies alone are not enough: paste {"localStorage":{...}}'
             },
             qwen: {
                 title: 'Qwen browser storage required:',
-                body: 'Qwen stores auth state in browser storage in addition to cookies. In your normal browser on <code>chat.qwen.ai</code>, run the snippet below in the console and paste the JSON output here. If you only have the token value, you can also paste <code>{"token":"..."}</code> or the raw token string and Proxima will normalize it.',
+                body: 'Qwen stores auth state in browser storage in addition to cookies. In your normal browser on <code>chat.qwen.ai</code>, run the snippet below in the console and paste the JSON output here. If you only have the token value, you can also paste <code>{"token":"..."}</code> or the raw token string and brAInstorm will normalize it.',
                 placeholder: 'Required for Qwen: paste {"localStorage":{...}}, {"token":"..."}, or the raw token string'
             }
         };
@@ -1453,6 +2063,372 @@ Confirm when done</pre>
                 .replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#39;');
+        }
+
+        function normalizeSkillDraftName(skillName) {
+            return String(skillName || '')
+                .trim()
+                .replace(/\.md$/i, '')
+                .replace(/[^a-zA-Z0-9_-]+/g, '_')
+                .toLowerCase();
+        }
+
+        function extractSkillTemplateVariables(template) {
+            const variableNames = new Set();
+            const matches = String(template || '').matchAll(/\$\{([a-zA-Z0-9_]+)\}/g);
+
+            for (const match of matches) {
+                if (match[1]) {
+                    variableNames.add(match[1]);
+                }
+            }
+
+            return Array.from(variableNames).sort();
+        }
+
+        function applySkillsSummary(result) {
+            skillsState = {
+                directory: result?.directory || '',
+                exists: !!result?.exists,
+                writable: !!result?.writable,
+                loadedAt: result?.loadedAt || null,
+                skills: Array.isArray(result?.skills) ? result.skills : []
+            };
+        }
+
+        function setSkillEditorState(nextState = {}) {
+            skillEditorState = {
+                mode: nextState.mode === 'existing' ? 'existing' : 'new',
+                originalName: nextState.originalName || '',
+                name: nextState.name || '',
+                filePath: nextState.filePath || '',
+                template: nextState.template || '',
+                variables: Array.isArray(nextState.variables)
+                    ? [...nextState.variables]
+                    : extractSkillTemplateVariables(nextState.template || '')
+            };
+        }
+
+        function setSkillEditorFromSkill(skill) {
+            setSkillEditorState({
+                mode: 'existing',
+                originalName: skill?.name || '',
+                name: skill?.name || '',
+                filePath: skill?.filePath || '',
+                template: skill?.template || '',
+                variables: skill?.variables || extractSkillTemplateVariables(skill?.template || '')
+            });
+        }
+
+        function getSkillsList() {
+            return Array.isArray(skillsState.skills) ? skillsState.skills : [];
+        }
+
+        function getSelectedSkillName() {
+            return skillEditorState.mode === 'existing' ? skillEditorState.originalName : '';
+        }
+
+        function buildSkillVariableChips(variables, emptyLabel = 'No template variables yet.') {
+            if (!variables || variables.length === 0) {
+                return `<span class="skill-editor-subtle">${escapeHtml(emptyLabel)}</span>`;
+            }
+
+            return variables
+                .map((variable) => `<span class="skill-variable-chip">\${${escapeHtml(variable)}}</span>`)
+                .join('');
+        }
+
+        function getSkillEditorFilePreview() {
+            if (skillEditorState.mode === 'existing' && skillEditorState.filePath) {
+                return skillEditorState.filePath;
+            }
+
+            const normalizedName = normalizeSkillDraftName(skillEditorState.name);
+            const fileName = normalizedName ? `${normalizedName}.md` : '<new_skill>.md';
+            return skillsState.directory
+                ? `${skillsState.directory}/${fileName}`
+                : fileName;
+        }
+
+        function isSkillSaveDisabled() {
+            if (!skillsState.writable) {
+                return true;
+            }
+
+            if (skillEditorState.mode === 'existing') {
+                return !skillEditorState.originalName;
+            }
+
+            return !normalizeSkillDraftName(skillEditorState.name);
+        }
+
+        function syncSkillEditorMeta() {
+            skillEditorState.variables = extractSkillTemplateVariables(skillEditorState.template);
+
+            const filePathEl = document.getElementById('skill-editor-file-path');
+            if (filePathEl) {
+                filePathEl.textContent = getSkillEditorFilePreview();
+            }
+
+            const variablesEl = document.getElementById('skill-editor-variables');
+            if (variablesEl) {
+                variablesEl.innerHTML = buildSkillVariableChips(
+                    skillEditorState.variables,
+                    'Use ${variable_name} placeholders and they will show up here.'
+                );
+            }
+
+            const saveBtn = document.getElementById('skill-save-btn');
+            if (saveBtn) {
+                saveBtn.disabled = isSkillSaveDisabled();
+            }
+        }
+
+        function renderSkillsList() {
+            const listEl = document.getElementById('skills-list');
+            const countEl = document.getElementById('skills-sidebar-count');
+            const skills = getSkillsList();
+            const selectedSkillName = getSelectedSkillName();
+
+            if (countEl) {
+                countEl.textContent = `${skills.length} skill${skills.length === 1 ? '' : 's'}`;
+            }
+
+            if (!listEl) {
+                return;
+            }
+
+            if (skills.length === 0) {
+                listEl.innerHTML = `
+                    <div class="skill-empty-state">
+                        <strong>No skills found</strong>
+                        <span>Create a new <code>skills/&lt;name&gt;.md</code> prompt to start building reusable skill templates.</span>
+                    </div>
+                `;
+                return;
+            }
+
+            listEl.innerHTML = skills.map((skill) => {
+                const activeClass = selectedSkillName === skill.name ? ' active' : '';
+                const fileLabel = skill.fileName || `${skill.name}.md`;
+                return `
+                    <div class="skill-list-item${activeClass}" onclick="selectSkill('${skill.name}')">
+                        <div class="skill-list-name">${escapeHtml(skill.name)}</div>
+                        <div class="skill-list-file">${escapeHtml(fileLabel)}</div>
+                        <div class="skill-variable-row">${buildSkillVariableChips(skill.variables, 'No variables')}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderSkillEditor() {
+            const editorEl = document.getElementById('skill-editor-shell');
+            if (!editorEl) {
+                return;
+            }
+
+            const isExisting = skillEditorState.mode === 'existing';
+            const nameDisabled = isExisting ? 'disabled' : '';
+            const modeLabel = isExisting ? 'Existing Skill' : 'New Skill';
+            const actionLabel = isExisting ? 'Save Changes' : 'Create Skill';
+            const readOnlyNote = skillsState.writable
+                ? ''
+                : '<div class="skill-editor-readonly-note">This skills directory is currently read-only. You can inspect prompts here, but saving requires a writable skills directory.</div>';
+
+            editorEl.innerHTML = `
+                <div class="skill-editor-header">
+                    <div>
+                        <div class="skill-editor-title">Skill Prompt Editor</div>
+                        <div class="skill-editor-meta" id="skill-editor-file-path">${escapeHtml(getSkillEditorFilePreview())}</div>
+                    </div>
+                    <div class="skill-editor-mode">${modeLabel}</div>
+                </div>
+                <div class="settings-field">
+                    <label class="settings-label" for="skill-name-input">Skill Name</label>
+                    <input class="settings-input" id="skill-name-input" type="text" value="${escapeHtml(skillEditorState.name)}"
+                        placeholder="example: code_review" autocapitalize="off" autocomplete="off" spellcheck="false"
+                        ${nameDisabled} oninput="handleSkillNameInput(this.value)">
+                    <div class="settings-help">
+                        ${isExisting
+                            ? 'Existing skill names are fixed here. Choose New Skill to create another prompt file.'
+                            : 'The filename is normalized automatically and saved as skills/&lt;name&gt;.md.'}
+                    </div>
+                </div>
+                <div class="settings-field">
+                    <label class="settings-label" for="skill-template-editor">Prompt Template</label>
+                    <textarea class="settings-textarea skill-editor-textarea" id="skill-template-editor" spellcheck="false"
+                        autocapitalize="off" autocomplete="off" oninput="handleSkillTemplateInput(this.value)"
+                        onkeydown="handleSkillTemplateKeydown(event)" placeholder="Write the reusable prompt template here.">${escapeHtml(skillEditorState.template)}</textarea>
+                </div>
+                <div class="settings-field">
+                    <label class="settings-label">Detected Variables</label>
+                    <div class="skill-variable-row" id="skill-editor-variables">${buildSkillVariableChips(
+                        skillEditorState.variables,
+                        'Use ${variable_name} placeholders and they will show up here.'
+                    )}</div>
+                    <div class="settings-help">
+                        Variables like <code>\${subject}</code>, <code>\${desc}</code>, or <code>\${fullCode}</code> are filled in when the skill runs.
+                    </div>
+                </div>
+                ${readOnlyNote}
+                <div class="settings-actions">
+                    <button class="settings-btn primary" id="skill-save-btn" onclick="saveSkillEditor()" ${isSkillSaveDisabled() ? 'disabled' : ''}>${actionLabel}</button>
+                    <button class="settings-btn" onclick="resetSkillEditor()">Reset</button>
+                </div>
+            `;
+        }
+
+        function renderSkillsManager() {
+            const directoryPathEl = document.getElementById('skills-directory-path');
+            const directoryMetaEl = document.getElementById('skills-directory-meta');
+            const newSkillBtn = document.getElementById('new-skill-btn');
+
+            if (directoryPathEl) {
+                directoryPathEl.textContent = skillsState.directory || 'Unavailable';
+            }
+
+            if (directoryMetaEl) {
+                const skillCount = getSkillsList().length;
+                const pills = [
+                    `<span class="skills-status-pill info">${skillCount} skill${skillCount === 1 ? '' : 's'} discovered</span>`,
+                    skillsState.exists
+                        ? '<span class="skills-status-pill good">Directory found</span>'
+                        : '<span class="skills-status-pill warn">Directory will be created on first save</span>',
+                    skillsState.writable
+                        ? '<span class="skills-status-pill good">Writable</span>'
+                        : '<span class="skills-status-pill warn">Read only</span>'
+                ];
+
+                if (skillsState.loadedAt) {
+                    pills.push(`<span class="skills-status-pill">${escapeHtml(new Date(skillsState.loadedAt).toLocaleTimeString())}</span>`);
+                }
+
+                directoryMetaEl.innerHTML = pills.join('');
+            }
+
+            if (newSkillBtn) {
+                newSkillBtn.disabled = !skillsState.writable;
+            }
+
+            renderSkillsList();
+            renderSkillEditor();
+        }
+
+        function startNewSkill(options = {}) {
+            setSkillEditorState({
+                mode: 'new',
+                originalName: '',
+                name: options.name || '',
+                filePath: '',
+                template: options.template || '',
+                variables: extractSkillTemplateVariables(options.template || '')
+            });
+            renderSkillsManager();
+        }
+
+        async function selectSkill(skillName) {
+            const result = await agentHub.getSkill(skillName);
+            if (!result?.success || !result.skill) {
+                showToast(result?.error || `Could not load skill: ${skillName}`);
+                return;
+            }
+
+            if (result.directory) {
+                applySkillsSummary({
+                    ...skillsState,
+                    directory: result.directory,
+                    exists: result.exists,
+                    writable: result.writable,
+                    loadedAt: skillsState.loadedAt,
+                    skills: getSkillsList()
+                });
+            }
+
+            setSkillEditorFromSkill(result.skill);
+            renderSkillsManager();
+        }
+
+        async function refreshSkills(options = {}) {
+            const preserveSelection = options.preserveSelection !== false;
+            const keepNewDraft = preserveSelection &&
+                skillEditorState.mode === 'new' &&
+                (skillEditorState.name.trim() || skillEditorState.template.trim());
+            const selectedSkillName = preserveSelection ? getSelectedSkillName() : '';
+            const result = await agentHub.listSkills();
+
+            if (!result?.success) {
+                showToast(result?.error || 'Could not load skills');
+                return;
+            }
+
+            applySkillsSummary(result);
+
+            if (selectedSkillName && getSkillsList().some((skill) => skill.name === selectedSkillName)) {
+                await selectSkill(selectedSkillName);
+            } else if (keepNewDraft) {
+                renderSkillsManager();
+                syncSkillEditorMeta();
+            } else if (getSkillsList().length > 0) {
+                await selectSkill(getSkillsList()[0].name);
+            } else {
+                startNewSkill();
+            }
+
+            if (!options.silentToast) {
+                showToast('Skills refreshed');
+            }
+        }
+
+        function handleSkillNameInput(value) {
+            skillEditorState.name = value;
+            syncSkillEditorMeta();
+        }
+
+        function handleSkillTemplateInput(value) {
+            skillEditorState.template = value;
+            syncSkillEditorMeta();
+        }
+
+        function handleSkillTemplateKeydown(event) {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                event.preventDefault();
+                saveSkillEditor();
+            }
+        }
+
+        async function saveSkillEditor() {
+            if (!skillsState.writable) {
+                showToast(`Skills directory is read only: ${skillsState.directory}`);
+                return;
+            }
+
+            const wasExisting = skillEditorState.mode === 'existing';
+            const payload = {
+                name: wasExisting
+                    ? skillEditorState.originalName
+                    : skillEditorState.name,
+                template: skillEditorState.template
+            };
+
+            const result = await agentHub.saveSkill(payload);
+            if (!result?.success || !result.skill) {
+                showToast(result?.error || 'Could not save skill');
+                return;
+            }
+
+            applySkillsSummary(result);
+            setSkillEditorFromSkill(result.skill);
+            renderSkillsManager();
+            showToast(`${wasExisting ? 'Saved' : 'Created'} ${result.skill.name}`);
+        }
+
+        function resetSkillEditor() {
+            if (skillEditorState.mode === 'existing' && skillEditorState.originalName) {
+                selectSkill(skillEditorState.originalName);
+                return;
+            }
+
+            startNewSkill();
         }
 
         function getProviderStorageSnippet(providerId) {
@@ -1874,6 +2850,7 @@ Confirm when done</pre>
             loadFileReferenceState();
             syncUserAgentControls();
             syncCapturedImageDownloadDirControls();
+            renderSkillsManager();
         }
 
         async function persistSettings() {
@@ -1893,7 +2870,7 @@ Confirm when done</pre>
             );
 
             tabsContainer.innerHTML = enabledProviders.map((provider) => `
-                <div class="tab${currentTab === provider.id ? ' active' : ''}" data-provider="${provider.id}" onclick="switchTab('${provider.id}')">
+                <div class="tab${currentTab === provider.id ? ' active' : ''}" data-provider="${provider.id}" data-tooltip="${provider.label}" title="${provider.label}" onclick="switchTab('${provider.id}')">
                     <img src="${provider.icon}" class="tab-icon-img" alt="${provider.label}">
                     <span class="tab-name">${provider.label}</span>
                     <div class="${providerUiState[provider.id]?.statusDotClass || 'tab-status offline'}" id="status-dot-${provider.id}"></div>
@@ -1938,6 +2915,7 @@ Confirm when done</pre>
             settings = await agentHub.getSettings();
             syncSettingsUI();
             loadMcpConfig();
+            await refreshSkills({ silentToast: true, preserveSelection: false });
 
             // Listen for auto-initialization from main process
             if (agentHub.onActiveProvider) {
@@ -2201,7 +3179,7 @@ Confirm when done</pre>
             if (nextValue) {
                 showToast('Captured image directory saved.');
             } else {
-                showToast("Captured images will use Proxima's temp folder.");
+                showToast("Captured images will use brAInstorm's temp folder.");
             }
         }
 
@@ -2214,7 +3192,7 @@ Confirm when done</pre>
             settings.capturedImageDownloadDir = '';
             await persistSettings();
             syncSettingsUI();
-            showToast("Captured images will use Proxima's temp folder.");
+            showToast("Captured images will use brAInstorm's temp folder.");
         }
 
         function handleCapturedImageDownloadDirKeydown(event) {

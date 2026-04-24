@@ -266,6 +266,30 @@ const RESPONSE_CAPTURE_SCRIPTS = {
             return '';
         })()
     `,
+    googleai: `
+        (function() {
+            const isVisible = (element) => {
+                if (!element) return false;
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' &&
+                    style.visibility !== 'hidden' &&
+                    (element.offsetWidth > 0 || element.offsetHeight > 0 || element.getClientRects().length > 0);
+            };
+
+            const turns = Array.from(document.querySelectorAll('.CKgc1d[data-scope-id="turn"], .CKgc1d, .mZJni.Dn7Fzd'))
+                .filter((element) => {
+                    const text = (element.innerText || element.textContent || '').trim();
+                    return isVisible(element) && text.length > 10;
+                });
+
+            if (turns.length > 0) {
+                const lastTurn = turns[turns.length - 1];
+                return (lastTurn.innerText || lastTurn.textContent || '').trim().substring(0, 200);
+            }
+
+            return '';
+        })()
+    `,
     deepseek: `
         (function() {
             const assistantMessages = Array.from(document.querySelectorAll('div.ds-message'))
@@ -720,6 +744,39 @@ const RESPONSE_EXTRACTION_BODIES = {
 
         return '';
     `,
+    googleai: `
+        const isVisible = (element) => {
+            if (!element) return false;
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' &&
+                style.visibility !== 'hidden' &&
+                (element.offsetWidth > 0 || element.offsetHeight > 0 || element.getClientRects().length > 0);
+        };
+
+        const turnSelectors = [
+            '.CKgc1d[data-scope-id="turn"]',
+            '.CKgc1d',
+            '.mZJni.Dn7Fzd',
+            '.pWvJNd'
+        ];
+
+        for (const selector of turnSelectors) {
+            const turns = Array.from(document.querySelectorAll(selector)).filter(isVisible);
+            for (let i = turns.length - 1; i >= 0; i--) {
+                const clone = turns[i].cloneNode(true);
+                clone.querySelectorAll(
+                    'button, [role="button"], .uJ19be, .Aspg9c, [aria-hidden="true"], script, style'
+                ).forEach((element) => element.remove());
+
+                const markdown = cleanMarkdown(domToMarkdown(clone));
+                if (markdown && markdown.length > 40) {
+                    return markdown;
+                }
+            }
+        }
+
+        return '';
+    `,
     deepseek: `
         const assistantMessages = Array.from(document.querySelectorAll('div.ds-message'))
             .filter((element) => !!element.querySelector('.ds-markdown'));
@@ -882,6 +939,12 @@ const RESPONSE_MEDIA_ROOT_SELECTORS = {
         '[class*="response-container"]',
         '[class*="markdown"]'
     ],
+    googleai: [
+        '.CKgc1d[data-scope-id="turn"]',
+        '.CKgc1d',
+        '.mZJni.Dn7Fzd',
+        '.pWvJNd'
+    ],
     deepseek: [
         'div.ds-message',
         '.ds-markdown'
@@ -963,6 +1026,7 @@ const STRUCTURED_RESPONSE_HELPERS = `
             chatgpt: 'ChatGPT',
             claude: 'Claude',
             gemini: 'Gemini',
+            googleai: 'Google AI',
             deepseek: 'DeepSeek',
             grok: 'Grok',
             zai: 'Z.ai',
@@ -1078,7 +1142,28 @@ const STRUCTURED_RESPONSE_HELPERS = `
         return [];
     }
 
+    function detectCloudflareChallenge(providerId) {
+        const hasCloudflareWidget = !!document.querySelector(
+            'iframe[src*="challenges.cloudflare.com" i], script[src*="challenges.cloudflare.com" i], .cf-turnstile, [name="cf-turnstile-response"], #challenge-form, #challenge-stage, #challenge-running, [data-ray], [class*="challenge-platform" i]'
+        );
+        const onCloudflareChallengeRoute = /\\/cdn-cgi\\/challenge-platform|challenges\\.cloudflare\\.com/i.test(window.location.href || '');
+
+        if (!hasCloudflareWidget && !onCloudflareChallengeRoute) {
+            return null;
+        }
+
+        return {
+            kind: 'cloudflare',
+            message: getProviderLabel(providerId) + ' is blocked by a Cloudflare check in brAInstorm. Complete the verification in the app, then retry.'
+        };
+    }
+
     function detectHumanVerification(providerId) {
+        const cloudflareChallenge = detectCloudflareChallenge(providerId);
+        if (cloudflareChallenge) {
+            return cloudflareChallenge;
+        }
+
         const bodyText = String(document.body?.innerText || document.body?.textContent || '')
             .replace(/\\s+/g, ' ')
             .trim()
@@ -1097,7 +1182,7 @@ const STRUCTURED_RESPONSE_HELPERS = `
 
         return {
             kind: 'human_verification',
-            message: getProviderLabel(providerId) + ' requires human verification in Proxima. Complete the check in the app, then retry.'
+            message: getProviderLabel(providerId) + ' requires human verification in brAInstorm. Complete the check in the app, then retry.'
         };
     }
 `;
@@ -1188,6 +1273,31 @@ const TYPING_DETECTION_BODIES = {
         }
         if (matSpinner && matSpinner.offsetParent !== null) {
             return { isTyping: true, provider: 'gemini' };
+        }
+
+        return { isTyping: false };
+    `,
+    googleai: `
+        const isVisible = (element) => {
+            if (!element) return false;
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' &&
+                style.visibility !== 'hidden' &&
+                (element.offsetWidth > 0 || element.offsetHeight > 0 || element.getClientRects().length > 0);
+        };
+
+        if (window.__proxima_is_streaming) {
+            return { isTyping: true, provider: 'googleai' };
+        }
+
+        const stopButton = document.querySelector('button.Mmkrwb, button[data-xid="ljhwxf"]');
+        if (stopButton && isVisible(stopButton) && !stopButton.disabled) {
+            return { isTyping: true, provider: 'googleai' };
+        }
+
+        const unfinishedTurn = document.querySelector('.CKgc1d[data-complete="false"], .CKgc1d [data-complete="false"]');
+        if (unfinishedTurn && isVisible(unfinishedTurn)) {
+            return { isTyping: true, provider: 'googleai' };
         }
 
         return { isTyping: false };
@@ -1478,6 +1588,11 @@ const SEND_BUTTON_SELECTORS = {
         'button[class*="send-button"]',
         'button[class*="submit"]'
     ],
+    googleai: [
+        'button[data-xid="input-plate-send-button"]',
+        'button.uMMzHc.OEueve',
+        '.tcA7pd button'
+    ],
     deepseek: [
         'textarea[name="search"]'
     ],
@@ -1687,7 +1802,7 @@ function buildFileUploadScript(provider, payload) {
     const preamble = buildFileUploadPreamble(payload);
     const indicators = JSON.stringify(DEFAULT_FILE_ATTACHMENT_INDICATORS);
 
-    if (provider === 'gemini') {
+    if (provider === 'gemini' || provider === 'googleai') {
         return `
             (async function() {
                 ${preamble}
@@ -1815,8 +1930,8 @@ function buildFileUploadScript(provider, payload) {
 
 function getResponseOptions(provider) {
     const slowProviders = new Set(['claude', 'perplexity', 'deepseek', 'grok', 'zai', 'qwen']);
-    const mediumProviders = new Set(['copilot', 'metaai']);
-    const stableProviders = new Set(['perplexity', 'deepseek', 'grok', 'zai', 'qwen']);
+    const mediumProviders = new Set(['copilot', 'metaai', 'googleai']);
+    const stableProviders = new Set(['perplexity', 'deepseek', 'grok', 'zai', 'qwen', 'googleai']);
 
     return {
         maxWaitSeconds: provider === 'claude' ? 600 : 120,
@@ -1861,7 +1976,7 @@ function hasNewDomResponse({ provider, previousState, currentState }) {
         );
     }
 
-    if (provider === 'deepseek' || provider === 'grok' || provider === 'zai' || provider === 'copilot' || provider === 'metaai' || provider === 'qwen') {
+    if (provider === 'deepseek' || provider === 'grok' || provider === 'zai' || provider === 'copilot' || provider === 'metaai' || provider === 'qwen' || provider === 'googleai') {
         const previousFingerprint = previousState?.fingerprint || '';
         const currentFingerprint = currentState?.fingerprint || '';
 

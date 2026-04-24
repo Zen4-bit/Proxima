@@ -1,13 +1,6 @@
 // brAInstorm SDK - JavaScript/Node.js client
-// Legacy file kept for compatibility with older imports.
-//
-// Usage:
-//   const { Proxima } = require('./proxima');
-//   const client = new Proxima();
-//   const res = await client.chat("Hello", { model: "claude" });
-//   console.log(res.text);
 
-class ProximaResponse {
+class BrainstormResponse {
     constructor(data) {
         this._data = data;
         const first = (data.choices || [])[0] || {};
@@ -27,15 +20,7 @@ class ProximaResponse {
     toJSON() { return this._data; }
 }
 
-class Proxima {
-    /**
- * @param {Object} options
- * @param {string} [options.baseUrl='http://localhost:3210']
- * @param {string} [options.apiKey]
- * @param {string} [options.model='auto'] - Default model
- * @param {number} [options.timeout=120000] - Request timeout in ms
- * @param {number} [options.maxRetries=3] - Max retry attempts on connection failure
- */
+class Brainstorm {
     constructor({ baseUrl = 'http://localhost:3210', apiKey = null, model = 'auto', timeout = 120000, maxRetries = 3 } = {}) {
         this.baseUrl = baseUrl.replace(/\/$/, '');
         this.defaultModel = model;
@@ -45,43 +30,6 @@ class Proxima {
         if (apiKey) this.headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
-    /**
-     * ONE function for everything.
-     *
-     * @param {string} message - Your message/prompt
-     * @param {Object} [options] - Options
-     * @param {string} [options.model] - "chatgpt", "claude", "gemini", "googleai", "perplexity", "auto"
-     * @param {string} [options.function] - "search", "translate", "brainstorm", "code", "analyze", or any discovered skill name
-     *
-     * Extra options based on function:
-     *   function: "translate" → { to: "Hindi", from: "English" }
-     *   function: "code"      → { action: "generate|review|debug|explain", language: "Python", code: "..." }
-     *   function: "analyze"   → { url: "https://...", question: "...", focus: "..." }
-     *
-     * @returns {ProximaResponse} with .text, .model, .responseTimeMs
-     *
-     * @example
-     * // Chat
-     * await client.chat("Hello", { model: "claude" });
-     *
-     * // Search
-     * await client.chat("AI news", { model: "perplexity", function: "search" });
-     *
-     * // Translate
-     * await client.chat("Hello", { model: "gemini", function: "translate", to: "Hindi" });
-     *
-     * // Code generate
-     * await client.chat("Sort algo", { model: "claude", function: "code", action: "generate", language: "Python" });
-     *
-     * // Brainstorm
-     * await client.chat("Startup ideas", { function: "brainstorm" });
-     *
-     * // Dynamic skill from skills/<name>.md
-     * await client.chat("", { model: "claude", function: "code_review", desc: "const total = subtotal + tax;" });
-     *
-     * // Analyze URL
-     * await client.chat("", { function: "analyze", url: "https://example.com" });
-     */
     async chat(message = '', options = {}) {
         const { model, ...rest } = options;
         const body = {
@@ -93,35 +41,26 @@ class Proxima {
         return this._post('/v1/chat/completions', body);
     }
 
-    // System
-
-    /** List all available models */
     async getModels() {
         const data = await this._get('/v1/models');
         return data.data || [];
     }
 
-    /** Get function catalog */
     async getFunctions() {
         return this._get('/v1/functions');
     }
 
-    /** Get discovered skill templates and variables */
     async getSkills() {
         return this._get('/v1/skills');
     }
 
-    /** Get response time statistics */
     async getStats() {
         return this._get('/v1/stats');
     }
 
-    /** Start fresh conversations */
     async newConversation() {
         return this._postRaw('/v1/conversations/new', {});
     }
-
-    // Internals
 
     async _fetchWithRetry(url, options, timeoutMs) {
         let lastError = null;
@@ -143,12 +82,11 @@ class Proxima {
                         `Is the brAInstorm app running? (attempt ${attempt + 1}/${this.maxRetries})`
                     );
                 } else {
-                    throw err; // Don't retry unknown errors
+                    throw err;
                 }
 
-                // Wait before retry (exponential backoff: 1s, 2s)
                 if (attempt < this.maxRetries - 1) {
-                    await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+                    await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
                 }
             }
         }
@@ -167,7 +105,7 @@ class Proxima {
             const err = await res.json().catch(() => ({}));
             throw new Error(err.error?.message || `API error: ${res.status}`);
         }
-        return new ProximaResponse(await res.json());
+        return new BrainstormResponse(await res.json());
     }
 
     async _postRaw(endpoint, body) {
@@ -188,7 +126,6 @@ class Proxima {
     }
 }
 
-// Export for Node.js
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { Proxima, ProximaResponse };
+    module.exports = { Brainstorm, BrainstormResponse };
 }

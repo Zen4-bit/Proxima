@@ -1,12 +1,13 @@
 {
-    "name": "proxima",
-    "version": "3.5.2",
-    "description": "Proxima - Local MCP Server (requires localhost network access for AI coding tools)",
-    "license": "SEE LICENSE IN LICENSE",
-    "author": "Zen4-bit, mindflowgo",
+    "name": "brainstorm",
+    "version": "4.0.0",
+    "description": "brAInstorm - Local MCP Server (requires localhost network access for AI coding tools)",
+    "license": "SEE LICENSE.md",
+    "author": "mindflowgo, codexAI",
     "keywords": [
         "mcp",
         "ai",
+        "brainstorm",
         "chatgpt",
         "claude",
         "gemini",
@@ -19,36 +20,57 @@
     "scripts": {
         "start": "electron .",
         "mcp": "node src/mcp-server-v3.js",
+        "prepare:runtime": "node scripts/prepare-packaged-runtime.cjs",
         "build": "electron-builder",
+        "prebuild": "npm run prepare:runtime",
         "build:win": "electron-builder --win --x64",
+        "prebuild:win": "npm run prepare:runtime",
         "build:installer": "electron-builder --win --x64 -c.win.target=nsis",
+        "prebuild:installer": "npm run prepare:runtime",
         "build:mac": "electron-builder --mac",
-        "build:mac:dir": "electron-builder --mac dir"
+        "prebuild:mac": "npm run prepare:runtime",
+        "build:mac:dir": "electron-builder --mac dir",
+        "prebuild:mac:dir": "npm run prepare:runtime"
     },
     "build": {
         "asar": true,
-        "appId": "com.proxima.app",
-        "productName": "Proxima",
-        "copyright": "Copyright © 2026 Proxima",
+        "appId": "com.brainstorm.app",
+        "productName": "brAInstorm",
+        "copyright": "Copyright © 2026 brAInstorm",
         "directories": {
             "output": "dist"
         },
         "files": [
-            "electron/**/*",
-            "src/**/*",
-            "assets/**/*",
-            "node_modules/**/*",
-            "package.json"
+            "**/*",
+            "!dist/**/*",
+            "!build/**/*",
+            "!sdk/**/*",
+            "!MODULES.md"
         ],
         "asarUnpack": [
-            "package.json",
-            "src/**/*",
-            "node_modules/**/*",
             "**/*.node",
             "**/*.wasm",
             "**/*.dll",
             "**/*.dylib",
             "**/*.so"
+        ],
+        "extraResources": [
+            {
+                "from": "build/packaged-runtime/src",
+                "to": "runtime/src"
+            },
+            {
+                "from": "build/packaged-runtime/skills",
+                "to": "runtime/skills"
+            },
+            {
+                "from": "build/packaged-runtime/node_modules",
+                "to": "runtime/node_modules"
+            },
+            {
+                "from": "build/packaged-runtime/runtime-version.json",
+                "to": "runtime/runtime-version.json"
+            }
         ],
         "mac": {
             "target": [
@@ -66,7 +88,7 @@
                 }
             ],
             "category": "public.app-category.developer-tools",
-            "icon": "assets/proxima-icon.png",
+            "icon": "assets/brainstorm-app-icon.icns",
             "artifactName": "${productName}-${version}-${arch}.${ext}",
             "darkModeSupport": true
         },
@@ -82,7 +104,7 @@
                     ]
                 }
             ],
-            "icon": "assets/proxima-icon.png",
+            "icon": "assets/brainstorm-app-icon.ico",
             "artifactName": "${productName}-Setup-${version}.${ext}"
         },
         "nsis": {
@@ -90,7 +112,7 @@
             "allowToChangeInstallationDirectory": true,
             "createDesktopShortcut": true,
             "createStartMenuShortcut": true,
-            "shortcutName": "Proxima"
+            "shortcutName": "brAInstorm"
         }
     },
     "dependencies": {

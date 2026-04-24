@@ -189,6 +189,90 @@ const providerRuntimeConfig = {
             `
         }
     },
+    googleai: {
+        loginCheckScript: `
+            (function() {
+                const hasComposer = !!document.querySelector('textarea.ITIRGe') ||
+                    !!document.querySelector('[data-active="input-plate-active"] textarea') ||
+                    !!document.querySelector('button[data-xid="input-plate-send-button"]');
+                const hasAuthGate = !!document.querySelector('a[href*="ServiceLogin"]') ||
+                    !!document.querySelector('form[action*="ServiceLogin"]') ||
+                    !!document.querySelector('iframe[src*="accounts.google.com"]');
+                return hasComposer && !hasAuthGate;
+            })()
+        `,
+        interceptor: {
+            name: 'GoogleAI',
+            urlPatterns: `url.includes('/wizrpcui/_/WizRpcUi/data/batchexecute') || url.includes('/async/folif') || url.includes('/httpservice/web/AimThreadsService')`,
+            streamTypes: `contentType.includes('text/event-stream') || contentType.includes('stream') || contentType.includes('application/json') || contentType.includes('text/plain') || contentType.includes('text/html')`,
+            parser: `
+                var appendGoogleAiText = function(value) {
+                    if (!value) return;
+
+                    if (typeof value === 'string') {
+                        var cleaned = value
+                            .replace(/<style[\\s\\S]*?<\\/style>/gi, ' ')
+                            .replace(/<script[\\s\\S]*?<\\/script>/gi, ' ')
+                            .replace(/<[^>]+>/g, ' ')
+                            .replace(/\\\\u003c/g, '<')
+                            .replace(/\\\\u003e/g, '>')
+                            .replace(/\\\\u0026/g, '&')
+                            .replace(/\\s+/g, ' ')
+                            .trim();
+
+                        if (!cleaned || /^https?:\\/\\//i.test(cleaned)) {
+                            return;
+                        }
+
+                        if (cleaned.length > 120 && cleaned.length > fullText.length) {
+                            fullText = cleaned;
+                            return;
+                        }
+
+                        if (cleaned.length > 40 && !fullText.includes(cleaned)) {
+                            fullText += (fullText ? ' ' : '') + cleaned;
+                        }
+                        return;
+                    }
+
+                    if (Array.isArray(value)) {
+                        for (var ai = 0; ai < value.length; ai++) {
+                            appendGoogleAiText(value[ai]);
+                        }
+                        return;
+                    }
+
+                    if (typeof value !== 'object') {
+                        return;
+                    }
+
+                    var preferredKeys = ['text', 'answer', 'output', 'content', 'message', 'modelOutput', 'html'];
+                    for (var pk = 0; pk < preferredKeys.length; pk++) {
+                        if (value[preferredKeys[pk]] !== undefined) {
+                            appendGoogleAiText(value[preferredKeys[pk]]);
+                        }
+                    }
+
+                    for (var key in value) {
+                        if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+                        if (preferredKeys.indexOf(key) !== -1) continue;
+                        appendGoogleAiText(value[key]);
+                    }
+                };
+
+                var rawLine = line.startsWith('data: ') ? line.slice(6).trim() : line.trim();
+                if (!rawLine || rawLine === '[DONE]') {
+                    return;
+                }
+
+                try {
+                    appendGoogleAiText(JSON.parse(rawLine));
+                } catch (e) {
+                    appendGoogleAiText(rawLine);
+                }
+            `
+        }
+    },
     deepseek: {
         loginCheckScript: `
             (function() {
@@ -551,6 +635,21 @@ const providers = [
         ...providerRuntimeConfig.gemini
     },
     {
+        id: 'googleai',
+        label: 'Google AI',
+        defaultEnabled: false,
+        url: 'https://www.google.com/search?sclient=gws-wiz&udm=50&arv=1&aep=1&ntc=1',
+        systemBrowserUrl: 'https://www.google.com/',
+        partition: 'persist:googleai',
+        color: '#4285f4',
+        icon: '../assets/gemini.png',
+        cookieDomain: 'google.com',
+        authCompletionDomains: ['www.google.com', 'google.com', 'accounts.google.com'],
+        aliases: ['googleai', 'google ai', 'google ai mode', 'google-ai', 'aimode'],
+        defaultQueryAction: 'chat',
+        ...providerRuntimeConfig.googleai
+    },
+    {
         id: 'deepseek',
         label: 'DeepSeek',
         defaultEnabled: false,
@@ -669,8 +768,8 @@ const modelAliases = Object.fromEntries(
     )
 );
 
-const smartRouterOrder = ['chatgpt', 'claude', 'perplexity', 'gemini', 'deepseek', 'grok', 'zai', 'copilot', 'metaai', 'qwen'];
-const restAutoOrder = ['claude', 'chatgpt', 'gemini', 'perplexity', 'deepseek', 'grok', 'zai', 'copilot', 'metaai', 'qwen'];
+const smartRouterOrder = ['chatgpt', 'claude', 'perplexity', 'gemini', 'googleai', 'deepseek', 'grok', 'zai', 'copilot', 'metaai', 'qwen'];
+const restAutoOrder = ['claude', 'chatgpt', 'gemini', 'googleai', 'perplexity', 'deepseek', 'grok', 'zai', 'copilot', 'metaai', 'qwen'];
 
 function getChromeVersionFromUserAgent(userAgent = DEFAULT_BROWSER_USER_AGENT) {
     const match = String(userAgent || '').match(/Chrome\/([\d.]+)/i);
@@ -714,7 +813,7 @@ function buildProviderInterceptorScript(providerId) {
 
                 try {
                     if (method === 'POST') {
-                        console.error('[Proxima] ${config.name} POST:', url.substring(0, 120));
+                        console.error('[brAInstorm] ${config.name} POST:', url.substring(0, 120));
                     }
                     if (${config.urlPatterns}) {
                         var contentType = response.headers.get('content-type') || '';
@@ -751,13 +850,13 @@ function buildProviderInterceptorScript(providerId) {
                                         }
                                     }
                                 } catch (e) {
-                                    console.log('[Proxima] Stream read error:', e.message);
+                                    console.log('[brAInstorm] Stream read error:', e.message);
                                 } finally {
                                     if ('${config.name}' !== 'Claude' && window.__proxima_active_stream_id === streamId) {
                                         window.__proxima_is_streaming = false;
                                         window.__proxima_last_capture_time = Date.now();
                                     }
-                                    console.log('[Proxima] ${config.name} stream ' + streamId.slice(0,8) + ' complete. Captured ' + fullText.length + ' chars');
+                                    console.log('[brAInstorm] ${config.name} stream ' + streamId.slice(0,8) + ' complete. Captured ' + fullText.length + ' chars');
                                 }
                             })();
                         }
@@ -769,7 +868,7 @@ function buildProviderInterceptorScript(providerId) {
                 return response;
             };
 
-            console.log('[Proxima] ${config.name} fetch interceptor installed');
+            console.log('[brAInstorm] ${config.name} fetch interceptor installed');
         })();
     `;
 }

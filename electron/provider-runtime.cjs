@@ -21,6 +21,7 @@ const sendToClaude = require('./provider-senders/claude.cjs');
 const sendToCopilot = require('./provider-senders/copilot.cjs');
 const sendToDeepSeek = require('./provider-senders/deepseek.cjs');
 const sendToGemini = require('./provider-senders/gemini.cjs');
+const sendToGoogleAI = require('./provider-senders/googleai.cjs');
 const sendToGrok = require('./provider-senders/grok.cjs');
 const sendToMetaAI = require('./provider-senders/metaai.cjs');
 const sendToPerplexity = require('./provider-senders/perplexity.cjs');
@@ -33,6 +34,7 @@ const senderMap = {
     copilot: sendToCopilot,
     deepseek: sendToDeepSeek,
     gemini: sendToGemini,
+    googleai: sendToGoogleAI,
     grok: sendToGrok,
     metaai: sendToMetaAI,
     perplexity: sendToPerplexity,
@@ -149,7 +151,7 @@ class ProviderRuntime {
         const configuredDir = this.getSettings()?.capturedImageDownloadDir;
         const resolvedDir = configuredDir
             ? path.resolve(configuredDir)
-            : path.join(os.tmpdir(), 'proxima-captured-images');
+            : path.join(os.tmpdir(), 'brainstorm-captured-images');
 
         fs.mkdirSync(resolvedDir, { recursive: true });
         return resolvedDir;
@@ -282,7 +284,7 @@ class ProviderRuntime {
                 kind: typeof raw.challenge.kind === 'string' ? raw.challenge.kind : 'human_verification',
                 message: typeof raw.challenge.message === 'string'
                     ? raw.challenge.message
-                    : 'Human verification is required in Proxima before this provider can continue.'
+                    : 'Human verification is required in brAInstorm before this provider can continue.'
             }
             : null;
 
@@ -495,8 +497,8 @@ class ProviderRuntime {
         const webContents = this.getWebContents(provider);
         const responseOptions = getResponseOptions(provider);
         const maxPolls = responseOptions.maxWaitSeconds * 2;
-        const imageCapableProviders = new Set(['chatgpt', 'gemini', 'grok', 'copilot', 'metaai', 'qwen']);
-        const baselineCheckedProviders = new Set(['perplexity', 'claude', 'deepseek', 'grok', 'zai', 'copilot', 'metaai', 'qwen']);
+        const imageCapableProviders = new Set(['chatgpt', 'gemini', 'googleai', 'grok', 'copilot', 'metaai', 'qwen']);
+        const baselineCheckedProviders = new Set(['perplexity', 'claude', 'deepseek', 'grok', 'zai', 'copilot', 'metaai', 'qwen', 'googleai']);
         const domShortCircuitProviders = new Set(['metaai']);
         let networkTextCandidate = '';
 
@@ -740,8 +742,8 @@ class ProviderRuntime {
         const checkInterval = options.checkInterval || 200;
         const logPrefix = options.logPrefix || 'waitForSendButton';
 
-        if (provider === 'gemini' && !options.force) {
-            console.log(`[${logPrefix}] Gemini: Skipping (handled in file upload)`);
+        if ((provider === 'gemini' || provider === 'googleai') && !options.force) {
+            console.log(`[${logPrefix}] ${provider}: Skipping (handled in file upload)`);
             return true;
         }
 

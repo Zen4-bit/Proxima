@@ -4,6 +4,7 @@ node_modules/
 # Build output
 dist/
 dist-build/
+build/packaged-runtime/
 
 # OS files
 .DS_Store

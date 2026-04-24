@@ -1,6 +1,6 @@
-// Proxima main process — embedded browser + anti-detection + IPC server
+// brAInstorm main process — embedded browser + anti-detection + IPC server
 
-const { app, BrowserWindow, ipcMain, shell, session } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, session, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
@@ -14,12 +14,173 @@ const {
     defaultProviderSettings,
     DEFAULT_BROWSER_USER_AGENT
 } = require('../src/provider-catalog.cjs');
+const {
+    getSkill,
+    getSkillRegistrySummary,
+    normalizeSkillName,
+    refreshSkillRegistry,
+    resolveSkillsDirectory
+} = require('../src/skill-prompts.cjs');
 
+
+const APP_NAME = 'brAInstorm';
+const LEGACY_USER_DATA_DIRS = ['proxima'];
+const PACKAGED_RUNTIME_DIR = 'runtime';
+const PRIMARY_APP_ICON_PNG = path.join(__dirname, '../assets/brainstorm-app-icon.png');
+const PRIMARY_APP_ICON_ICO = path.join(__dirname, '../assets/brainstorm-app-icon.ico');
+const FALLBACK_APP_ICON_PNG = path.join(__dirname, '../assets/brainstorm-icon.png');
+
+if (typeof app.setName === 'function') {
+    app.setName(APP_NAME);
+}
+
+function resolveLegacyUserDataPaths(currentUserDataPath) {
+    let basePath = '';
+
+    if (process.platform === 'win32') {
+        basePath = process.env.APPDATA || path.dirname(currentUserDataPath);
+    } else if (process.platform === 'darwin') {
+        basePath = path.join(process.env.HOME || '', 'Library', 'Application Support');
+    } else {
+        basePath = path.join(process.env.HOME || '', '.config');
+    }
+
+    return LEGACY_USER_DATA_DIRS
+        .map((dirName) => path.join(basePath, dirName))
+        .filter((candidate) => candidate && candidate !== currentUserDataPath);
+}
+
+function findFirstExistingPath(paths = []) {
+    for (const candidate of paths) {
+        if (candidate && fs.existsSync(candidate)) {
+            return candidate;
+        }
+    }
+    return null;
+}
+
+function resolvePackagedRuntimeRoot(resourcesPath = process.resourcesPath || path.join(__dirname, '..')) {
+    return findFirstExistingPath([
+        path.join(resourcesPath, PACKAGED_RUNTIME_DIR),
+        path.join(resourcesPath, 'app.asar.unpacked')
+    ]) || path.join(resourcesPath, PACKAGED_RUNTIME_DIR);
+}
+
+function pathIsWritable(targetPath) {
+    try {
+        fs.accessSync(targetPath, fs.constants.W_OK);
+        return true;
+    } catch (error) {
+        return false;
+    }
+}
+
+function resolveWindowIconPath() {
+    if (process.platform === 'win32' && fs.existsSync(PRIMARY_APP_ICON_ICO)) {
+        return PRIMARY_APP_ICON_ICO;
+    }
+
+    if (fs.existsSync(PRIMARY_APP_ICON_PNG)) {
+        return PRIMARY_APP_ICON_PNG;
+    }
+
+    return FALLBACK_APP_ICON_PNG;
+}
+
+function applyDockIcon() {
+    if (process.platform !== 'darwin' || !app.dock || typeof app.dock.setIcon !== 'function') {
+        return;
+    }
+
+    const dockIconPath = fs.existsSync(PRIMARY_APP_ICON_PNG)
+        ? PRIMARY_APP_ICON_PNG
+        : FALLBACK_APP_ICON_PNG;
+    const dockIcon = nativeImage.createFromPath(dockIconPath);
+
+    if (!dockIcon.isEmpty()) {
+        app.dock.setIcon(dockIcon);
+    }
+}
+
+function getSkillsDirectoryStatus() {
+    const directory = resolveSkillsDirectory();
+    const exists = fs.existsSync(directory) && fs.statSync(directory).isDirectory();
+    const writable = exists
+        ? pathIsWritable(directory)
+        : pathIsWritable(path.dirname(directory));
+
+    return {
+        directory,
+        exists,
+        writable
+    };
+}
+
+function buildSkillManagerSummary(options = {}) {
+    refreshSkillRegistry();
+    const summary = getSkillRegistrySummary(options);
+    const status = getSkillsDirectoryStatus();
+
+    return {
+        directory: status.directory,
+        exists: status.exists,
+        writable: status.writable,
+        loadedAt: summary.loadedAt,
+        skills: summary.skills.map((skill) => ({
+            name: skill.name,
+            fileName: skill.fileName,
+            filePath: skill.filePath,
+            variables: skill.variables,
+            ...(options.includeTemplate ? { template: skill.template } : {})
+        }))
+    };
+}
+
+function saveSkillTemplateFile(payload = {}) {
+    const normalizedName = normalizeSkillName(payload.name);
+    if (!normalizedName) {
+        throw new Error('Skill name is required');
+    }
+
+    const template = typeof payload.template === 'string' ? payload.template.replace(/\r\n/g, '\n') : '';
+    const status = getSkillsDirectoryStatus();
+
+    if (!status.exists) {
+        fs.mkdirSync(status.directory, { recursive: true });
+    }
+
+    if (!pathIsWritable(status.directory)) {
+        throw new Error(`Skills directory is not writable: ${status.directory}`);
+    }
+
+    const filePath = path.join(status.directory, `${normalizedName}.md`);
+    const existed = fs.existsSync(filePath);
+    fs.writeFileSync(filePath, template, 'utf8');
+
+    refreshSkillRegistry();
+    const savedSkill = getSkill(normalizedName, { refresh: false, refreshOnMiss: false });
+    if (!savedSkill) {
+        throw new Error(`Saved skill could not be reloaded: ${normalizedName}`);
+    }
+
+    return {
+        created: !existed,
+        name: savedSkill.name,
+        fileName: savedSkill.fileName,
+        filePath: savedSkill.filePath,
+        variables: savedSkill.variables,
+        template: savedSkill.template
+    };
+}
 
 // Store user settings
 const userDataPath = app.getPath('userData');
+const legacyUserDataPaths = resolveLegacyUserDataPaths(userDataPath);
 const settingsPath = path.join(userDataPath, 'settings.json');
 const enabledProvidersPath = path.join(userDataPath, 'enabled-providers.json');
+const legacySettingsPaths = legacyUserDataPaths.map((legacyPath) => path.join(legacyPath, 'settings.json'));
+const cookieBackupDir = path.join(userDataPath, 'cookie-backups');
+const legacyCookieBackupDirs = legacyUserDataPaths.map((legacyPath) => path.join(legacyPath, 'cookie-backups'));
 
 let mainWindow;
 let browserManager;
@@ -104,8 +265,9 @@ function mergeSettings(saved = {}) {
 
 function loadInitialUserAgent() {
     try {
-        if (fs.existsSync(settingsPath)) {
-            const saved = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+        const resolvedSettingsPath = findFirstExistingPath([settingsPath, ...legacySettingsPaths]);
+        if (resolvedSettingsPath) {
+            const saved = JSON.parse(fs.readFileSync(resolvedSettingsPath, 'utf8'));
             return mergeSettings(saved).userAgent;
         }
     } catch (e) {
@@ -139,8 +301,9 @@ app.on('ready', () => {
 
 function loadSettings() {
     try {
-        if (fs.existsSync(settingsPath)) {
-            const saved = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+        const resolvedSettingsPath = findFirstExistingPath([settingsPath, ...legacySettingsPaths]);
+        if (resolvedSettingsPath) {
+            const saved = JSON.parse(fs.readFileSync(resolvedSettingsPath, 'utf8'));
             return mergeSettings(saved);
         }
     } catch (e) {
@@ -193,9 +356,10 @@ function saveEnabledProviders(settings) {
         try {
             const isDev = !app.isPackaged;
             const resourcesPath = process.resourcesPath || path.join(__dirname, '..');
+            const packagedRuntimeRoot = resolvePackagedRuntimeRoot(resourcesPath);
             const mcpConfigPath = isDev
                 ? path.join(__dirname, '..', 'src', 'enabled-providers.json')
-                : path.join(resourcesPath, 'app.asar.unpacked', 'src', 'enabled-providers.json');
+                : path.join(packagedRuntimeRoot, 'src', 'enabled-providers.json');
 
             fs.writeFileSync(mcpConfigPath, JSON.stringify({ enabled }, null, 2));
         } catch (e2) {
@@ -206,9 +370,6 @@ function saveEnabledProviders(settings) {
         console.error('Error saving enabled providers:', e);
     }
 }
-
-// Cookie backup/restore — survive app restarts
-const cookieBackupDir = path.join(userDataPath, 'cookie-backups');
 
 async function backupCookies(provider, ses) {
     try {
@@ -246,8 +407,11 @@ async function backupCookies(provider, ses) {
 
 async function restoreCookies(provider, ses) {
     try {
-        const backupPath = path.join(cookieBackupDir, `${provider}.json`);
-        if (!fs.existsSync(backupPath)) {
+        const backupPath = findFirstExistingPath([
+            path.join(cookieBackupDir, `${provider}.json`),
+            ...legacyCookieBackupDirs.map((legacyDir) => path.join(legacyDir, `${provider}.json`))
+        ]);
+        if (!backupPath) {
             return false;
         }
 
@@ -335,7 +499,8 @@ function createWindow() {
             }
         }),
         backgroundColor: '#0f0f23',
-        icon: path.join(__dirname, '../assets/proxima-icon.png')
+        icon: resolveWindowIconPath(),
+        title: APP_NAME
     });
     mainWindow.setMaxListeners(20); // Prevent MaxListenersExceeded warning
 
@@ -359,15 +524,15 @@ function createWindow() {
         if (!isHeadless && !startMinimized) {
             mainWindow.show();
         }
-        console.log(`[Agent Hub] Running in ${isHeadless ? 'HEADLESS' : 'VISIBLE'} mode`);
-        console.log('[Agent Hub] MCP server can connect on port', settings.ipcPort || 19222);
+        console.log(`[${APP_NAME}] Running in ${isHeadless ? 'HEADLESS' : 'VISIBLE'} mode`);
+        console.log(`[${APP_NAME}] MCP server can connect on port`, settings.ipcPort || 19222);
 
         // Auto-initialize ALL enabled providers on startup
         const enabledProviders = Object.entries(settings.providers)
             .filter(([_, config]) => config.enabled)
             .map(([name]) => name);
 
-        console.log('[Agent Hub] Auto-loading enabled providers:', enabledProviders);
+        console.log(`[${APP_NAME}] Auto-loading enabled providers:`, enabledProviders);
 
         // Wait a bit for the UI to be ready
         await sleep(1000);
@@ -380,7 +545,7 @@ function createWindow() {
         for (let i = 0; i < enabledProviders.length; i++) {
             const provider = enabledProviders[i];
             try {
-                console.log(`[Agent Hub] Initializing ${provider}...`);
+                console.log(`[${APP_NAME}] Initializing ${provider}...`);
 
                 // Restore backed up cookies before loading
                 const providerConfig = browserManager.providers[provider];
@@ -409,26 +574,26 @@ function createWindow() {
                     const providerConfig = browserManager.providers[provider];
                     if (providerConfig && providerConfig.url) {
                         view.webContents.loadURL(providerConfig.url);
-                        console.log(`[Agent Hub] Loading ${providerConfig.url} for ${provider}`);
+                        console.log(`[${APP_NAME}] Loading ${providerConfig.url} for ${provider}`);
                     }
                 }
 
                 await sleep(1500); // Give time for page to start loading
             } catch (err) {
-                console.error(`[Agent Hub] Error initializing ${provider}:`, err.message);
+                console.error(`[${APP_NAME}] Error initializing ${provider}:`, err.message);
             }
         }
 
         // Set the first provider as active
         if (enabledProviders.length > 0) {
             browserManager.activeProvider = enabledProviders[0];
-            console.log(`[Agent Hub] ${enabledProviders[0]} set as default (already visible)`);
+            console.log(`[${APP_NAME}] ${enabledProviders[0]} set as default (already visible)`);
 
             // Notify renderer which provider to highlight
             mainWindow.webContents.send('set-active-provider', enabledProviders[0]);
         }
 
-        console.log('[Agent Hub] All providers initialized and ready!');
+        console.log(`[${APP_NAME}] All providers initialized and ready!`);
 
         // Periodically backup cookies every 10 minutes
         setInterval(async () => {
@@ -584,7 +749,7 @@ async function handleMCPRequest(request) {
             case 'uploadFile':
                 // Upload file only (without sending message)
                 if (!fileReferenceEnabled) {
-                    return { success: false, error: 'File reference is disabled. Enable it in Agent Hub settings.' };
+                    return { success: false, error: 'File reference is disabled. Enable it in brAInstorm settings.' };
                 }
                 try {
                     const uploadResult = await uploadFileToProvider(provider, data.filePath);
@@ -912,6 +1077,57 @@ ipcMain.handle('get-provider-catalog', () => {
     return publicProviderCatalog;
 });
 
+ipcMain.handle('list-skills', () => {
+    try {
+        return {
+            success: true,
+            ...buildSkillManagerSummary()
+        };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('get-skill', (event, skillName) => {
+    try {
+        const skill = getSkill(skillName, { refresh: true });
+        if (!skill) {
+            return { success: false, error: `Skill not found: ${skillName}` };
+        }
+
+        const status = getSkillsDirectoryStatus();
+
+        return {
+            success: true,
+            directory: status.directory,
+            exists: status.exists,
+            writable: status.writable,
+            skill: {
+                name: skill.name,
+                fileName: skill.fileName,
+                filePath: skill.filePath,
+                variables: skill.variables,
+                template: skill.template
+            }
+        };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('save-skill', (event, payload) => {
+    try {
+        const skill = saveSkillTemplateFile(payload || {});
+        return {
+            success: true,
+            skill,
+            ...buildSkillManagerSummary()
+        };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
 ipcMain.handle('save-settings', (event, settings) => {
     const savedSettings = saveSettings(settings);
     applyUserAgent(savedSettings.userAgent);
@@ -1040,19 +1256,19 @@ ipcMain.handle('get-provider-navigation-state', async (event, provider) => {
 
 ipcMain.handle('get-mcp-config', () => {
     const resourcesPath = process.resourcesPath || path.join(__dirname, '..');
-    const unpackedRoot = path.join(resourcesPath, 'app.asar.unpacked');
+    const packagedRuntimeRoot = resolvePackagedRuntimeRoot(resourcesPath);
 
     const isDev = !app.isPackaged;
     const serverPath = isDev
         ? path.join(__dirname, '..', 'src', 'mcp-server-v3.js')
-        : path.join(unpackedRoot, 'src', 'mcp-server-v3.js');
+        : path.join(packagedRuntimeRoot, 'src', 'mcp-server-v3.js');
     const cwdPath = isDev
         ? path.join(__dirname, '..')
-        : unpackedRoot;
+        : packagedRuntimeRoot;
 
     return {
         mcpServers: {
-            'proxima': {
+            'brainstorm': {
                 command: 'node',
                 args: [serverPath.replace(/\\/g, '/')],
                 cwd: cwdPath.replace(/\\/g, '/')
@@ -1359,7 +1575,10 @@ async function uploadFileToProvider(provider, filePath) {
 
 // App Lifecycle
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+    applyDockIcon();
+    createWindow();
+});
 
 // Backup all cookies before quitting
 app.on('before-quit', async (event) => {

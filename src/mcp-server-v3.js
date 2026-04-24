@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Proxima MCP Server v3 — talks to the Electron app over TCP IPC
+// brAInstorm MCP Server v3 — talks to the Electron app over TCP IPC
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -21,7 +21,34 @@ const {
     getDefaultQueryAction,
     smartRouterOrder
 } = require('./provider-catalog.cjs');
+const {
+    getSkillRegistrySummary,
+    hasSkill,
+    listSkills,
+    refreshSkillRegistry,
+    renderSkillPrompt
+} = require('./skill-prompts.cjs');
 
+function readPackageVersion() {
+    try {
+        return require('../package.json').version;
+    } catch (error) {
+        try {
+            const runtimeVersionPath = path.join(__dirname, '..', 'runtime-version.json');
+            if (fs.existsSync(runtimeVersionPath)) {
+                return JSON.parse(fs.readFileSync(runtimeVersionPath, 'utf8')).version || '4.0.0';
+            }
+        } catch (runtimeVersionError) {
+            // Ignore missing packaged runtime metadata and fall back to env/default.
+        }
+        return process.env.npm_package_version || '4.0.0';
+    }
+}
+
+const APP_NAME = 'brAInstorm';
+const APP_SLUG = 'brainstorm';
+const LEGACY_APP_DATA_DIRS = ['proxima'];
+const VERSION = readPackageVersion();
 const IPC_PORT = process.env.AGENT_HUB_PORT || 19222;
 
 // --- IPC Client ---
@@ -41,7 +68,7 @@ class IPCClient {
 
         return new Promise((resolve, reject) => {
             this.socket = net.createConnection({ port: this.port, host: '127.0.0.1' }, () => {
-                console.error('[MCP] Connected to Agent Hub');
+                console.error(`[MCP] Connected to ${APP_NAME}`);
                 this.connected = true;
                 resolve(true);
             });
@@ -58,14 +85,14 @@ class IPCClient {
             });
 
             this.socket.on('close', () => {
-                console.error('[MCP] Disconnected from Agent Hub');
+                console.error(`[MCP] Disconnected from ${APP_NAME}`);
                 this.connected = false;
             });
 
             // Timeout after 5 seconds
             setTimeout(() => {
                 if (!this.connected) {
-                    reject(new Error('Connection timeout - Is Agent Hub running?'));
+                    reject(new Error(`Connection timeout - Is ${APP_NAME} running?`));
                 }
             }, 5000);
         });
@@ -124,23 +151,27 @@ class IPCClient {
 
 // --- Provider config ---
 
+function getAppDataConfigPaths(fileName) {
+    const baseDir = process.platform === 'win32'
+        ? (process.env.APPDATA || '')
+        : process.platform === 'darwin'
+            ? path.join(process.env.HOME || '', 'Library', 'Application Support')
+            : path.join(process.env.HOME || '', '.config');
+
+    return [APP_SLUG, APP_NAME, ...LEGACY_APP_DATA_DIRS]
+        .map((dirName) => path.join(baseDir, dirName, fileName))
+        .filter((candidate, index, list) => candidate && list.indexOf(candidate) === index);
+}
+
 function getEnabledProviders() {
     try {
         // Primary: Read from Electron's user data folder (always in sync with app settings)
         // Must match Electron's app.getPath('userData') for each platform
-        let appDataPath;
-        if (process.platform === 'win32') {
-            appDataPath = path.join(process.env.APPDATA || '', 'proxima', 'enabled-providers.json');
-        } else if (process.platform === 'darwin') {
-            appDataPath = path.join(process.env.HOME || '', 'Library', 'Application Support', 'proxima', 'enabled-providers.json');
-        } else {
-            appDataPath = path.join(process.env.HOME || '', '.config', 'proxima', 'enabled-providers.json');
-        }
-
-        // Try AppData first (most reliable - Electron app always writes here)
-        if (fs.existsSync(appDataPath)) {
-            const data = JSON.parse(fs.readFileSync(appDataPath, 'utf8'));
-            return new Set(data.enabled || []);
+        for (const appDataPath of getAppDataConfigPaths('enabled-providers.json')) {
+            if (fs.existsSync(appDataPath)) {
+                const data = JSON.parse(fs.readFileSync(appDataPath, 'utf8'));
+                return new Set(data.enabled || []);
+            }
         }
 
         // Fallback: Read from MCP server's own directory
@@ -245,7 +276,7 @@ class AIProvider {
     async ensureInitialized() {
         // Check if provider is enabled in settings BEFORE doing anything
         if (!isProviderEnabled(this.name)) {
-            throw new Error(`${this.name} is disabled. Enable it in Proxima Agent Hub settings.`);
+            throw new Error(`${this.name} is disabled. Enable it in ${APP_NAME} settings.`);
         }
         await this.ipc.send('initProvider', this.name);
     }
@@ -481,15 +512,15 @@ const providersById = Object.fromEntries(
     providerIds.map((providerId) => [providerId, new AIProvider(providerId, ipcClient)])
 );
 
-const { perplexity, chatgpt, claude, gemini, deepseek, grok, zai, copilot, metaai, qwen } = providersById;
+const { perplexity, chatgpt, claude, gemini, googleai, deepseek, grok, zai, copilot, metaai, qwen } = providersById;
 
 const router = new SmartRouter(providersById);
 
 // Create MCP Server
 const server = new McpServer({
-    name: 'agent-hub',
-    version: '3.5.2',
-    description: 'Agent Hub MCP Server v3 - Embedded Browser Edition'
+    name: APP_SLUG,
+    version: VERSION,
+    description: `${APP_NAME} MCP Server v3 - Embedded Browser Edition`
 });
 
 // Helper functions
@@ -526,7 +557,7 @@ function getProviderInstanceOrThrow(providerInput) {
 
 function disabledResponseFor(providerId) {
     if (!isProviderEnabled(providerId)) {
-        return toolResponse(`${providerId} is disabled. Enable it in Proxima Agent Hub settings first.`);
+        return toolResponse(`${providerId} is disabled. Enable it in ${APP_NAME} settings first.`);
     }
     return null;
 }
@@ -542,13 +573,156 @@ async function queryProviderDefault(providerId, message) {
         : provider.chat(message);
 }
 
+function joinPromptSections(...sections) {
+    return sections
+        .flat()
+        .filter((section) => typeof section === 'string' && section.trim())
+        .join('\n\n');
+}
+
+function buildSkillVariables(input = {}) {
+    const payload = input && typeof input === 'object' ? input : {};
+    const baseVariables = payload.variables && typeof payload.variables === 'object' && !Array.isArray(payload.variables)
+        ? { ...payload.variables }
+        : {};
+
+    for (const [key, value] of Object.entries(payload)) {
+        if (['skill', 'provider', 'variables', 'files'].includes(key)) {
+            continue;
+        }
+
+        if (value !== undefined) {
+            baseVariables[key] = value;
+        }
+    }
+
+    if (Array.isArray(payload.files) && payload.files.length > 0) {
+        const filesContent = readFileContents(payload.files);
+        if (filesContent) {
+            if (baseVariables.filesContent === undefined) baseVariables.filesContent = filesContent;
+            if (baseVariables.fileContent === undefined) baseVariables.fileContent = filesContent;
+            if (baseVariables.fullCode === undefined) {
+                baseVariables.fullCode = joinPromptSections(filesContent, baseVariables.code || '', baseVariables.message || '');
+            }
+            if (baseVariables.desc === undefined) {
+                baseVariables.desc = joinPromptSections(filesContent, baseVariables.code || '', baseVariables.message || '');
+            }
+        }
+    }
+
+    return baseVariables;
+}
+
+function pickEnabledProvider(preferredProviders = []) {
+    const enabled = getEnabledProviders();
+    const candidates = [...preferredProviders, ...providerIds];
+
+    for (const providerId of [...new Set(candidates)]) {
+        if (providersById[providerId] && enabled.has(providerId)) {
+            return providerId;
+        }
+    }
+
+    return null;
+}
+
+function resolveToolProviderId(providerInput, preferredProviders = []) {
+    if (providerInput) {
+        const { providerId } = getProviderInstanceOrThrow(providerInput);
+        return providerId;
+    }
+
+    return pickEnabledProvider(preferredProviders);
+}
+
+async function renderAndRunSkill({
+    skillName,
+    variables,
+    fallbackText,
+    provider,
+    preferredProviders = []
+}) {
+    const providerId = resolveToolProviderId(provider, preferredProviders);
+    if (!providerId) {
+        return {
+            errorResponse: toolResponse(`No providers enabled. Enable at least one provider in ${APP_NAME} first.`)
+        };
+    }
+
+    const disabled = disabledResponseFor(providerId);
+    if (disabled) {
+        return { errorResponse: disabled };
+    }
+
+    const prompt = renderSkillPrompt(skillName, variables, { fallbackText });
+    const response = await queryProviderDefault(providerId, prompt);
+    return { providerId, prompt, response };
+}
+
 // Universal provider disabled check - returns a clean response if provider is off
 function checkDisabled(providerName) {
     if (!isProviderEnabled(providerName)) {
-        return toolResponse(`${providerName} is disabled. Enable it in Agent Hub.`);
+        return toolResponse(`${providerName} is disabled. Enable it in ${APP_NAME}.`);
     }
     return null; // provider is enabled, proceed
 }
+
+server.tool(
+    'list_skills',
+    {
+        includeTemplate: z.boolean().optional().describe('Include the full prompt text for each discovered skill')
+    },
+    async ({ includeTemplate }) => {
+        try {
+            refreshSkillRegistry();
+            return toolResponse({
+                success: true,
+                ...getSkillRegistrySummary({ includeTemplate: includeTemplate === true })
+            });
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+server.tool(
+    'run_skill',
+    {
+        skill: z.string().describe('Skill name from skills/<name>.md'),
+        provider: z.string().optional().describe('Optional provider override'),
+        variables: z.record(z.string(), z.unknown()).optional().describe('Variables for ${...} substitution'),
+        files: z.array(z.string()).optional().describe('Optional file paths. Their contents are exposed as filesContent/fileContent/fullCode/desc when those variables are not already provided.'),
+        message: z.string().optional().describe('Optional shortcut for variables.message')
+    },
+    async ({ skill, provider, variables, files, message }) => {
+        try {
+            refreshSkillRegistry();
+            if (!hasSkill(skill, { refresh: false })) {
+                return toolResponse({
+                    success: false,
+                    error: `Unknown skill: ${skill}`,
+                    availableSkills: listSkills().map((entry) => entry.name)
+                });
+            }
+
+            const result = await renderAndRunSkill({
+                skillName: skill,
+                variables: buildSkillVariables({ variables, files, message }),
+                provider,
+                preferredProviders: providerIds
+            });
+            if (result.errorResponse) return result.errorResponse;
+            return toolResponse({
+                success: true,
+                skill: skill,
+                provider: result.providerId,
+                response: result.response
+            });
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
 
 // --- Search tools ---
 
@@ -612,6 +786,33 @@ server.tool(
         if (disabled) return disabled;
         try {
             return toolResponse(await perplexity.search(`Search Reddit discussions about: ${query}`));
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+server.tool(
+    'github_search',
+    {
+        query: z.string().describe('What to search for on GitHub — repositories, code examples, or solutions'),
+        language: z.string().optional().describe('Optional language or ecosystem filter'),
+        provider: z.string().optional().describe('Optional provider override. Defaults to Perplexity when enabled.')
+    },
+    async ({ query, language, provider }) => {
+        try {
+            const result = await renderAndRunSkill({
+                skillName: 'github_search',
+                variables: {
+                    query,
+                    langFilter: language ? ` in ${language}` : ''
+                },
+                fallbackText: 'Search GitHub for open source repositories, code examples, and solutions${langFilter}: ${query}\n\nFor each result provide: repo name, description, stars/popularity, key features, and the GitHub URL. Focus on actively maintained, well-documented projects.',
+                provider,
+                preferredProviders: ['perplexity', 'chatgpt', 'googleai', 'gemini', 'claude']
+            });
+            if (result.errorResponse) return result.errorResponse;
+            return toolResponse(result.response);
         } catch (err) {
             return toolError(err);
         }
@@ -791,17 +992,101 @@ server.tool(
     {
         code: z.string().optional().describe('Code to review (or use files parameter)'),
         context: z.string().optional().describe('Context about the code'),
-        files: z.array(z.string()).optional().describe('Optional: Array of file paths containing code to review')
+        files: z.array(z.string()).optional().describe('Optional: Array of file paths containing code to review'),
+        provider: z.string().optional().describe('Optional provider override. Defaults to Perplexity to preserve existing behavior.')
     },
-    async ({ code, context, files }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    async ({ code, context, files, provider }) => {
         try {
-            const ctx = context ? ` Context: ${context}` : '';
             const codeContent = code || '';
             const fileContent = readFileContents(files);
-            const fullCode = fileContent ? `${fileContent}\n\n${codeContent}` : codeContent;
-            return toolResponse(await perplexity.search(`Review this code for issues, improvements, and best practices.${ctx}\n\n${fullCode}`));
+            const desc = joinPromptSections(
+                context ? `Additional context:\n${context}` : '',
+                fileContent,
+                codeContent
+            );
+
+            const result = await renderAndRunSkill({
+                skillName: 'code_review',
+                variables: { desc },
+                fallbackText: 'Review this code for bugs, improvements, and best practices:\n\n${desc}',
+                provider,
+                preferredProviders: ['perplexity', 'claude', 'googleai', 'chatgpt', 'gemini']
+            });
+            if (result.errorResponse) return result.errorResponse;
+            return toolResponse(result.response);
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+server.tool(
+    'security_audit',
+    {
+        code: z.string().optional().describe('Code to audit (or use files parameter)'),
+        language: z.string().optional().describe('Programming language'),
+        files: z.array(z.string()).optional().describe('Optional: Array of file paths containing code to audit'),
+        provider: z.string().optional().describe('Optional provider override. Defaults to Claude when enabled.')
+    },
+    async ({ code, language, files, provider }) => {
+        try {
+            const codeContent = code || '';
+            const fileContent = readFileContents(files);
+            const fullCode = joinPromptSections(fileContent, codeContent);
+
+            if (!fullCode.trim()) {
+                return toolResponse('security_audit requires code or files to analyze.');
+            }
+
+            const result = await renderAndRunSkill({
+                skillName: 'security_audit',
+                variables: {
+                    lang: language ? ` (${language})` : '',
+                    fullCode
+                },
+                fallbackText: 'You are a senior security engineer. Perform a thorough security audit of this code${lang}.\n\nCODE:\n${fullCode}\n\nCheck for ALL of the following:\n1. **Injection vulnerabilities** (SQL, XSS, command injection, LDAP, etc.)\n2. **Authentication/Authorization flaws** (broken auth, privilege escalation, insecure tokens)\n3. **Data exposure** (hardcoded secrets, PII leaks, insecure logging)\n4. **Input validation** (missing sanitization, type confusion, buffer overflow)\n5. **Cryptographic issues** (weak algorithms, improper key management)\n6. **Configuration problems** (debug mode, CORS, insecure defaults)\n7. **Dependency risks** (known vulnerable packages)\n\nFor each issue found:\n- **Severity**: CRITICAL / HIGH / MEDIUM / LOW\n- **Location**: Line or function\n- **Description**: What the vulnerability is\n- **Fix**: Exact code fix\n\nEnd with a security score (0-100) and summary.',
+                provider,
+                preferredProviders: ['claude', 'chatgpt', 'googleai', 'gemini', 'perplexity']
+            });
+            if (result.errorResponse) return result.errorResponse;
+            return toolResponse(result.response);
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+server.tool(
+    'get_ui_reference',
+    {
+        description: z.string().describe('What kind of UI or UX direction you want'),
+        code: z.string().optional().describe('Existing code to improve'),
+        files: z.array(z.string()).optional().describe('Optional: Array of file paths containing the existing UI code'),
+        style: z.string().optional().describe('Optional visual style direction'),
+        provider: z.string().optional().describe('Optional provider override. Defaults to Claude when enabled.')
+    },
+    async ({ description, code, files, style, provider }) => {
+        try {
+            const codeContent = code || '';
+            const fileContent = readFileContents(files);
+            const fullCode = joinPromptSections(
+                fileContent,
+                codeContent || 'No existing code was provided. Produce a detailed UI reference and implementation guidance from the request.'
+            );
+
+            const result = await renderAndRunSkill({
+                skillName: 'get_ui_reference',
+                variables: {
+                    description,
+                    styleHint: style ? `\nSTYLE PREFERENCE: ${style}` : '',
+                    fullCode
+                },
+                fallbackText: 'You are a senior UI/UX designer and frontend developer. Analyze the existing code and apply premium design improvements.\n\nDESIGN REQUEST: ${description}${styleHint}\n\nEXISTING CODE:\n${fullCode}\n\nProvide:\n1. **DESIGN ANALYSIS**: Analyze the current UI — what works, what needs improvement\n2. **COLOR PALETTE**: Recommended hex colors with usage (primary, secondary, accent, background, text)\n3. **TYPOGRAPHY**: Font families, sizes, weights for headings, body, captions\n4. **LAYOUT & SPACING**: Grid system, padding, margins, responsive breakpoints\n5. **COMPONENTS**: Key UI components needed with design specifications\n6. **UX PATTERNS**: Interactions, hover effects, transitions, micro-animations\n7. **UPDATED CODE**: Complete updated code with the design improvements applied — production-ready, no placeholders\n\nThe updated code must be complete, ready to copy-paste and run. Apply modern design best practices.',
+                provider,
+                preferredProviders: ['claude', 'chatgpt', 'googleai', 'gemini', 'perplexity']
+            });
+            if (result.errorResponse) return result.errorResponse;
+            return toolResponse(result.response);
         } catch (err) {
             return toolError(err);
         }
@@ -862,12 +1147,44 @@ server.tool(
 
 server.tool(
     'brainstorm',
-    { topic: z.string().describe('Topic to brainstorm ideas for') },
-    async ({ topic }) => {
-        const disabled = checkDisabled('perplexity');
-        if (disabled) return disabled;
+    {
+        topic: z.string().describe('Topic to brainstorm ideas for'),
+        provider: z.string().optional().describe('Optional provider override. Defaults to Perplexity to preserve existing behavior.')
+    },
+    async ({ topic, provider }) => {
         try {
-            return toolResponse(await perplexity.search(`Brainstorm creative ideas for: ${topic}`));
+            const result = await renderAndRunSkill({
+                skillName: 'brainstorm',
+                variables: { subject: topic },
+                fallbackText: 'Brainstorm creative and innovative ideas about: ${subject}\n\nProvide at least 5-8 diverse ideas with brief explanations.',
+                provider,
+                preferredProviders: ['perplexity', 'claude', 'googleai', 'chatgpt', 'gemini']
+            });
+            if (result.errorResponse) return result.errorResponse;
+            return toolResponse(result.response);
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+server.tool(
+    'convo_history_summarize',
+    {
+        conversationHistory: z.string().describe('Full conversation history to summarize'),
+        provider: z.string().optional().describe('Optional provider override. Defaults to Claude when enabled.')
+    },
+    async ({ conversationHistory, provider }) => {
+        try {
+            const result = await renderAndRunSkill({
+                skillName: 'convo_history_summarize',
+                variables: { conversationHistory },
+                fallbackText: 'Tell our entire conversation history in this from the very beginning to the very end.\n\nExtract everything and present it in the following structure:\n\nPROJECT\nWhat are we building? Include the name, the core idea, the purpose, and the problem it solves.\n\nDECISIONS MADE\nEverything that has been finalized. Tech stack, architecture, tools, libraries, design choices, folder structure, database schema, API design — anything that was decided and agreed upon.\n\nREQUIREMENTS\nEvery single requirement the user mentioned. Features, constraints, what the user wants and does not want, priorities, tone, style preferences — everything.\n\nWORK DONE SO FAR\nWhat has already been built, written, or implemented. Include file names, code written, components created, APIs built — be specific.\n\nIDEAS AND DIRECTION\nAny ideas, suggestions, directions, or approaches that were discussed even if not finalized. Include things that were considered and rejected too, with the reason why.\n\nPENDING AND NEXT STEPS\nEverything that still needs to be done. What was the last thing discussed? What was about to happen next?\n\nKEY DETAILS AND CONTEXT\nAny important user preferences, specific instructions, edge cases, constraints, or anything unique about this project that a new AI picking this up must know.\n\nBe exhaustive. Do not summarize loosely. A coding AI is going to read this and start building without asking the user a single question — so include everything.\n\nCONVERSATION HISTORY:\n${conversationHistory}',
+                provider,
+                preferredProviders: ['claude', 'chatgpt', 'googleai', 'gemini', 'perplexity']
+            });
+            if (result.errorResponse) return result.errorResponse;
+            return toolResponse(result.response);
         } catch (err) {
             return toolError(err);
         }
@@ -912,7 +1229,7 @@ server.tool(
 
             const urlPath = new URL(imageUrl).pathname;
             const urlExt = path.extname(urlPath) || '.png';
-            const tmpFile = path.join(tmpDir, `proxima_img_${Date.now()}${urlExt}`);
+            const tmpFile = path.join(tmpDir, `brainstorm_img_${Date.now()}${urlExt}`);
 
             await new Promise((resolve, reject) => {
                 const file = fs.createWriteStream(tmpFile);
@@ -1176,6 +1493,33 @@ server.tool(
             }
             // Otherwise send normal message
             return toolResponse(await gemini.chat(message));
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+server.tool(
+    'ask_googleai',
+    {
+        message: z.string().describe('Message to send to Google AI'),
+        files: z.array(z.string()).optional().describe('Optional: Array of file paths to upload as attachments')
+    },
+    async ({ message, files }) => {
+        const disabled = checkDisabled('googleai');
+        if (disabled) return disabled;
+        try {
+            if (files && files.length > 0) {
+                for (let i = 0; i < files.length; i++) {
+                    if (i === files.length - 1) {
+                        const result = await googleai.chatWithFile(message, files[i]);
+                        return toolResponse(result.response);
+                    } else {
+                        await googleai.uploadFile(files[i]);
+                    }
+                }
+            }
+            return toolResponse(await googleai.chat(message));
         } catch (err) {
             return toolError(err);
         }
@@ -1601,16 +1945,25 @@ server.tool(
                 return toolResponse({ success: false, error: 'Could not read file or file reference is disabled' });
             }
 
-            const focusText = focus ? ` Focus on: ${focus}.` : '';
-            const message = `${fileContent}\n\nPlease review this code file.${focusText} Identify issues, suggest improvements, and follow best practices.`;
-
-            const response = await providersById[useProvider].chat(message);
+            const result = await renderAndRunSkill({
+                skillName: 'code_review',
+                variables: {
+                    desc: joinPromptSections(
+                        focus ? `Focus area:\n${focus}` : '',
+                        fileContent
+                    )
+                },
+                fallbackText: 'Review this code for bugs, improvements, and best practices:\n\n${desc}',
+                provider: useProvider,
+                preferredProviders: ['claude', 'chatgpt', 'googleai', 'gemini', 'perplexity']
+            });
+            if (result.errorResponse) return result.errorResponse;
 
             return toolResponse({
                 success: true,
                 provider: useProvider,
                 filePath,
-                review: response
+                review: result.response
             });
         } catch (err) {
             return toolError(err);
@@ -1625,7 +1978,7 @@ server.tool(
     async () => {
         try {
             const result = await ipcClient.send('showWindow');
-            return toolResponse({ success: true, message: 'Agent Hub window is now visible' });
+            return toolResponse({ success: true, message: `${APP_NAME} window is now visible` });
         } catch (err) {
             return toolError(err);
         }
@@ -1638,7 +1991,7 @@ server.tool(
     async () => {
         try {
             const result = await ipcClient.send('hideWindow');
-            return toolResponse({ success: true, message: 'Agent Hub window is now hidden (running in background)' });
+            return toolResponse({ success: true, message: `${APP_NAME} window is now hidden (running in background)` });
         } catch (err) {
             return toolError(err);
         }
@@ -1668,8 +2021,8 @@ server.tool(
                 success: true,
                 headlessMode: enabled,
                 message: enabled
-                    ? 'Headless mode enabled - Agent Hub runs in background, MCP still works'
-                    : 'Headless mode disabled - Agent Hub window visible'
+                    ? `Headless mode enabled - ${APP_NAME} runs in background, MCP still works`
+                    : `Headless mode disabled - ${APP_NAME} window visible`
             });
         } catch (err) {
             return toolError(err);
@@ -1719,7 +2072,7 @@ server.tool(
 server.tool(
     'init_provider',
     {
-        provider: z.string().describe('Provider ID or alias to initialize inside Proxima')
+        provider: z.string().describe(`Provider ID or alias to initialize inside ${APP_NAME}`)
     },
     async ({ provider }) => {
         try {
@@ -1763,6 +2116,26 @@ server.tool(
                     };
                 })()
             `);
+            const challengeResult = await providerClient.executeScript(`
+                (function() {
+                    const hasCloudflareChallenge = !!document.querySelector(
+                        'iframe[src*="challenges.cloudflare.com" i], script[src*="challenges.cloudflare.com" i], .cf-turnstile, [name="cf-turnstile-response"], #challenge-form, #challenge-stage, #challenge-running, [data-ray], [class*="challenge-platform" i]'
+                    ) || /\\/cdn-cgi\\/challenge-platform|challenges\\.cloudflare\\.com/i.test(window.location.href || '');
+
+                    if (hasCloudflareChallenge) {
+                        return { detected: true, kind: 'cloudflare' };
+                    }
+
+                    const hasHumanVerification = !!document.querySelector(
+                        'iframe[src*="captcha" i], iframe[src*="challenge" i], iframe[src*="recaptcha" i], iframe[src*="arkoselabs" i], [id*="captcha" i], [class*="captcha" i], [data-testid*="captcha" i]'
+                    );
+
+                    return {
+                        detected: hasHumanVerification,
+                        kind: hasHumanVerification ? 'human_verification' : null
+                    };
+                })()
+            `).catch(() => ({ result: { detected: false, kind: null } }));
 
             return toolResponse({
                 success: true,
@@ -1770,7 +2143,8 @@ server.tool(
                 label: formatProviderLabel(providerId),
                 loggedIn,
                 typing,
-                page: pageResult.result || pageResult
+                page: pageResult.result || pageResult,
+                challenge: challengeResult.result || challengeResult
             });
         } catch (err) {
             return toolError(err);
@@ -1875,39 +2249,62 @@ server.tool(
 
 // --- Resources (MCP compat) ---
 
-// Register empty resources list to prevent "Method not found" error
-server.resource(
-    'status',
-    'proxima://status',
-    async (uri) => {
-        const enabled = getEnabledProviders();
-        return {
-            contents: [{
-                uri: uri.href,
-                mimeType: 'application/json',
-                text: JSON.stringify({
-                    server: 'Proxima MCP Server',
-                    version: '3.5.2',
-                    enabledProviders: Array.from(enabled),
-                    connected: ipcClient.connected
-                }, null, 2)
-            }]
-        };
-    }
-);
+function buildSkillsResource(uri) {
+    refreshSkillRegistry();
+    return {
+        contents: [{
+            uri: uri.href,
+            mimeType: 'application/json',
+            text: JSON.stringify({
+                ...getSkillRegistrySummary({ includeTemplate: true })
+            }, null, 2)
+        }]
+    };
+}
+
+function buildStatusResource(uri) {
+    const enabled = getEnabledProviders();
+    return {
+        contents: [{
+            uri: uri.href,
+            mimeType: 'application/json',
+            text: JSON.stringify({
+                server: `${APP_NAME} MCP Server`,
+                version: VERSION,
+                enabledProviders: Array.from(enabled),
+                connected: ipcClient.connected
+            }, null, 2)
+        }]
+    };
+}
+
+server.resource('skills', 'brainstorm://skills', async (uri) => buildSkillsResource(uri));
+server.resource('skills_legacy', 'proxima://skills', async (uri) => buildSkillsResource(uri));
+server.resource('status', 'brainstorm://status', async (uri) => buildStatusResource(uri));
+server.resource('status_legacy', 'proxima://status', async (uri) => buildStatusResource(uri));
 
 // --- Start ---
 
 async function main() {
-    console.error('[MCP] Agent Hub MCP Server v3.0 starting...');
-    console.error('[MCP] Connecting to Agent Hub on port', IPC_PORT);
+    console.error(`[MCP] ${APP_NAME} MCP Server v${VERSION} starting...`);
+    console.error(`[MCP] Connecting to ${APP_NAME} on port`, IPC_PORT);
+    refreshSkillRegistry();
+    const skillSummary = getSkillRegistrySummary();
+    console.error(`[MCP] Loaded ${skillSummary.skills.length} skills from ${skillSummary.directory}`);
+    console.error(
+        '[MCP] Skills:',
+        skillSummary.skills.map((skill) => {
+            const variables = skill.variables.length > 0 ? ` [${skill.variables.join(', ')}]` : '';
+            return `${skill.name}${variables}`;
+        }).join(', ') || '(none)'
+    );
 
     try {
         await ipcClient.connect();
-        console.error('[MCP] Connected to Agent Hub successfully');
+        console.error(`[MCP] Connected to ${APP_NAME} successfully`);
     } catch (e) {
-        console.error('[MCP] Warning: Could not connect to Agent Hub:', e.message);
-        console.error('[MCP] Make sure Agent Hub is running');
+        console.error(`[MCP] Warning: Could not connect to ${APP_NAME}:`, e.message);
+        console.error(`[MCP] Make sure ${APP_NAME} is running`);
     }
 
     const transport = new StdioServerTransport();
