@@ -112,7 +112,7 @@ class IPCClient {
                     this.pendingRequests.delete(requestId);
                     reject(new Error('Request timeout'));
                 }
-            }, 120000);
+            }, 300000);
         });
     }
 

@@ -760,7 +760,7 @@ async function sendMessageToProvider(provider, message, forceDOM = false) {
 
     switch (provider) {
         case 'perplexity':
-            return await sendToPerplexity(webContents, message);
+            return await sendToPerplexity(webContents, message, options);
         case 'chatgpt':
             return await sendToChatGPT(webContents, message);
         case 'claude':
@@ -772,7 +772,7 @@ async function sendMessageToProvider(provider, message, forceDOM = false) {
     }
 }
 
-async function sendToPerplexity(webContents, message) {
+async function sendToPerplexity(webContents, message, options = {}) {
     console.log('[Perplexity] Sending message...');
 
     // Only navigate to home if NOT on Perplexity at all - STAY in same conversation
@@ -780,6 +780,150 @@ async function sendToPerplexity(webContents, message) {
     if (!currentUrl.includes('perplexity.ai')) {
         await webContents.loadURL('https://www.perplexity.ai/');
         await sleep(2000);
+    }
+
+    // Handle Deep Research toggle if requested
+    console.log('[Perplexity] Options:', JSON.stringify(options));
+    // Handle Deep Research toggle
+    if (options.deepSearch === true) {
+        console.log('[Perplexity] Deep search requested, toggling Deep Research ON...');
+        try {
+            const toggleResult = await webContents.executeJavaScript(`
+                (async () => {
+                  // Visual indicator for debugging
+                  const originalBg = document.body.style.backgroundColor;
+                  document.body.style.backgroundColor = '#1a1a2e'; // Dark blue flash
+                  setTimeout(() => { document.body.style.backgroundColor = originalBg; }, 500);
+
+                  console.log("🔍 Checking if Deep Research is already enabled...");
+
+                  // 1. Pre-check: Look for the active "Deep research" chip in the UI
+                  const activeChips = Array.from(document.querySelectorAll('.chip-label, [role="button"], .inline-flex'));
+                  const isAlreadyEnabled = activeChips.some(el => 
+                    el.textContent.trim().toLowerCase() === 'deep research'
+                  );
+
+                  if (isAlreadyEnabled) {
+                    console.log("✨ Deep Research is already enabled. Skipping...");
+                    return { success: true, alreadyActive: true, method: "chip" };
+                  }
+
+                  // 2. Find the trigger button
+                  const triggerBtn = document.querySelector('button[aria-label="Add files or tools"]') || 
+                                    document.querySelector('button:has(svg[data-icon="plus"])');
+                  if (!triggerBtn) {
+                    console.error("❌ Trigger button not found.");
+                    return { success: false, error: "Trigger button not found" };
+                  }
+
+                  // 3. Open the menu using PointerEvents
+                  console.log("⚙️ Opening menu...");
+                  triggerBtn.focus();
+                  triggerBtn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerType: 'mouse', buttons: 1 }));
+                  triggerBtn.click();
+
+                  // 4. Wait for the menu to appear
+                  await new Promise(r => setTimeout(r, 800));
+
+                  // 5. Find the menu item
+                  const items = Array.from(document.querySelectorAll('[role="menuitemradio"]'));
+                  const target = items.find(el => el.textContent.includes('Deep research'));
+
+                  if (!target) {
+                    console.error("❌ 'Deep research' menu item not found.");
+                    document.body.click();
+                    return { success: false, error: "Deep research item not found" };
+                  }
+
+                  // 6. Double check aria-checked just in case UI chip wasn't found
+                  if (target.getAttribute('aria-checked') === 'true') {
+                    console.log("✅ Deep Research is already ON. Closing menu...");
+                    document.body.click(); 
+                    return { success: true, alreadyActive: true, method: "aria-checked" };
+                  }
+
+                  // 7. Activate
+                  console.log("🚀 Activating Deep Research...");
+                  target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerType: 'mouse', buttons: 1 }));
+                  target.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerType: 'mouse' }));
+                  target.click();
+
+                  console.log("✅ Deep Research enabled!");
+                  return { success: true, toggled: true };
+                })();
+            `);
+            console.log('[Perplexity] Deep Search Toggle ON Result:', JSON.stringify(toggleResult));
+            await sleep(1500); 
+        } catch (e) {
+            console.error('[Perplexity] Deep Search toggle ON failed:', e.message);
+        }
+    } else if (options.deepSearch === false) {
+        console.log('[Perplexity] Deep search NOT requested, ensuring Deep Research is OFF...');
+        try {
+            const toggleResult = await webContents.executeJavaScript(`
+                (async () => {
+                  console.log("🔍 Checking if Deep Research is enabled for removal...");
+
+                  // 1. Find the "Deep research" chip
+                  const chips = Array.from(document.querySelectorAll('.chip-label'));
+                  const deepResearchChip = chips.find(el => 
+                    el.textContent.trim().toLowerCase() === 'deep research'
+                  );
+
+                  if (deepResearchChip) {
+                    console.log("🗑️ Found Deep Research chip. Removing...");
+                    
+                    // 2. Find the removal ("X") button within that chip
+                    const container = deepResearchChip.closest('.inline-flex');
+                    const removeBtn = container ? container.querySelector('button') : null;
+
+                    if (removeBtn) {
+                      removeBtn.click();
+                      console.log("✅ Deep Research disabled via chip removal.");
+                      return { success: true, disabled: true, method: "chip-removal" };
+                    } else {
+                      // Fallback: Click the chip itself if no specific remove button is found
+                      deepResearchChip.click();
+                      console.log("✅ Deep Research disabled via chip click.");
+                      return { success: true, disabled: true, method: "chip-click" };
+                    }
+                  }
+
+                  // 3. Fallback: If no chip is found, check the menu state just in case
+                  const triggerBtn = document.querySelector('button[aria-label="Add files or tools"]') || 
+                                    document.querySelector('button:has(svg[data-icon="plus"])');
+                  if (triggerBtn) {
+                    console.log("📂 Chip not found. Checking menu state...");
+                    
+                    triggerBtn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerType: 'mouse', buttons: 1 }));
+                    triggerBtn.click();
+
+                    await new Promise(r => setTimeout(r, 600));
+
+                    const item = Array.from(document.querySelectorAll('[role="menuitemradio"]'))
+                      .find(el => el.textContent.includes('Deep research'));
+
+                    if (item && item.getAttribute('aria-checked') === 'true') {
+                      console.log("⚙️ Toggling Deep Research OFF via menu...");
+                      item.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerType: 'mouse', buttons: 1 }));
+                      item.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerType: 'mouse' }));
+                      item.click();
+                      console.log("✅ Deep Research disabled via menu.");
+                      return { success: true, disabled: true, method: "menu-toggle" };
+                    } else {
+                      console.log("ℹ️ Deep Research was already disabled.");
+                      document.body.click();
+                      return { success: true, alreadyDisabled: true };
+                    }
+                  }
+                  return { success: true, noActionNeeded: true };
+                })();
+            `);
+            console.log('[Perplexity] Deep Search Toggle OFF Result:', JSON.stringify(toggleResult));
+            await sleep(1000);
+        } catch (e) {
+            console.error('[Perplexity] Deep Search toggle OFF failed:', e.message);
+        }
     }
 
     // IMPORTANT: Capture the OLD response fingerprint BEFORE sending new message
@@ -1461,7 +1605,7 @@ async function getProviderResponse(provider, customSelector = null) {
         let stableCount = 0;
         // Perplexity math/LaTeX renders in stages — need more stability checks
         const STABLE_THRESHOLD = provider === 'perplexity' ? 5 : 3;
-        const MAX_POLLS = (provider === 'claude' || provider === 'perplexity') ? 60 : 40;
+        const MAX_POLLS = (provider === 'claude' || provider === 'perplexity') ? 600 : 40;
         let foundNewResponse = false;
 
 
@@ -1471,7 +1615,15 @@ async function getProviderResponse(provider, customSelector = null) {
             (function() {
                 const host = window.location.host;
                 
-                // DOM to Markdown Converter
+                // AUTO-EXPAND: For Perplexity Deep Research reports
+                if (host.includes('perplexity')) {
+                    const expandBtns = Array.from(document.querySelectorAll('button'))
+                        .filter(b => b.textContent.includes('Show full report') || b.textContent.includes('Expand report'));
+                    if (expandBtns.length > 0) {
+                        expandBtns[expandBtns.length - 1].click();
+                        console.log('[Proxima] Clicking Expand Report');
+                    }
+                }
                 const NL = String.fromCharCode(10);  // Actual newline character
                 
                 function domToMarkdown(element) {
@@ -1675,28 +1827,21 @@ async function getProviderResponse(provider, customSelector = null) {
                     }
                 }
                 
-                // Perplexity specific - Capture the FULL last/newest answer
+                // Perplexity specific - Capture the FULL last turn (User prompt -> Assistant Report -> Summary)
                 if (host.includes('perplexity')) {
-                    // Get all prose blocks
-                    const allProseBlocks = Array.from(document.querySelectorAll('[class*="prose"]:not(.prose-sm)'))
-                        .filter(block => {
-                            const text = block.textContent.trim();
-                            return text.length > 3 && 
-                                   !text.toLowerCase().includes('perplexity pro') &&
-                                   !text.includes('Ask anything') &&
-                                   !text.includes('Ask a follow-up') &&
-                                   !text.includes('Attach');
-                        });
+                    const articles = Array.from(document.querySelectorAll('article'));
+                    let lastTurnIndex = -1;
                     
-                    if (allProseBlocks.length > 0) {
-                        // Get the LAST prose block
-                        const lastBlock = allProseBlocks[allProseBlocks.length - 1];
-                        
-                        // Go UP to find the largest container that is still just ONE answer
-                        let answerContainer = lastBlock;
-                        let bestContainer = lastBlock;
-                        let bestLength = lastBlock.textContent.length;
-                        let parent = lastBlock.parentElement;
+                    // Find the last article that looks like a USER message
+                    // (User messages usually don't have .prose or have specific alignment/icons)
+                    for (let i = articles.length - 1; i >= 0; i--) {
+                        const isUser = articles[i].querySelector('[data-testid="user-message"]') || 
+                                       articles[i].innerText.includes('Ask a follow-up') === false && 
+                                       articles[i].querySelector('img[src*="user"], .user-icon');
+                        // Simple fallback: look for the last article that DOES NOT contain the "Answer" header/icon
+                        const isAssistant = articles[i].innerText.includes('Answer') || 
+                                            articles[i].querySelector('svg[data-testid="logo"]') ||
+                                            articles[i].querySelector('.prose');
                         
                         for (let i = 0; i < 10 && parent; i++) {
                             // Stop conditions — only stop at true page boundaries
@@ -1713,15 +1858,47 @@ async function getProviderResponse(provider, customSelector = null) {
                             
                             parent = parent.parentElement;
                         }
-                        
-                        // Convert to markdown
-                        const markdown = cleanMarkdown(domToMarkdown(bestContainer));
-                        if (markdown && markdown.length > 5) {
-                            return markdown;
-                        }
                     }
+
+                    // If we found a user message, capture everything from that point forward
+                    if (lastTurnIndex !== -1) {
+                        let fullTurnMarkdown = '';
+                        for (let i = lastTurnIndex + 1; i < articles.length; i++) {
+                            fullTurnMarkdown += domToMarkdown(articles[i]) + NL + NL + '---' + NL + NL;
+                        }
+                        
+                        // Also check for any standalone report containers that might not be in an <article>
+                        const reports = document.querySelectorAll('[class*="report"], [class*="document"], [class*="file-block"]');
+                        reports.forEach(r => {
+                            const md = domToMarkdown(r);
+                            if (md.length > 500 && !fullTurnMarkdown.includes(md.substring(0, 50))) {
+                                fullTurnMarkdown += '# Deep Research Report' + NL + NL + md + NL + NL + '---' + NL + NL;
+                            }
+                        });
+
+                        if (fullTurnMarkdown.length > 100) return cleanMarkdown(fullTurnMarkdown);
+                    }
+
+                    // Fallback to the previous "last article + report" logic if turn detection failed
+                    const lastArticle = articles[articles.length - 1];
+                    let articleMarkdown = lastArticle ? cleanMarkdown(domToMarkdown(lastArticle)) : '';
                     
-                    return '';
+                    const reportContainers = document.querySelectorAll('[class*="report"], [class*="document"], [class*="file-block"]');
+                    let reportMarkdown = '';
+                    if (reportContainers.length > 0) {
+                        let bestReport = null;
+                        let maxLen = 0;
+                        reportContainers.forEach(c => {
+                            const len = c.textContent.length;
+                            if (len > maxLen) { maxLen = len; bestReport = c; }
+                        });
+                        if (bestReport) reportMarkdown = cleanMarkdown(domToMarkdown(bestReport));
+                    }
+
+                    if (reportMarkdown && articleMarkdown && !articleMarkdown.includes(reportMarkdown.substring(0, 50))) {
+                         return articleMarkdown + NL + NL + '---' + NL + NL + '# Deep Research Report' + NL + NL + reportMarkdown;
+                    }
+                    return articleMarkdown || reportMarkdown || '';
                 }
                 
                 // Claude specific - handles normal text AND artifact/code responses
@@ -2268,6 +2445,15 @@ async function isAITyping(provider) {
                             return { isTyping: true, provider: 'perplexity' };
                         }
                     }
+
+                    // 5. Deep Research specific indicators
+                    // We check for text that indicates active research or report generation
+                    const bodyText = document.body.innerText;
+                    const isResearching = bodyText.includes('Deep research in progress') || 
+                                          bodyText.includes('Researching...') ||
+                                          bodyText.includes('Thinking...') ||
+                                          bodyText.includes('Sourcing...') ||
+                                          bodyText.includes('Generating report');
                     
                     // 6. SVG animation inside answer area only
                     if (answerArea) {
@@ -2277,6 +2463,7 @@ async function isAITyping(provider) {
                         }
                     }
                 }
+
                 
                 // Gemini typing detection — check response completion via action buttons
                 if (host.includes('gemini') || host.includes('google')) {
