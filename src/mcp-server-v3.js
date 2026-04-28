@@ -319,7 +319,7 @@ class AIProvider {
     }
 
     // Execute the actual chat request — called inside the queue
-    async _doChat(message) {
+    async _doChat(message, options = {}) {
         await this.ensureInitialized();
 
         // DESYNC FIX: Wait for any ongoing typing to stop before sending new message
@@ -335,7 +335,7 @@ class AIProvider {
         }
 
         console.error(`[${this.name}] Sending message...`);
-        await this.ipc.send('sendMessage', this.name, { message });
+        await this.ipc.send('sendMessage', this.name, { message, ...options });
 
         console.error(`[${this.name}] Waiting for response (with typing detection)...`);
         const result = await this.ipc.send('getResponseWithTyping', this.name, {});
@@ -347,7 +347,7 @@ class AIProvider {
         return result.response || 'No response received';
     }
 
-    async chat(message, useCache = true) {
+    async chat(message, useCache = true, options = {}) {
         // Cache check runs OUTSIDE queue — instant return, no waiting
         if (useCache && this.cache.has(message)) {
             const cached = this.cache.get(message);
@@ -366,7 +366,7 @@ class AIProvider {
 
         const responsePromise = this._queue.then(async () => {
             console.error(`[${this.name}] Processing request (${position} of ${this._queueLength})...`);
-            const response = await this._doChat(message);
+            const response = await this._doChat(message, options);
             this.cache.set(message, { response, time: Date.now() });
             this._queueLength--;
             return response;
@@ -561,7 +561,12 @@ server.tool(
         if (p.name === 'perplexity') {
             await new Promise(r => setTimeout(r, 5000));
             const fullQuery = buildMessageWithFiles(query, files);
-            return toolResponse(await p.instance.chat(fullQuery, false, { deepSearch: true }));
+            try {
+                return toolResponse(await p.instance.chat(fullQuery, false, { deepSearch: true }));
+            } catch (apiErr) {
+                console.error('[proxima_deep_search] API failed, falling back to DOM: ' + apiErr.message);
+                return toolResponse(await p.instance.chat(fullQuery, false, { deepSearch: true, forceDOM: true }));
+            }
         }
         
         try {
@@ -614,8 +619,9 @@ server.tool(
         
         try {
             return toolResponse(await perplexity.search(`Provide a comprehensive, detailed answer with sources: ${query}`, true, { deepSearch: false }));
-        } catch (err) {
-            return toolError(err);
+        } catch (apiErr) {
+            console.error('[proxima_pro_search] API failed, falling back to DOM: ' + apiErr.message);
+            return toolResponse(await perplexity.search(`Provide a comprehensive, detailed answer with sources: ${query}`, true, { deepSearch: false, forceDOM: true }));
         }
     }
 );
@@ -1398,8 +1404,9 @@ server.tool(
         try {
             const fullMessage = buildMessageWithFiles(message, files);
             return toolResponse(await perplexity.chat(fullMessage, true, { deepSearch: false }));
-        } catch (err) {
-            return toolError(err);
+        } catch (apiErr) {
+            console.error('[proxima_ask_perplexity] API failed, falling back to DOM: ' + apiErr.message);
+            return toolResponse(await perplexity.chat(fullMessage, true, { deepSearch: false, forceDOM: true }));
         }
     }
 );
