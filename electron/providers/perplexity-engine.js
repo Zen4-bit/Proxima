@@ -10,8 +10,8 @@
     var TIMEOUT = 600000;
     var _sessionToken = null;
     var _lastBackendUuid = null;
-    var _turnCount = 0;
-    var MAX_TURNS_BEFORE_NEW_CHAT = 20;
+    var _totalTokens = 0;
+    var MAX_TOKENS_BEFORE_NEW_CHAT = 180000;
 
     // ─── Session Token ──────────────────────────────
 
@@ -145,6 +145,24 @@
             _lastBackendUuid = backendUuid;
         }
 
+        // Track token usage if provided in response
+        if (parsed.usage && parsed.usage.total_tokens) {
+            _totalTokens += parsed.usage.total_tokens;
+            console.log('[Proxima Perplexity] Token usage: ' + _totalTokens + ' (this turn: ' + parsed.usage.total_tokens + ')');
+        } else {
+            // Estimate tokens from character count (~4 chars per token)
+            if (answer.length > 0) {
+                var estimatedTokens = Math.floor(answer.length / 4);
+                _totalTokens += estimatedTokens;
+            }
+        }
+
+        // Check if we should reset due to token limit
+        if (_totalTokens >= MAX_TOKENS_BEFORE_NEW_CHAT) {
+            console.log('[Proxima Perplexity] Token limit reached (' + _totalTokens + '), auto-resetting conversation');
+            _totalTokens = 0;
+            _lastBackendUuid = null;
+        }
 
         answer = answer.replace(/\[\d+\]/g, '').trim();
 
@@ -240,13 +258,6 @@
             throw new Error('Perplexity returned empty response');
         }
 
-        _turnCount++;
-        if (_turnCount >= MAX_TURNS_BEFORE_NEW_CHAT) {
-            console.log('[Proxima Perplexity] Reached ' + MAX_TURNS_BEFORE_NEW_CHAT + ' turns, auto-resetting conversation');
-            _turnCount = 0;
-            _lastBackendUuid = null;
-        }
-
         return result;
     }
 
@@ -254,7 +265,7 @@
     function newConversation() {
         _lastBackendUuid = null;
         _sessionToken = null;
-        _turnCount = 0;
+        _totalTokens = 0;
         console.log('[Proxima Perplexity] Conversation reset');
     }
 
