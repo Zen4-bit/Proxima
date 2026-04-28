@@ -1555,7 +1555,7 @@ async function getProviderResponse(provider, customSelector = null) {
 
             if (typingDetected) {
                 console.log(`[getProviderResponse] ${provider}: AI still typing, waiting...`);
-                const maxTypingWait = (provider === 'claude') ? 600 : 120;
+                const maxTypingWait = (provider === 'claude' || provider === 'perplexity') ? 600 : 120;
                 let lastResponseSnap = '';
                 let stableResponseCount = 0;
                 for (let i = 0; i < maxTypingWait; i++) {

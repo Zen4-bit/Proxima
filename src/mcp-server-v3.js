@@ -106,13 +106,13 @@ class IPCClient {
 
             this.socket.write(JSON.stringify(request) + '\n');
 
-            // 2 min timeout for file uploads
+            // Timeout after 10 minutes
             setTimeout(() => {
                 if (this.pendingRequests.has(requestId)) {
                     this.pendingRequests.delete(requestId);
                     reject(new Error('Request timeout'));
                 }
-            }, 300000);
+            }, 600000);
         });
     }
 
