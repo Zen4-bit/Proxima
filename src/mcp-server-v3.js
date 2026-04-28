@@ -589,15 +589,20 @@ server.tool(
         const p = resolveProvider(providerName, 'research');
         if (!p) return toolResponse('No providers available. Enable at least one provider.');
         
+        const fullQuery = buildMessageWithFiles(query, files);
+        
         // If using Perplexity, enable Deep Research mode and wait for previous responses
         if (p.name === 'perplexity') {
             await new Promise(r => setTimeout(r, 5000));
-            const fullQuery = buildMessageWithFiles(query, files);
-            return toolResponse(await p.instance.chat(fullQuery, false, { deepSearch: true }));
+            try {
+                return toolResponse(await p.instance.chat(fullQuery, false, { deepSearch: true }));
+            } catch (apiErr) {
+                console.error('[deep_search] API failed, falling back to DOM: ' + apiErr.message);
+                return toolResponse(await p.instance.chat(fullQuery, false, { deepSearch: true, forceDOM: true }));
+            }
         }
         
         try {
-            const fullQuery = buildMessageWithFiles(query, files);
             return toolResponse(await p.instance.chat(fullQuery));
         } catch (err) {
             return toolError(err);
