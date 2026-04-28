@@ -1379,7 +1379,7 @@ server.tool(
         if (disabled) return disabled;
         try {
             const fullMessage = buildMessageWithFiles(message, files);
-            return toolResponse(await perplexity.chat(fullMessage));
+            return toolResponse(await perplexity.chat(fullMessage, true, { deepSearch: false }));
         } catch (err) {
             return toolError(err);
         }
@@ -1397,7 +1397,7 @@ server.tool(
         if (disabled) return disabled;
         try {
             const fullMessage = buildMessageWithFiles(message, files);
-            return toolResponse(await perplexity.chat(fullMessage));
+            return toolResponse(await perplexity.chat(fullMessage, true, { deepSearch: false }));
         } catch (err) {
             return toolError(err);
         }
