@@ -7,7 +7,7 @@
 (function () {
     if (window.__proximaPerplexity) return;
 
-    var TIMEOUT = 360000;
+    var TIMEOUT = 600000;
     var _sessionToken = null;
     var _lastBackendUuid = null;
 
