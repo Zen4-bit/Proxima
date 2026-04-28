@@ -557,9 +557,11 @@ server.tool(
         const p = resolveProvider(providerName, 'research');
         if (!p) return toolResponse('No providers available. Enable at least one provider.');
         
-        // If using Perplexity, wait 5 seconds before sending to let any previous responses complete
+        // If using Perplexity, enable Deep Research mode and wait for previous responses
         if (p.name === 'perplexity') {
             await new Promise(r => setTimeout(r, 5000));
+            const fullQuery = buildMessageWithFiles(query, files);
+            return toolResponse(await p.instance.chat(fullQuery, false, { deepSearch: true }));
         }
         
         try {
@@ -582,9 +584,11 @@ server.tool(
         const p = resolveProvider(providerName, 'research');
         if (!p) return toolResponse('No providers available. Enable at least one provider.');
         
-        // If using Perplexity, wait 5 seconds before sending to let any previous responses complete
+        // If using Perplexity, enable Deep Research mode and wait for previous responses
         if (p.name === 'perplexity') {
             await new Promise(r => setTimeout(r, 5000));
+            const fullQuery = buildMessageWithFiles(query, files);
+            return toolResponse(await p.instance.chat(fullQuery, false, { deepSearch: true }));
         }
         
         try {
