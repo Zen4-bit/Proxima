@@ -10,6 +10,8 @@
     var TIMEOUT = 600000;
     var _sessionToken = null;
     var _lastBackendUuid = null;
+    var _turnCount = 0;
+    var MAX_TURNS_BEFORE_NEW_CHAT = 20;
 
     // ─── Session Token ──────────────────────────────
 
@@ -238,6 +240,13 @@
             throw new Error('Perplexity returned empty response');
         }
 
+        _turnCount++;
+        if (_turnCount >= MAX_TURNS_BEFORE_NEW_CHAT) {
+            console.log('[Proxima Perplexity] Reached ' + MAX_TURNS_BEFORE_NEW_CHAT + ' turns, auto-resetting conversation');
+            _turnCount = 0;
+            _lastBackendUuid = null;
+        }
+
         return result;
     }
 
@@ -245,6 +254,7 @@
     function newConversation() {
         _lastBackendUuid = null;
         _sessionToken = null;
+        _turnCount = 0;
         console.log('[Proxima Perplexity] Conversation reset');
     }
 
