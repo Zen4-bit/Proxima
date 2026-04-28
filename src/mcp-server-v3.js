@@ -549,7 +549,7 @@ function checkDisabled(providerName) {
 server.tool(
     'deep_search',
     {
-        query: z.string().describe('Search query or research question. IMPORTANT: Do NOT call this tool in parallel with itself or other search tools - call sequentially and wait for each response.'),
+        query: z.string().describe('Search query for deep research. IMPORTANT: Perplexity does not support parallelization - combine all queries into one prompt, or call sequentially and wait for each response before calling again.'),
         files: z.array(z.string()).optional().describe('Optional: file paths to include as context. Supports line ranges like "path/file.js:10-50". For large files, always specify relevant line ranges only.'),
         provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select best available')
     },
@@ -565,6 +565,26 @@ server.tool(
         try {
             const fullQuery = buildMessageWithFiles(query, files);
             return toolResponse(await p.instance.chat(fullQuery));
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+server.tool(
+    'pro_search',
+    {
+        query: z.string().describe('Query for detailed Pro search. IMPORTANT: Perplexity does not support parallelization - combine all queries into one prompt, or call sequentially and wait for each response before calling again.')
+    },
+    async ({ query }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
+        
+        // Wait 5 seconds before sending to let any previous responses complete
+        await new Promise(r => setTimeout(r, 5000));
+        
+        try {
+            return toolResponse(await perplexity.search(`Provide a comprehensive, detailed answer with sources: ${query}`, true, { deepSearch: false }));
         } catch (err) {
             return toolError(err);
         }
