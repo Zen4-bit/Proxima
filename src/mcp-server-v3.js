@@ -198,15 +198,21 @@ function readFileContents(filePaths) {
 
     for (const fileEntry of filePaths) {
         try {
-            // Parse line range syntax: "path/to/file.js:10-50"
+            // Parse line range syntax: "path/to/file.js:10-50" or "C:\path\file.js:10-50"
             let actualPath = fileEntry;
             let startLine = null;
             let endLine = null;
-            const rangeMatch = fileEntry.match(/^(.+):(\d+)-(\d+)$/);
-            if (rangeMatch) {
-                actualPath = rangeMatch[1];
-                startLine = parseInt(rangeMatch[2]);
-                endLine = parseInt(rangeMatch[3]);
+            
+            // Handle Windows paths with drive letters (C:) - match last colon for line range
+            const lastColonIndex = fileEntry.lastIndexOf(':');
+            if (lastColonIndex > 1) { // >1 to skip drive letter colon
+                const potentialRange = fileEntry.substring(lastColonIndex + 1);
+                const rangeMatch = potentialRange.match(/^(\d+)-(\d+)$/);
+                if (rangeMatch) {
+                    actualPath = fileEntry.substring(0, lastColonIndex);
+                    startLine = parseInt(rangeMatch[1]);
+                    endLine = parseInt(rangeMatch[2]);
+                }
             }
 
             if (!fs.existsSync(actualPath)) {
