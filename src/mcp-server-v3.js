@@ -549,13 +549,19 @@ function checkDisabled(providerName) {
 server.tool(
     'deep_search',
     {
-        query: z.string().describe('Search query or research question'),
+        query: z.string().describe('Search query or research question. IMPORTANT: Do NOT call this tool in parallel with itself or other search tools - call sequentially and wait for each response.'),
         files: z.array(z.string()).optional().describe('Optional: file paths to include as context. Supports line ranges like "path/file.js:10-50". For large files, always specify relevant line ranges only.'),
         provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select best available')
     },
     async ({ query, files, provider: providerName }) => {
         const p = resolveProvider(providerName, 'research');
         if (!p) return toolResponse('No providers available. Enable at least one provider.');
+        
+        // If using Perplexity, wait 5 seconds before sending to let any previous responses complete
+        if (p.name === 'perplexity') {
+            await new Promise(r => setTimeout(r, 5000));
+        }
+        
         try {
             const fullQuery = buildMessageWithFiles(query, files);
             return toolResponse(await p.instance.chat(fullQuery));
