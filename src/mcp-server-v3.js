@@ -608,20 +608,23 @@ server.tool(
 server.tool(
     'proxima_pro_search',
     {
-        query: z.string().describe('Query for detailed Pro search. IMPORTANT: Perplexity does not support parallelization - combine all queries into one prompt, or call sequentially and wait for each response before calling again.')
+        query: z.string().describe('Query for detailed Pro search. IMPORTANT: Perplexity does not support parallelization - combine all queries into one prompt, or call sequentially and wait for each response before calling again.'),
+        files: z.array(z.string()).optional().describe('Optional: file paths to include as context. Supports line ranges like "path/file.js:10-50". For large files, always specify relevant line ranges only.')
     },
-    async ({ query }) => {
+    async ({ query, files }) => {
         const disabled = checkDisabled('perplexity');
         if (disabled) return disabled;
         
         // Wait 5 seconds before sending to let any previous responses complete
         await new Promise(r => setTimeout(r, 5000));
         
+        const fullQuery = buildMessageWithFiles(query, files);
+        
         try {
-            return toolResponse(await perplexity.search(`Provide a comprehensive, detailed answer with sources: ${query}`, true, { deepSearch: false }));
+            return toolResponse(await perplexity.search(`Provide a comprehensive, detailed answer with sources: ${fullQuery}`, true, { deepSearch: false }));
         } catch (apiErr) {
             console.error('[proxima_pro_search] API failed, falling back to DOM: ' + apiErr.message);
-            return toolResponse(await perplexity.search(`Provide a comprehensive, detailed answer with sources: ${query}`, true, { deepSearch: false, forceDOM: true }));
+            return toolResponse(await perplexity.search(`Provide a comprehensive, detailed answer with sources: ${fullQuery}`, true, { deepSearch: false, forceDOM: true }));
         }
     }
 );
@@ -629,17 +632,20 @@ server.tool(
 server.tool(
     'pro_search',
     {
-        query: z.string().describe('Query for detailed Pro search. IMPORTANT: Perplexity does not support parallelization - combine all queries into one prompt, or call sequentially and wait for each response before calling again.')
+        query: z.string().describe('Query for detailed Pro search. IMPORTANT: Perplexity does not support parallelization - combine all queries into one prompt, or call sequentially and wait for each response before calling again.'),
+        files: z.array(z.string()).optional().describe('Optional: file paths to include as context. Supports line ranges like "path/file.js:10-50". For large files, always specify relevant line ranges only.')
     },
-    async ({ query }) => {
+    async ({ query, files }) => {
         const disabled = checkDisabled('perplexity');
         if (disabled) return disabled;
         
         // Wait 5 seconds before sending to let any previous responses complete
         await new Promise(r => setTimeout(r, 5000));
         
+        const fullQuery = buildMessageWithFiles(query, files);
+        
         try {
-            return toolResponse(await perplexity.search(`Provide a comprehensive, detailed answer with sources: ${query}`, true, { deepSearch: false }));
+            return toolResponse(await perplexity.search(`Provide a comprehensive, detailed answer with sources: ${fullQuery}`, true, { deepSearch: false }));
         } catch (err) {
             return toolError(err);
         }
