@@ -547,6 +547,31 @@ function checkDisabled(providerName) {
 // --- Search tools ---
 
 server.tool(
+    'proxima_deep_search',
+    {
+        query: z.string().describe('Search query for deep research. IMPORTANT: Perplexity does not support parallelization - combine all queries into one prompt, or call sequentially and wait for each response before calling again.'),
+        files: z.array(z.string()).optional().describe('Optional: file paths to include as context. Supports line ranges like "path/file.js:10-50". For large files, always specify relevant line ranges only.'),
+        provider: z.string().optional().describe('AI provider to use: chatgpt, claude, gemini, perplexity. Default: auto-select best available')
+    },
+    async ({ query, files, provider: providerName }) => {
+        const p = resolveProvider(providerName, 'research');
+        if (!p) return toolResponse('No providers available. Enable at least one provider.');
+        
+        // If using Perplexity, wait 5 seconds before sending to let any previous responses complete
+        if (p.name === 'perplexity') {
+            await new Promise(r => setTimeout(r, 5000));
+        }
+        
+        try {
+            const fullQuery = buildMessageWithFiles(query, files);
+            return toolResponse(await p.instance.chat(fullQuery));
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+server.tool(
     'deep_search',
     {
         query: z.string().describe('Search query for deep research. IMPORTANT: Perplexity does not support parallelization - combine all queries into one prompt, or call sequentially and wait for each response before calling again.'),
@@ -565,6 +590,26 @@ server.tool(
         try {
             const fullQuery = buildMessageWithFiles(query, files);
             return toolResponse(await p.instance.chat(fullQuery));
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+server.tool(
+    'proxima_pro_search',
+    {
+        query: z.string().describe('Query for detailed Pro search. IMPORTANT: Perplexity does not support parallelization - combine all queries into one prompt, or call sequentially and wait for each response before calling again.')
+    },
+    async ({ query }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
+        
+        // Wait 5 seconds before sending to let any previous responses complete
+        await new Promise(r => setTimeout(r, 5000));
+        
+        try {
+            return toolResponse(await perplexity.search(`Provide a comprehensive, detailed answer with sources: ${query}`, true, { deepSearch: false }));
         } catch (err) {
             return toolError(err);
         }
@@ -1321,6 +1366,24 @@ server.tool(
 
 server.tool(
     'ask_perplexity',
+    {
+        message: z.string().describe('Message to send to Perplexity (best for web search + citations)'),
+        files: z.array(z.string()).optional().describe('Optional: file paths to include as context. Supports line ranges like "path/file.js:10-50". For large files, always specify relevant line ranges only.')
+    },
+    async ({ message, files }) => {
+        const disabled = checkDisabled('perplexity');
+        if (disabled) return disabled;
+        try {
+            const fullMessage = buildMessageWithFiles(message, files);
+            return toolResponse(await perplexity.chat(fullMessage));
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+server.tool(
+    'proxima_ask_perplexity',
     {
         message: z.string().describe('Message to send to Perplexity (best for web search + citations)'),
         files: z.array(z.string()).optional().describe('Optional: file paths to include as context. Supports line ranges like "path/file.js:10-50". For large files, always specify relevant line ranges only.')
