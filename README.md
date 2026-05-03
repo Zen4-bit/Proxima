@@ -11,12 +11,12 @@ Use ChatGPT, Claude, Gemini & Perplexity directly inside your coding tools — t
 <br>
 
 [![Version](https://img.shields.io/badge/version-4.1.0-blue)](https://github.com/Zen4-bit/Proxima/releases)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](https://github.com/Zen4-bit/Proxima/releases)
-[![MCP Tools](https://img.shields.io/badge/MCP_tools-45%2B-green)](https://github.com/Zen4-bit/Proxima#mcp-tools)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](https://github.com/Zen4-bit/Proxima#Install)
+
 [![License](https://img.shields.io/badge/license-Non--Commercial-red)](LICENSE)
 [![Website](https://img.shields.io/badge/Website-proximamcp.in-blue)](https://www.proximamcp.in)
-[![Docs](https://img.shields.io/badge/Docs-Documentation-orange)](https://www.proximamcp.in/documentation)
 [![Stars](https://img.shields.io/github/stars/Zen4-bit/Proxima?style=social)](https://github.com/Zen4-bit/Proxima/stargazers)
+[![Sponsors](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?logo=github)](https://github.com/sponsors/Zen4-bit)
 
 <br>
 
@@ -863,24 +863,21 @@ Proxima/
 
 ---
 
+**Sponsors 💖**
+-
+With ongoing development of Proxima, [![GitHub Sponsors](https://img.shields.io/badge/Sponsoring-%E2%9D%A4-pink?logo=github)](https://github.com/sponsors/Zen4-bit) contributes to maintaining and improving the project on [GitHub](https://github.com/sponsors/Zen4-bit)
+
+
 ## License
 
-Personal, non-commercial use only. See [LICENSE](LICENSE) for details.
+Proxima is licensed for **non-commercial use only**. See [LICENSE](LICENSE) for full terms.
 
 ---
 
 <div align="center">
 
-<br>
-
 **Proxima v4.1.0** — One API, All AI Models ⚡
 
-Made by [Zen4-bit](https://github.com/Zen4-bit)
-
-<br>
-
-If it saved you time, a ⭐ goes a long way.
-
-<br>
+Made by [Zen4-bit](https://github.com/Zen4-bit) · Every ⭐ matters 💕
 
 </div>
