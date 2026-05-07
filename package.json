@@ -23,6 +23,9 @@
         "start": "electron .",
         "mcp": "node src/mcp-server-v3.js",
         "cli": "node cli/proxima-cli.cjs",
+        "dist": "electron-builder --mac --x64",
+        "dist:mac": "electron-builder --mac --x64",
+        "dist:dmg": "electron-builder --mac dmg --x64",
         "build": "electron-builder --win --x64",
         "build:installer": "electron-builder --win --x64 -c.win.target=nsis"
     },
@@ -47,6 +50,20 @@
             "cli/**/*",
             "node_modules/**/*"
         ],
+        "mac": {
+            "target": [
+                {
+                    "target": "zip",
+                    "arch": [
+                        "x64"
+                    ]
+                }
+            ],
+            "icon": "assets/proxima-icon.png",
+            "category": "public.app-category.developer-tools",
+            "identity": null,
+            "artifactName": "${productName}-Mac-Intel-${version}.${ext}"
+        },
         "win": {
             "target": [
                 {
