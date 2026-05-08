@@ -27,5 +27,8 @@ If applicable, add screenshots or terminal output.
 - Node.js version: [e.g. 18.x]
 - Editor: [e.g. Cursor, VS Code, Claude Desktop]
 
+**Possible solution**
+If you have an idea for what might fix this, mention it here (optional).
+
 **Additional context**
 Any other info.
