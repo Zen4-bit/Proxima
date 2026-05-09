@@ -22,6 +22,10 @@ Use ChatGPT, Claude, Gemini & Perplexity directly inside your coding tools — t
 
 [Getting Started](#getting-started) · [CLI](#cli-tool) · [REST API](#rest-api) · [WebSocket](#websocket) · [SDKs](#sdks) · [MCP Tools](#mcp-tools)
 
+<br>
+
+**Languages:** [Roman Urdu/Hinglish](README_rour.md) · [Русский](README_ru.md)
+
 </div>
 
 <br>
@@ -402,8 +406,6 @@ git diff | proxima code review
 # Pass file as context
 proxima ask "What does this do?" --file src/server.js
 ```
-
-<br>
 
 ### Flags
 
