@@ -189,6 +189,30 @@ function pickBestProvider(preferred) {
     return ['claude', 'chatgpt', 'gemini', 'perplexity'].find(p => enabled.includes(p)) || null;
 }
 
+// Normalize a message value to a plain string.
+// Handles: string passthrough, OpenAI content-part arrays, objects with .text, fallback to JSON.stringify
+function normalizeContent(value) {
+    if (typeof value === 'string') return value;
+    if (value == null) return '';
+    if (Array.isArray(value)) {
+        // OpenAI multi-part content: [{ type: "text", text: "..." }, ...]
+        const textPart = value.find(p => p && p.type === 'text' && typeof p.text === 'string');
+        if (textPart) return textPart.text;
+        // Concatenate all text parts if multiple exist, or stringify as fallback
+        const allText = value.filter(p => p && p.type === 'text' && typeof p.text === 'string').map(p => p.text);
+        if (allText.length > 0) return allText.join('\n');
+        return JSON.stringify(value);
+    }
+    if (typeof value === 'object') {
+        // Object with a text field (e.g., { text: "Hello" })
+        if (typeof value.text === 'string') return value.text;
+        // Object with a content field (e.g., { content: "Hello" })
+        if (typeof value.content === 'string') return value.content;
+        return JSON.stringify(value);
+    }
+    return String(value);
+}
+
 function extractMessage(body) {
     // Support multiple formats:
     // 1. OpenAI format: { messages: [{role: "user", content: "Hello"}] }
@@ -200,9 +224,10 @@ function extractMessage(body) {
     if (body.messages && Array.isArray(body.messages)) {
         
         const userMsgs = body.messages.filter(m => m.role === 'user');
-        if (userMsgs.length > 0) return userMsgs[userMsgs.length - 1].content;
+        if (userMsgs.length > 0) return normalizeContent(userMsgs[userMsgs.length - 1].content);
     }
-    return body.message || body.query || body.prompt || body.content || body.text || body.question || null;
+    const raw = body.message || body.query || body.prompt || body.content || body.text || body.question || null;
+    return raw ? normalizeContent(raw) : null;
 }
 
 // ─── Core: Send to Provider with Timing ──────────────────

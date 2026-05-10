@@ -156,6 +156,28 @@ function pickBestProvider(preferred) {
 }
 
 // ─── Message Handler ────────────────────────────────
+
+// Normalize a message value to a plain string.
+// Handles: string passthrough, OpenAI content-part arrays, objects with .text, fallback to JSON.stringify
+function normalizeContent(value) {
+    if (typeof value === 'string') return value;
+    if (value == null) return '';
+    if (Array.isArray(value)) {
+        // OpenAI multi-part content: [{ type: "text", text: "..." }, ...]
+        const textPart = value.find(p => p && p.type === 'text' && typeof p.text === 'string');
+        if (textPart) return textPart.text;
+        const allText = value.filter(p => p && p.type === 'text' && typeof p.text === 'string').map(p => p.text);
+        if (allText.length > 0) return allText.join('\n');
+        return JSON.stringify(value);
+    }
+    if (typeof value === 'object') {
+        if (typeof value.text === 'string') return value.text;
+        if (typeof value.content === 'string') return value.content;
+        return JSON.stringify(value);
+    }
+    return String(value);
+}
+
 async function handleWSMessage(ws, clientId, msg) {
     const { action, id } = msg;
     const requestId = id || `req_${Date.now()}`;
@@ -168,7 +190,8 @@ async function handleWSMessage(ws, clientId, msg) {
     switch (action) {
         case 'ask':
         case 'chat': {
-            const { model = 'auto', message } = msg;
+            const { model = 'auto', message: rawMessage } = msg;
+            const message = normalizeContent(rawMessage);
             if (!message) {
                 sendJSON(ws, { type: 'error', id: requestId, error: 'Missing "message" field' });
                 return;
