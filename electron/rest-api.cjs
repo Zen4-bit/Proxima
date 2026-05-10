@@ -304,6 +304,55 @@ function formatChatResponse(result, model) {
     };
 }
 
+// ─── SSE Streaming Response Format ───────────────────────
+function sendSSE(res, result, model) {
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'X-Powered-By': 'Proxima AI'
+    });
+
+    const id = `proxima-${Date.now()}`;
+    const created = Math.floor(Date.now() / 1000);
+    const providerModel = result.model || model;
+
+    // Send the content as a single chunk (Proxima gets the full response at once)
+    const chunk = {
+        id,
+        object: 'chat.completion.chunk',
+        created,
+        model: providerModel,
+        choices: [{
+            index: 0,
+            delta: { role: 'assistant', content: result.text },
+            finish_reason: null
+        }]
+    };
+    res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+
+    // Send the final chunk with finish_reason
+    const doneChunk = {
+        id,
+        object: 'chat.completion.chunk',
+        created,
+        model: providerModel,
+        choices: [{
+            index: 0,
+            delta: {},
+            finish_reason: 'stop'
+        }]
+    };
+    res.write(`data: ${JSON.stringify(doneChunk)}\n\n`);
+
+    // Send [DONE] marker
+    res.write('data: [DONE]\n\n');
+    res.end();
+}
+
 function formatAllResponse(allResults) {
     const choices = [];
     let i = 0;
@@ -1092,7 +1141,11 @@ async function handleRoute(method, pathname, body, res) {
             try {
                 if (r.mode === 'single') {
                     const result = await queryProvider(r.providers[0], prompt);
-                    sendJSON(res, 200, { ...formatChatResponse(result, r.providers[0]), ...extraFields });
+                    if (body.stream) {
+                        sendSSE(res, result, r.providers[0]);
+                    } else {
+                        sendJSON(res, 200, { ...formatChatResponse(result, r.providers[0]), ...extraFields });
+                    }
                 } else {
                     const multi = await queryMultiple(r.providers, prompt);
                     sendJSON(res, 200, { ...formatAllResponse(multi), ...extraFields });
@@ -1232,7 +1285,11 @@ End with a security score (0-100).`;
                 const result = body.file
                     ? await queryProviderWithFile(provider, message, body.file)
                     : await queryProvider(provider, message);
-                sendJSON(res, 200, formatChatResponse(result, provider));
+                if (body.stream) {
+                    sendSSE(res, result, provider);
+                } else {
+                    sendJSON(res, 200, formatChatResponse(result, provider));
+                }
             } else {
                 const multiResults = await queryMultiple(resolved.providers, message);
                 sendJSON(res, 200, formatAllResponse(multiResults));
