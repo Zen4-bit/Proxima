@@ -6,6 +6,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const sessionStore = require('./session-store.cjs');
 
 
 const _scripts = {};
@@ -89,9 +90,10 @@ async function ensureAPI(provider, webContents) {
  * @param {string} provider
  * @param {object} webContents - Electron webContents
  * @param {string} message
- * @returns {string|null} Response text, or null if unavailable
+ * @param {object|null} context - Conversation context for session routing
+ * @returns {{ text: string, context: object|null }|null} Response object, or null if unavailable
  */
-async function sendViaAPI(provider, webContents, message) {
+async function sendViaAPI(provider, webContents, message, context) {
     // Ensure API is injected
     const ready = await ensureAPI(provider, webContents);
     if (!ready) {
@@ -109,22 +111,34 @@ async function sendViaAPI(provider, webContents, message) {
     const apiObj = sendMap[provider];
     if (!apiObj) return null;
 
-    // Escape message for safe JS injection
+    // Escape message and context for safe JS injection
     const escapedMessage = JSON.stringify(message);
+    const escapedContext = JSON.stringify(context || null);
 
     try {
         console.log(`[ProviderAPI] Sending via ${provider} API...`);
         const startTime = Date.now();
 
         const result = await webContents.executeJavaScript(
-            `window.${apiObj}.send(${escapedMessage})`
+            `window.${apiObj}.send(${escapedMessage}, ${escapedContext})`
         );
 
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        const charCount = result ? result.length : 0;
-        console.log(`[ProviderAPI] ✔ ${provider} API response: ${charCount} chars in ${elapsed}s`);
 
-        return result || null;
+        // Backward compat: if result is a plain string (old engine), wrap it
+        if (typeof result === 'string') {
+            const charCount = result.length;
+            console.log(`[ProviderAPI] ✔ ${provider} API response: ${charCount} chars in ${elapsed}s`);
+            return { text: result, context: null };
+        }
+
+        if (result && typeof result === 'object' && result.text !== undefined) {
+            const charCount = result.text ? result.text.length : 0;
+            console.log(`[ProviderAPI] ✔ ${provider} API response: ${charCount} chars in ${elapsed}s`);
+            return { text: result.text, context: result.context || null };
+        }
+
+        return null;
     } catch (e) {
         console.error(`[ProviderAPI] ✘ ${provider} API error:`, e.message);
         return null;
@@ -166,6 +180,9 @@ async function resetConversation(provider, webContentsGetter) {
                 `if (window.${apiObj} && window.${apiObj}.newConversation) { window.${apiObj}.newConversation(); }`
             );
             console.log(`[ProviderAPI] ✔ Reset conversation for ${p}`);
+
+            sessionStore.clearProvider(p);
+            console.log(`[ProviderAPI] ✔ Cleared session store for ${p}`);
         } catch (e) {
             console.error(`[ProviderAPI] ✘ Failed to reset conversation for ${p}:`, e.message);
         }

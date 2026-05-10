@@ -507,16 +507,16 @@ async function handleMCPRequest(request) {
 
                         const uploadResult = await uploadFileToProvider(provider, data.filePath);
                         await sleep(1000); // Wait for file to attach
-                        const result = await sendMessageToProvider(provider, data.message, data.forceDOM || false);
+                        const result = await sendMessageToProvider(provider, data.message, data.forceDOM || false, data.context || null);
                         return { success: true, provider, result, fileUploaded: uploadResult };
                     } catch (fileErr) {
                         console.error('[MCP] File upload failed:', fileErr.message);
                         // Still send message even if file upload fails
-                        const result = await sendMessageToProvider(provider, data.message, data.forceDOM || false);
+                        const result = await sendMessageToProvider(provider, data.message, data.forceDOM || false, data.context || null);
                         return { success: true, provider, result, fileError: fileErr.message };
                     }
                 } else {
-                    const result = await sendMessageToProvider(provider, data.message, data.forceDOM || false);
+                    const result = await sendMessageToProvider(provider, data.message, data.forceDOM || false, data.context || null);
                     return { success: true, provider, result };
                 }
 
@@ -729,7 +729,7 @@ async function handleMCPRequest(request) {
 
 // Provider-Specific Interaction Functions
 
-async function sendMessageToProvider(provider, message, forceDOM = false) {
+async function sendMessageToProvider(provider, message, forceDOM = false, context = null) {
     const webContents = browserManager.getWebContents(provider);
     if (!webContents) {
         throw new Error(`Provider ${provider} not initialized`);
@@ -739,8 +739,14 @@ async function sendMessageToProvider(provider, message, forceDOM = false) {
     if (!forceDOM) {
         try {
             console.log(`[${provider}] Trying API-first approach...`);
-            const apiResponse = await providerAPI.sendViaAPI(provider, webContents, message);
-            if (apiResponse && apiResponse.length > 0) {
+            const apiResponse = await providerAPI.sendViaAPI(provider, webContents, message, context);
+            if (apiResponse && apiResponse.text && apiResponse.text.length > 0) {
+                console.log(`[${provider}] \u2714 API response captured (${apiResponse.text.length} chars)`);
+                _apiResponseCache[provider] = apiResponse.text;
+                return { response: apiResponse.text, context: apiResponse.context };
+            }
+            // Backward compat: handle old string format
+            if (apiResponse && typeof apiResponse === 'string' && apiResponse.length > 0) {
                 console.log(`[${provider}] \u2714 API response captured (${apiResponse.length} chars)`);
                 _apiResponseCache[provider] = apiResponse;
                 return { response: apiResponse };

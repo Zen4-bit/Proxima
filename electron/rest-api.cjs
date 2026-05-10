@@ -4,6 +4,7 @@
 const http = require('http');
 const { URL } = require('url');
 const { initWebSocket, getWSStats } = require('./ws-server.cjs');
+const sessionStore = require('./session-store.cjs');
 
 // ─── Config ──────────────────────────────────────────────
 const REST_PORT = parseInt(process.env.PROXIMA_REST_PORT) || 3210;
@@ -1223,6 +1224,99 @@ End with a security score (0-100).`;
         }
 
         // ── No function = Normal Chat (default) ──
+        // Session-aware routing when messages array is present
+        if (body.messages && Array.isArray(body.messages) && body.messages.length > 0 && resolved.mode === 'single') {
+            const provider = resolved.providers[0];
+            const fingerprint = sessionStore.computeFingerprint(body.messages);
+            const existingSession = sessionStore.lookup(fingerprint, provider);
+
+            let messageToSend;
+            let sessionContext = null;
+
+            if (existingSession) {
+                // Existing session: send only last user message, no system prompt
+                messageToSend = sessionStore.extractLastUserMessage(body.messages);
+                sessionContext = existingSession;
+            } else {
+                // New session: prepend system prompt if present
+                messageToSend = sessionStore.composeNewSessionMessage(body.messages);
+            }
+
+            if (!messageToSend) return sendError(res, 400, 'No message provided. Use "messages" array or "message" field.');
+
+            try {
+                initProviderStats(provider);
+                const start = Date.now();
+
+                const sendResult = await handleMCPRequest({
+                    action: 'sendMessage', provider, data: { message: messageToSend, context: sessionContext }
+                });
+
+                if (!sendResult.success) throw new Error(sendResult.error || `Failed to send to ${provider}`);
+
+                let responseText = '';
+                let returnedContext = null;
+
+                if (sendResult.result && sendResult.result.response) {
+                    // Check if response is an object with text/context (new format)
+                    if (typeof sendResult.result.response === 'object' && sendResult.result.response.text !== undefined) {
+                        responseText = sendResult.result.response.text;
+                        returnedContext = sendResult.result.response.context || null;
+                    } else {
+                        responseText = sendResult.result.response;
+                    }
+                }
+
+                // If we got context back from the provider, store it
+                if (sendResult.result && sendResult.result.context) {
+                    returnedContext = sendResult.result.context;
+                }
+
+                if (returnedContext) {
+                    sessionStore.store(fingerprint, provider, returnedContext);
+                }
+
+                // Handle expired conversation (stale mapping)
+                if (!responseText && existingSession) {
+                    // Remove stale mapping and retry as new session
+                    sessionStore.remove(fingerprint, provider);
+                    const retryMessage = sessionStore.composeNewSessionMessage(body.messages);
+                    const retryResult = await handleMCPRequest({
+                        action: 'sendMessage', provider, data: { message: retryMessage, context: null }
+                    });
+                    if (!retryResult.success) throw new Error(retryResult.error || `Failed to send to ${provider}`);
+                    if (retryResult.result && retryResult.result.response) {
+                        if (typeof retryResult.result.response === 'object' && retryResult.result.response.text !== undefined) {
+                            responseText = retryResult.result.response.text;
+                            returnedContext = retryResult.result.response.context || null;
+                        } else {
+                            responseText = retryResult.result.response;
+                        }
+                    }
+                    if (retryResult.result && retryResult.result.context) {
+                        returnedContext = retryResult.result.context;
+                    }
+                    if (returnedContext) {
+                        sessionStore.store(fingerprint, provider, returnedContext);
+                    }
+                }
+
+                const elapsed = Date.now() - start;
+                recordCall(provider, elapsed);
+
+                sendJSON(res, 200, formatChatResponse({ text: responseText, model: provider, responseTimeMs: elapsed }, provider));
+            } catch (e) {
+                // If error indicates expired conversation (404/410), remove stale mapping
+                if (existingSession && (e.message.includes('404') || e.message.includes('410'))) {
+                    sessionStore.remove(fingerprint, provider);
+                }
+                recordCall(provider, 0, true);
+                sendError(res, 500, e.message);
+            }
+            return;
+        }
+
+        // Fallback: simple message format (no messages array) or multi-provider
         const message = extractMessage(body);
         if (!message) return sendError(res, 400, 'No message provided. Use "messages" array or "message" field.');
 

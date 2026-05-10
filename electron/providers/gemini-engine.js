@@ -192,7 +192,7 @@
 
     // ─── Send Message ───────────────────────────────
 
-    async function send(message) {
+    async function send(message, context) {
         var tokens = await _getTokens();
         var reqId = Math.floor(900000 * Math.random()) + 100000;
 
@@ -202,11 +202,14 @@
             _reqid: reqId.toString()
         });
 
+        var activeConversationId = (context && context.conversationId) || _conversationId;
+        var activeResponseId = (context && context.responseId) || _responseId;
+        var activeChoiceId = (context && context.choiceId) || _choiceId;
 
-        var conversationContext = [_conversationId, _responseId, _choiceId];
+        var conversationContext = [activeConversationId, activeResponseId, activeChoiceId];
         
-        if (_conversationId) {
-            console.log('[Proxima Gemini] Continuing conversation: ' + _conversationId.substring(0, 20) + '...');
+        if (activeConversationId) {
+            console.log('[Proxima Gemini] Continuing conversation: ' + activeConversationId.substring(0, 20) + '...');
         } else {
             console.log('[Proxima Gemini] Starting new conversation');
         }
@@ -272,7 +275,7 @@
 
             var result = _parseResponse(await res.text());
             clearTimeout(retryTimeoutId);
-            return result;
+            return { text: result, context: { conversationId: _conversationId, responseId: _responseId, choiceId: _choiceId } };
         }
 
         if (!res.ok) {
@@ -283,7 +286,7 @@
 
         var result = _parseResponse(await res.text());
         clearTimeout(timeoutId);
-        return result;
+        return { text: result, context: { conversationId: _conversationId, responseId: _responseId, choiceId: _choiceId } };
     }
 
 

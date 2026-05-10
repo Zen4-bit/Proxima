@@ -89,22 +89,26 @@
     }
 
     // ─── Send Message ───────────────────────────────
-    async function send(message) {
+    async function send(message, context) {
         var orgId = await _getOrgId();
 
+        // Determine which convId to use: provided context or global state
+        var activeConvId = (context && context.convId) || _convId;
+
         // Reuse existing conversation or create new one
-        if (!_convId) {
-            _convId = await _createConversation(orgId, message);
-            console.log('[Proxima Claude] Created new conversation:', _convId);
+        if (!activeConvId) {
+            activeConvId = await _createConversation(orgId, message);
+            _convId = activeConvId; // Also update global for backward compat
+            console.log('[Proxima Claude] Created new conversation:', activeConvId);
         } else {
-            console.log('[Proxima Claude] Continuing conversation:', _convId);
+            console.log('[Proxima Claude] Continuing conversation:', activeConvId);
         }
 
         try {
             var controller = new AbortController();
             var timeoutId = setTimeout(function() { controller.abort(); }, TIMEOUT);
 
-            var res = await fetch('/api/organizations/' + orgId + '/chat_conversations/' + _convId + '/completion', {
+            var res = await fetch('/api/organizations/' + orgId + '/chat_conversations/' + activeConvId + '/completion', {
                 method: 'POST',
                 credentials: 'include',
                 headers: {
@@ -127,12 +131,13 @@
                 // Conversation expired or deleted — create new and retry
                 if (res.status === 404 || res.status === 410) {
                     console.log('[Proxima Claude] Conversation expired, creating new one...');
-                    _convId = await _createConversation(orgId, message);
+                    activeConvId = await _createConversation(orgId, message);
+                    _convId = activeConvId; // Update global state
 
                     var retryController = new AbortController();
                     var retryTimeoutId = setTimeout(function() { retryController.abort(); }, TIMEOUT);
 
-                    res = await fetch('/api/organizations/' + orgId + '/chat_conversations/' + _convId + '/completion', {
+                    res = await fetch('/api/organizations/' + orgId + '/chat_conversations/' + activeConvId + '/completion', {
                         method: 'POST',
                         credentials: 'include',
                         headers: {
@@ -155,7 +160,7 @@
 
                     var result = await _parseStream(res);
                     clearTimeout(retryTimeoutId);
-                    return result;
+                    return { text: result, context: { convId: activeConvId } };
                 }
 
                 if (res.status === 429) throw new Error('Claude rate limited');
@@ -164,7 +169,7 @@
 
             var result = await _parseStream(res);
             clearTimeout(timeoutId);
-            return result;
+            return { text: result, context: { convId: activeConvId } };
         } catch(e) {
             // Reset on conversation-related errors so next call creates fresh
             if (e.message && (e.message.includes('404') || e.message.includes('410'))) {

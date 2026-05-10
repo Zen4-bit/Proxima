@@ -151,12 +151,13 @@
 
     // ─── Send Message ───────────────────────────────
 
-    async function send(message) {
+    async function send(message, context) {
+        var activeLastBackendUuid = (context && context.lastBackendUuid) || _lastBackendUuid;
         var sessionToken = _getSessionToken();
         var frontendUuid = _uuid();
 
         var params = {
-            last_backend_uuid: _lastBackendUuid || _uuid(),
+            last_backend_uuid: activeLastBackendUuid || _uuid(),
             read_write_token: sessionToken || '',
             attachments: [],
             language: navigator.language || 'en-US',
@@ -169,7 +170,7 @@
             is_related_query: false,
             is_sponsored: false,
             prompt_source: 'user',
-            query_source: _lastBackendUuid ? 'followup' : 'home',
+            query_source: activeLastBackendUuid ? 'followup' : 'home',
             is_incognito: false,
             time_from_first_type: Math.floor(Math.random() * 5000) + 1000,
             local_search_enabled: false,
@@ -238,7 +239,7 @@
             throw new Error('Perplexity returned empty response');
         }
 
-        return result;
+        return { text: result, context: { lastBackendUuid: _lastBackendUuid } };
     }
 
 

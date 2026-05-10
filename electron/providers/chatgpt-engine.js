@@ -257,7 +257,11 @@
 
     // ─── Send Message ───────────────────────────────
 
-    async function send(message) {
+    async function send(message, context) {
+        // Determine which conversation state to use: provided context or global state
+        var activeConversationId = (context && context.conversationId) || _conversationId;
+        var activeParentMessageId = (context && context.parentMessageId) || _parentMessageId;
+
         var token = await _getToken();
 
         // OAI-Device-Id header required for API auth
@@ -293,7 +297,7 @@
             }],
             model: 'auto',
 
-            parent_message_id: _parentMessageId || crypto.randomUUID(),
+            parent_message_id: activeParentMessageId || crypto.randomUUID(),
             timezone_offset_min: new Date().getTimezoneOffset(),
             history_and_training_disabled: false,
             conversation_mode: { kind: 'primary_assistant' },
@@ -304,9 +308,9 @@
         };
 
 
-        if (_conversationId) {
-            payload.conversation_id = _conversationId;
-            console.log('[Proxima ChatGPT] Continuing conversation:', _conversationId);
+        if (activeConversationId) {
+            payload.conversation_id = activeConversationId;
+            console.log('[Proxima ChatGPT] Continuing conversation:', activeConversationId);
         } else {
             console.log('[Proxima ChatGPT] Starting new conversation');
         }
@@ -342,7 +346,7 @@
             }
             var result = await _parseSSEStream(res);
             clearTimeout(retryTimeoutId);
-            return result;
+            return { text: result, context: { conversationId: _conversationId, parentMessageId: _parentMessageId } };
         }
 
         if (!res.ok) {
@@ -360,7 +364,7 @@
 
         var result = await _parseSSEStream(res);
         clearTimeout(timeoutId);
-        return result;
+        return { text: result, context: { conversationId: _conversationId, parentMessageId: _parentMessageId } };
     }
 
 
