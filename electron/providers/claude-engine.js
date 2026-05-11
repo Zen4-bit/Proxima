@@ -93,7 +93,9 @@
         var orgId = await _getOrgId();
 
         // Determine which convId to use: provided context or global state
-        var activeConvId = (context && context.convId) || _convId;
+        // context.__new means "start a new conversation, don't reuse global state"
+        var isNewSession = context && context.__new;
+        var activeConvId = isNewSession ? null : ((context && context.convId) || _convId);
 
         // Reuse existing conversation or create new one
         if (!activeConvId) {

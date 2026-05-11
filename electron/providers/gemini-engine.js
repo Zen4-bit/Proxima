@@ -202,9 +202,11 @@
             _reqid: reqId.toString()
         });
 
-        var activeConversationId = (context && context.conversationId) || _conversationId;
-        var activeResponseId = (context && context.responseId) || _responseId;
-        var activeChoiceId = (context && context.choiceId) || _choiceId;
+        // context.__new means "start a new conversation, don't reuse global state"
+        var isNewSession = context && context.__new;
+        var activeConversationId = isNewSession ? '' : ((context && context.conversationId) || _conversationId);
+        var activeResponseId = isNewSession ? '' : ((context && context.responseId) || _responseId);
+        var activeChoiceId = isNewSession ? '' : ((context && context.choiceId) || _choiceId);
 
         var conversationContext = [activeConversationId, activeResponseId, activeChoiceId];
         

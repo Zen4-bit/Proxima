@@ -152,7 +152,9 @@
     // ─── Send Message ───────────────────────────────
 
     async function send(message, context) {
-        var activeLastBackendUuid = (context && context.lastBackendUuid) || _lastBackendUuid;
+        // context.__new means "start a new conversation, don't reuse global state"
+        var isNewSession = context && context.__new;
+        var activeLastBackendUuid = isNewSession ? null : ((context && context.lastBackendUuid) || _lastBackendUuid);
         var sessionToken = _getSessionToken();
         var frontendUuid = _uuid();
 

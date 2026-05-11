@@ -1240,6 +1240,8 @@ End with a security score (0-100).`;
             } else {
                 // New session: prepend system prompt if present
                 messageToSend = sessionStore.composeNewSessionMessage(body.messages);
+                // Pass empty context to signal "start a new conversation" to the engine
+                sessionContext = { __new: true };
             }
 
             if (!messageToSend) return sendError(res, 400, 'No message provided. Use "messages" array or "message" field.');
@@ -1304,7 +1306,12 @@ End with a security score (0-100).`;
                 const elapsed = Date.now() - start;
                 recordCall(provider, elapsed);
 
-                sendJSON(res, 200, formatChatResponse({ text: responseText, model: provider, responseTimeMs: elapsed }, provider));
+                const sessionResult = { text: responseText, model: provider, responseTimeMs: elapsed };
+                if (body.stream) {
+                    sendSSE(res, sessionResult, provider);
+                } else {
+                    sendJSON(res, 200, formatChatResponse(sessionResult, provider));
+                }
             } catch (e) {
                 // If error indicates expired conversation (404/410), remove stale mapping
                 if (existingSession && (e.message.includes('404') || e.message.includes('410'))) {

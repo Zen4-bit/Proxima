@@ -259,8 +259,10 @@
 
     async function send(message, context) {
         // Determine which conversation state to use: provided context or global state
-        var activeConversationId = (context && context.conversationId) || _conversationId;
-        var activeParentMessageId = (context && context.parentMessageId) || _parentMessageId;
+        // context.__new means "start a new conversation, don't reuse global state"
+        var isNewSession = context && context.__new;
+        var activeConversationId = isNewSession ? null : ((context && context.conversationId) || _conversationId);
+        var activeParentMessageId = isNewSession ? null : ((context && context.parentMessageId) || _parentMessageId);
 
         var token = await _getToken();
 
