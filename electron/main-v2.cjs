@@ -1,15 +1,93 @@
 // Proxima main process — embedded browser + anti-detection + IPC server
 
-const { app, BrowserWindow, ipcMain, shell, session, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, session, net: electronNet, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
+
+// --- Debug logging ---
+const DEBUG_LOG = path.join(require('os').homedir(), 'proxima-debug.log');
+function dlog(msg) {
+    const line = `[${new Date().toISOString()}] ${msg}\n`;
+    try { fs.appendFileSync(DEBUG_LOG, line); } catch(e) {}
+    console.log(msg);
+}
 const BrowserManager = require('./browser-manager.cjs');
 const { initRestAPI, startRestAPI, stopRestAPI, isRestAPIRunning } = require('./rest-api.cjs');
 const providerAPI = require('./provider-api.cjs');
 
 // Cache for API responses — when API captures response, DOM scraping is skipped
 const _apiResponseCache = {};
+
+// --- Image download (uses Electron net w/ session cookies for signed ChatGPT URLs) ---
+const IMAGE_SAVE_DIR = path.join(require('os').homedir(), 'Pictures', 'Proxima');
+try { fs.mkdirSync(IMAGE_SAVE_DIR, { recursive: true }); } catch(e) {}
+
+function downloadImageWithSession(url, webContents) {
+    return new Promise((resolve, reject) => {
+        try {
+            const req = electronNet.request({
+                url: url,
+                method: 'GET',
+                session: webContents.session,
+                useSessionCookies: true
+            });
+            req.setHeader('User-Agent', CHROME_UA);
+            req.setHeader('Referer', 'https://chatgpt.com/');
+            const chunks = [];
+            req.on('response', (response) => {
+                if (response.statusCode >= 400) {
+                    reject(new Error(`HTTP ${response.statusCode}`));
+                    return;
+                }
+                const ct = (response.headers['content-type'] || response.headers['Content-Type'] || '').toString().toLowerCase();
+                let ext = 'png';
+                if (ct.includes('jpeg') || ct.includes('jpg')) ext = 'jpg';
+                else if (ct.includes('webp')) ext = 'webp';
+                else if (ct.includes('gif')) ext = 'gif';
+                response.on('data', (chunk) => chunks.push(chunk));
+                response.on('end', () => {
+                    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+                    const filename = `img_${ts}.${ext}`;
+                    const filepath = path.join(IMAGE_SAVE_DIR, filename);
+                    try {
+                        fs.writeFileSync(filepath, Buffer.concat(chunks));
+                        dlog(`[downloadImage] Saved ${filepath} (${chunks.reduce((s,c)=>s+c.length,0)} bytes)`);
+                        resolve(filepath);
+                    } catch(e) { reject(e); }
+                });
+                response.on('error', reject);
+            });
+            req.on('error', reject);
+            req.end();
+        } catch(e) { reject(e); }
+    });
+}
+
+async function postProcessImages(text, webContents) {
+    if (!text || typeof text !== 'string') return text;
+    // Match ![alt](url) where url is http(s)
+    const imgRegex = /!\[([^\]]*)\]\((https?:\/\/[^\)]+)\)/g;
+    const matches = [];
+    let m;
+    while ((m = imgRegex.exec(text)) !== null) {
+        matches.push({ full: m[0], alt: m[1], url: m[2] });
+    }
+    if (matches.length === 0) return text;
+    let processed = text;
+    for (const match of matches) {
+        try {
+            const filepath = await downloadImageWithSession(match.url, webContents);
+            // Replace with both local path and original URL for reference
+            const replacement = `![${match.alt}](file:///${filepath.replace(/\\/g, '/')})\n\n[Local file: ${filepath}]\n[Original URL: ${match.url}]`;
+            processed = processed.replace(match.full, replacement);
+        } catch(e) {
+            dlog(`[postProcessImages] Download failed for ${match.url.substring(0,80)}: ${e.message}`);
+            // Keep original URL on failure
+        }
+    }
+    return processed;
+}
 
 // Anti-detection: must run before any Electron APIs
 // These MUST be set before app is ready or any windows are created
@@ -501,6 +579,45 @@ async function handleMCPRequest(request) {
                 return { success: true, provider, loggedIn };
 
             case 'sendMessage':
+                // Capture fingerprint + clear buffer BEFORE sending message
+                try {
+                    const wc = browserManager.getWebContents(provider);
+                    if (wc) {
+                        const before = await wc.executeJavaScript(`({r: (window.__proxima_captured_response||'').length, s: window.__proxima_is_streaming||false})`).catch(()=>({r:'?',s:'?'}));
+                        dlog(`[sendMessage] PRE-CLEAR buffer: len=${before.r} streaming=${before.s}`);
+
+                        // Capture DOM fingerprint NOW (before ChatGPT shows thinking bubble)
+                        if (provider === 'chatgpt') {
+                            const fp = await wc.executeJavaScript(`
+                                (function() {
+                                    const msgs = document.querySelectorAll('[data-message-author-role="assistant"]');
+                                    if (msgs.length > 0) return msgs[msgs.length - 1].textContent.substring(0, 200).trim();
+                                    return '';
+                                })()
+                            `).catch(() => '');
+                            global.chatgptOldFingerprint = fp;
+                            dlog(`[sendMessage] Pre-send ChatGPT fingerprint: "${fp.substring(0, 60)}"`);
+
+                            // Also capture all current big image URLs to detect stale images in polls
+                            const oldImgUrls = await wc.executeJavaScript(`
+                                (function() {
+                                    return Array.from(document.querySelectorAll('img'))
+                                        .filter(img => img.src && img.src.startsWith('http') && (img.naturalWidth > 100 || img.width > 100))
+                                        .map(img => img.src);
+                                })()
+                            `).catch(() => []);
+                            global.chatgptOldImageUrls = new Set(oldImgUrls);
+                            dlog(`[sendMessage] Pre-send image URLs captured: ${oldImgUrls.length} images`);
+                        }
+
+                        await wc.executeJavaScript(
+                            `window.__proxima_captured_response = ''; window.__proxima_is_streaming = false;`
+                        );
+                        dlog(`[sendMessage] Cleared capture buffer for ${provider}`);
+                    }
+                } catch (clearErr) {
+                    dlog(`[sendMessage] Error clearing buffer: ${clearErr.message}`);
+                }
                 // Check if file should be uploaded
                 if (data.filePath && fileReferenceEnabled) {
                     try {
@@ -1253,10 +1370,12 @@ async function getResponseWithTypingStatus(provider) {
         const cached = _apiResponseCache[provider];
         delete _apiResponseCache[provider]; // Clear after use
         console.log(`[getResponseWithTyping] \u2714 Using API-cached response for ${provider} (${cached.length} chars) — DOM scraping SKIPPED`);
+        const wcForPost = browserManager.getWebContents(provider);
+        const processedCached = wcForPost ? await postProcessImages(cached, wcForPost) : cached;
         return {
             typingStarted: true,
             typingStopped: true,
-            response: cached
+            response: processedCached
         };
     }
 
@@ -1345,6 +1464,17 @@ async function getResponseWithTypingStatus(provider) {
         console.error(`[getResponseWithTyping] Error capturing old fingerprint for ${provider}:`, e.message);
     }
 
+    // Log buffer state at entry — don't clear here (sendMessage already cleared it)
+    try {
+        const webContentsForClear = browserManager.getWebContents(provider);
+        if (webContentsForClear) {
+            const state = await webContentsForClear.executeJavaScript(`({r: (window.__proxima_captured_response||'').substring(0,100), s: window.__proxima_is_streaming||false})`).catch(()=>({r:'?',s:'?'}));
+            dlog(`[getResponseWithTyping] ENTRY buffer: len=${state.r.length} streaming=${state.s} preview="${state.r.substring(0,60)}"`);
+        }
+    } catch (e) {
+        dlog(`[getResponseWithTyping] Error reading buffer state: ${e.message}`);
+    }
+
     // Now get the actual response
     let response = await getProviderResponse(provider);
 
@@ -1382,6 +1512,7 @@ async function getProviderResponse(provider, customSelector = null) {
         oldFingerprint = responseState.gemini.fingerprint || '';
     }
 
+
         // Smart typing wait — check if AI is currently typing, wait only if needed
         try {
             // Perplexity needs extra initial wait — it takes 2-4s to even START generating
@@ -1395,6 +1526,7 @@ async function getProviderResponse(provider, customSelector = null) {
 
             let typingDetected = false;
             const typingNow = await isAITyping(provider);
+            dlog(`[DOM fallback] isAITyping initial: ${JSON.stringify(typingNow)}`);
             if (typingNow.isTyping) {
                 typingDetected = true;
             } else if (provider === 'perplexity' || provider === 'gemini') {
@@ -1411,13 +1543,14 @@ async function getProviderResponse(provider, customSelector = null) {
 
             if (typingDetected) {
                 console.log(`[getProviderResponse] ${provider}: AI still typing, waiting...`);
+                dlog(`[DOM fallback] Starting typing wait loop (max ${provider === 'claude' ? 300 : 60}s)`);
                 const maxTypingWait = (provider === 'claude') ? 600 : 120;
                 let lastResponseSnap = '';
                 let stableResponseCount = 0;
                 for (let i = 0; i < maxTypingWait; i++) {
                     const ts = await isAITyping(provider);
-                    if (!ts.isTyping) break;
-                    
+                    if (!ts.isTyping) { dlog(`[DOM fallback] Typing stopped at i=${i} (${i*0.5}s)`); break; }
+
                     // Perplexity false positive fix: check if response text is stable
                     // If response hasn't changed for 5 checks (2.5s) while "typing", it's done
                     if (provider === 'perplexity' && i > 10) {
@@ -1441,8 +1574,9 @@ async function getProviderResponse(provider, customSelector = null) {
                             }
                         } catch(e) {}
                     }
-                    
+
                     if (i % 20 === 0 && i > 0) {
+                        dlog(`[DOM fallback] Still typing (${i * 0.5}s)...`);
                         console.log(`[getProviderResponse] ${provider}: Still typing (${i * 0.5}s)...`);
                     }
                     await sleep(500);
@@ -1451,7 +1585,7 @@ async function getProviderResponse(provider, customSelector = null) {
                 // Even if no typing detected, Perplexity may have finished very fast
                 await sleep(3000);
             }
-        } catch (e) { }
+        } catch (e) { dlog(`[DOM fallback] isAITyping error: ${e.message}`); }
 
         // Small delay for DOM to settle (Perplexity needs more time for math/LaTeX rendering)
         await sleep((provider === 'claude' || provider === 'perplexity') ? 1500 : 500);
@@ -1461,12 +1595,56 @@ async function getProviderResponse(provider, customSelector = null) {
         let stableCount = 0;
         // Perplexity math/LaTeX renders in stages — need more stability checks
         const STABLE_THRESHOLD = provider === 'perplexity' ? 5 : 3;
-        const MAX_POLLS = (provider === 'claude' || provider === 'perplexity') ? 60 : 40;
+        const MAX_POLLS = (provider === 'claude' || provider === 'perplexity') ? 60 : 200; // 200 * 500ms = 100s for chatgpt
         let foundNewResponse = false;
+        // Serialize old image URLs for injection into renderer JS (prevents stale sidebar thumbnails)
+        const oldImageUrlsJSON = provider === 'chatgpt'
+            ? JSON.stringify(Array.from(global.chatgptOldImageUrls || []))
+            : '[]';
 
 
         // Poll for stable response
         for (let i = 0; i < MAX_POLLS; i++) {
+            // Diagnostic: every 10 polls log URL + DOM state for ChatGPT
+            if (provider === 'chatgpt' && i % 10 === 0) {
+                try {
+                    const diagInfo = await webContents.executeJavaScript(`(function(){
+                        const url = window.location.href;
+                        // Standard selector
+                        const msgs = document.querySelectorAll('[data-message-author-role="assistant"]');
+                        const lastText = msgs.length > 0 ? msgs[msgs.length-1].textContent.substring(0,100) : '';
+                        // Broad img search
+                        const allImgs = document.querySelectorAll('img');
+                        const dalleImgs = Array.from(allImgs).filter(img => img.src && (img.src.includes('oaidalleapiprodscus') || img.src.includes('openai') || img.width > 100));
+                        const imgSrcs = dalleImgs.slice(-3).map(img => img.src.substring(0,120)).join(' | ');
+                        // Find parent of last img to understand DOM structure
+                        let imgParentAttrs = '';
+                        if (dalleImgs.length > 0) {
+                            const lastImg = dalleImgs[dalleImgs.length-1];
+                            let p = lastImg.parentElement;
+                            const attrs = [];
+                            for(let j=0; j<5 && p && p.tagName !== 'BODY'; j++) {
+                                const a = Array.from(p.attributes||[]).map(a=>a.name+'='+a.value.substring(0,30)).join(',');
+                                if(a) attrs.push(p.tagName+'{'+a+'}');
+                                p = p.parentElement;
+                            }
+                            imgParentAttrs = attrs.join(' > ');
+                        }
+                        // article/main content
+                        const articles = document.querySelectorAll('article,[data-testid*="message"],[class*="message"]');
+                        // Stop button (generation in progress)
+                        const stopBtn = document.querySelector('button[aria-label*="Stop"], button[aria-label*="Stopp"], [data-testid="stop-button"], button[aria-label*="stop generating"]');
+                        const isGenerating = !!(stopBtn && stopBtn.offsetParent !== null);
+                        // "Thought for X s/m" completion marker (reasoning models)
+                        const bodyText = document.body ? document.body.innerText.substring(0, 2000) : '';
+                        const thoughtMatch = bodyText.match(/(Thought for \d+|Dachte \d+|思考了?\d+)/);
+                        const thoughtText = thoughtMatch ? thoughtMatch[0] : '';
+                        return {url, msgCount: msgs.length, lastText, imgCount: dalleImgs.length, imgSrcs, imgParentAttrs, articleCount: articles.length, isGenerating, thoughtText};
+                    })()`);
+                    dlog(`[ChatGPT DOM poll#${i}] url=${diagInfo.url.substring(0,60)} msgs=${diagInfo.msgCount} articles=${diagInfo.articleCount} imgs=${diagInfo.imgCount} isGenerating=${diagInfo.isGenerating} thought="${diagInfo.thoughtText}" imgSrcs="${diagInfo.imgSrcs.substring(0,120)}" parents="${diagInfo.imgParentAttrs.substring(0,200)}"`);
+                } catch(e) { dlog(`[ChatGPT DOM poll#${i}] diag error: ${e.message}`); }
+            }
+
             const text = await webContents.executeJavaScript(`
             (function() {
                 const host = window.location.host;
@@ -1578,6 +1756,16 @@ async function getProviderResponse(provider, customSelector = null) {
                                 continue;
                             }
                             
+                            // Images — capture src URL (important for ChatGPT DALL-E outputs)
+                            if (tag === 'img') {
+                                const src = node.getAttribute('src') || '';
+                                const alt = node.getAttribute('alt') || 'image';
+                                if (src && (src.startsWith('http') || src.startsWith('blob:'))) {
+                                    markdown += NL + '![' + alt + '](' + src + ')' + NL;
+                                }
+                                continue;
+                            }
+
                             // Lists
                             if (tag === 'ul' || tag === 'ol') {
                                 markdown += NL;
@@ -1672,6 +1860,60 @@ async function getProviderResponse(provider, customSelector = null) {
                             const markdown = cleanMarkdown(domToMarkdown(content));
                             if (markdown && markdown.length > 0 && !markdown.includes('__oai_')) return markdown;
                         }
+                    }
+                    // DALL-E image fallback: find generated image, exclude uploaded reference images.
+                    // Reference images appear in BUTTON[aria-haspopup=dialog] wrappers (user message attachments).
+                    // Generated images appear in aspect-ratio divs (ChatGPT image output).
+                    const _oldImgUrls = new Set(${oldImageUrlsJSON});
+                    const isNewImg = (img) => !_oldImgUrls.has(img.src);
+                    const isInsideDialogButton = (img) => {
+                        let p = img.parentElement;
+                        for (let k = 0; k < 8 && p && p.tagName !== 'BODY'; k++) {
+                            if (p.tagName === 'BUTTON' && p.getAttribute('aria-haspopup') === 'dialog') return true;
+                            p = p.parentElement;
+                        }
+                        return false;
+                    };
+
+                    // Guard: if ChatGPT stop button visible, generation still in progress — wait.
+                    // Stop button disappears when generation is truly done ("Thought for X s" moment).
+                    const _stopBtn = document.querySelector(
+                        'button[aria-label*="Stop"], button[aria-label*="Stopp"], [data-testid="stop-button"], button[aria-label*="stop generating"]'
+                    );
+                    if (_stopBtn && _stopBtn.offsetParent !== null) return ''; // Still generating — keep polling
+
+                    // Primary: search inside assistant message containers
+                    const assistantContainers = Array.from(document.querySelectorAll('[data-message-author-role="assistant"]'));
+                    const searchScope = assistantContainers.length > 0
+                        ? assistantContainers[assistantContainers.length - 1]
+                        : null;
+
+                    if (searchScope) {
+                        const allImgs = Array.from(searchScope.querySelectorAll('img'));
+                        const dalleImgs = allImgs.filter(img => img.src && img.width > 100 && isNewImg(img) &&
+                            (img.src.includes('oaidalleapiprodscus') || img.src.includes('openai') || img.src.startsWith('blob:') || img.src.startsWith('https://files.oaiusercontent')));
+                        if (dalleImgs.length > 0) {
+                            return dalleImgs.map(img => '![generated image](' + img.src + ')').join(NL);
+                        }
+                        const bigImgs = allImgs.filter(img => img.src && img.src.startsWith('http') && img.naturalWidth > 200 && isNewImg(img) && !img.src.includes('avatar') && !img.src.includes('logo'));
+                        if (bigImgs.length > 0) {
+                            return '![generated image](' + bigImgs[bigImgs.length - 1].src + ')';
+                        }
+                    } else {
+                        // No assistant containers yet (new conversation layout with image gen).
+                        // Search all page images but exclude reference image thumbnails (inside dialog-trigger buttons).
+                        const allPageImgs = Array.from(document.querySelectorAll('img'));
+                        const generatedImgs = allPageImgs.filter(img => {
+                            if (!img.src || !img.src.startsWith('http') || !isNewImg(img)) return false;
+                            if (img.src.includes('avatar') || img.src.includes('logo')) return false;
+                            if (isInsideDialogButton(img)) return false; // Skip reference image thumbnails
+                            return img.width > 100 || img.naturalWidth > 100;
+                        });
+                        if (generatedImgs.length > 0) {
+                            return '![generated image](' + generatedImgs[generatedImgs.length - 1].src + ')';
+                        }
+                        // Still waiting for ChatGPT to generate
+                        return '';
                     }
                 }
                 
@@ -2076,6 +2318,32 @@ async function getProviderResponse(provider, customSelector = null) {
                     }
                 }
 
+                // For ChatGPT: same new-vs-old fingerprint check
+                if (provider === 'chatgpt' && oldFingerprint && !foundNewResponse) {
+                    const currentFingerprint = text.substring(0, 200).trim();
+                    if (currentFingerprint === oldFingerprint ||
+                        oldFingerprint.startsWith(currentFingerprint.substring(0, 100)) ||
+                        currentFingerprint.startsWith(oldFingerprint.substring(0, 100))) {
+                        dlog(`[ChatGPT DOM] Still old response, waiting... fp="${currentFingerprint.substring(0, 50)}"`);
+                        await sleep(500);
+                        continue;
+                    } else {
+                        dlog(`[ChatGPT DOM] NEW response detected! fp="${currentFingerprint.substring(0, 50)}"`);
+                        foundNewResponse = true;
+                    }
+                }
+
+                // Skip known ChatGPT thinking/loading indicators — wait for real response
+                const THINKING_PATTERNS = ['Denke nach', 'Thinking...', 'Generating', '…', '...'];
+                const isThinking = provider === 'chatgpt' && THINKING_PATTERNS.some(p => text.trim() === p || text.trim().startsWith(p));
+                if (isThinking) {
+                    dlog(`[ChatGPT DOM] Skipping thinking indicator: "${text.trim().substring(0, 40)}"`);
+                    stableCount = 0;
+                    lastText = '';
+                    await sleep(500);
+                    continue;
+                }
+
                 if (text === lastText) {
                     stableCount++;
                     if (stableCount >= STABLE_THRESHOLD) {
@@ -2088,7 +2356,9 @@ async function getProviderResponse(provider, customSelector = null) {
                         if (provider === 'claude') {
                             responseState.claude.fingerprint = '';
                         }
-                        return text;
+                        // Auto-download any image URLs in response (esp. ChatGPT signed URLs)
+                        const processed = await postProcessImages(text, webContents);
+                        return processed;
                     }
                 } else {
                     stableCount = 0;
