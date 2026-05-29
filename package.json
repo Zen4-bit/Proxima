@@ -73,7 +73,7 @@
         "zod": "^4.4.3"
     },
     "devDependencies": {
-        "concurrently": "^9.2.1",
+        "concurrently": "^10.0.0",
         "electron": "^33.4.11",
         "electron-builder": "^25.1.8",
         "http-server": "^14.1.1"
