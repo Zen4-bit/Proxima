@@ -27,9 +27,6 @@ const MODEL_ALIASES = {
 
     
     'perplexity': 'perplexity', 'pplx': 'perplexity',
-    'sonar': 'perplexity', 'sonar-pro': 'perplexity', 'sonar-reasoning': 'perplexity',
-    'sonar-reasoning-pro': 'perplexity', 'sonar-deep-research': 'perplexity',
-    'r1-1776': 'perplexity',
 
     
     'auto': 'auto',   // Auto-pick best available
