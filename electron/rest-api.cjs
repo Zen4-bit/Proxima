@@ -26,7 +26,7 @@ const MODEL_ALIASES = {
     'google': 'gemini', 'bard': 'gemini',
 
     
-    'perplexity': 'perplexity', 'pplx': 'perplexity',
+    'perplexity': 'perplexity', 'pplx': 'perplexity', 'sonar': 'perplexity',
 
     
     'auto': 'auto',   // Auto-pick best available
