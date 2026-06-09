@@ -18,6 +18,35 @@ const API_HOST = process.env.PROXIMA_HOST || '127.0.0.1';
 const API_PORT = parseInt(process.env.PROXIMA_PORT) || 3210;
 const API_BASE = `http://${API_HOST}:${API_PORT}`;
 
+// Helper to get the API key dynamically from settings.json or environment
+function getApiKey() {
+    if (process.env.PROXIMA_API_KEY) {
+        return process.env.PROXIMA_API_KEY;
+    }
+    const homedir = require('os').homedir();
+    const platform = process.platform;
+    let appDataDir = '';
+    if (platform === 'win32') {
+        appDataDir = process.env.APPDATA || path.join(homedir, 'AppData', 'Roaming');
+    } else if (platform === 'darwin') {
+        appDataDir = path.join(homedir, 'Library', 'Application Support');
+    } else {
+        appDataDir = process.env.XDG_CONFIG_HOME || path.join(homedir, '.config');
+    }
+    const settingsPath = path.join(appDataDir, 'proxima', 'settings.json');
+    try {
+        if (fs.existsSync(settingsPath)) {
+            const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+            if (settings && settings.apiKey) {
+                return settings.apiKey;
+            }
+        }
+    } catch (e) {
+        // Ignore read errors
+    }
+    return null;
+}
+
 // ─── Colors (ANSI) ──────────────────────────────────
 const c = {
     reset: '\x1b[0m',
@@ -47,12 +76,18 @@ function red(text) { return colorize(c.red, text); }
 function apiRequest(method, path, body = null) {
     return new Promise((resolve, reject) => {
         const url = new URL(path, API_BASE);
+        const headers = { 'Content-Type': 'application/json' };
+        const key = getApiKey();
+        if (key) {
+            headers['Authorization'] = `Bearer ${key}`;
+        }
+
         const options = {
             hostname: url.hostname,
             port: url.port,
-            path: url.pathname,
+            path: url.pathname + url.search,
             method,
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             timeout: 120000 // 2 min timeout for slow providers
         };
 

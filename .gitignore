@@ -41,3 +41,8 @@ cookies-backup/
 # Dev audit files
 Version_4.1.0.txt
 installer.nsh
+
+# Local developer agents and graph output
+.agents/
+graphify-out/
+graphify/
