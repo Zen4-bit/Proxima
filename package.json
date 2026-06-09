@@ -69,11 +69,11 @@
     },
     "dependencies": {
         "@modelcontextprotocol/sdk": "^1.29.0",
-        "ws": "^8.20.0",
+        "ws": "^8.21.0",
         "zod": "^4.4.3"
     },
     "devDependencies": {
-        "concurrently": "^9.2.1",
+        "concurrently": "^10.0.3",
         "electron": "^33.4.11",
         "electron-builder": "^25.1.8",
         "http-server": "^14.1.1"
