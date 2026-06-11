@@ -222,6 +222,7 @@ function buildComposerScript(config) {
             const baseState = {
                 ready: !!input,
                 inputSelector,
+                text: inputText,
                 textPreview: inputText.slice(0, 160),
                 textLength: inputText.length,
                 sendButtonFound: !!candidate,
@@ -230,6 +231,7 @@ function buildComposerScript(config) {
                 sendButtonDisabled: !!candidate?.disabled,
                 sendButtonClass: candidate?.element ? String(candidate.element.className || '').slice(0, 160) : '',
                 sendButtonAria: candidate?.element?.getAttribute('aria-label') || '',
+                url: window.location.href,
                 clickPoint: candidate ? {
                     x: Math.round(candidate.rect.left + (candidate.rect.width / 2)),
                     y: Math.round(candidate.rect.top + (candidate.rect.height / 2))

@@ -2024,6 +2024,7 @@ Confirm when done</pre>
   return out;
 })();`;
         const providerStorageSnippets = {
+            grok: localStorageDumpSnippet,
             zai: localStorageDumpSnippet,
             copilot: localStorageDumpSnippet,
             qwen: localStorageDumpSnippet
@@ -2031,13 +2032,18 @@ Confirm when done</pre>
         const providerStorageGuidance = {
             default: {
                 title: 'Cookies only for this provider:',
-                body: 'This provider should work with cookies only. Leave the browser storage box empty. Only <code>DeepSeek</code>, <code>Z.ai</code>, <code>Copilot</code>, and <code>Qwen</code> currently need browser storage in addition to cookies.',
+                body: 'This provider should work with cookies only. Leave the browser storage box empty unless you know the provider stores auth state there. <code>DeepSeek</code>, <code>Grok</code>, <code>Z.ai</code>, <code>Copilot</code>, and <code>Qwen</code> are the main cases where browser storage can matter in addition to cookies.',
                 placeholder: 'Leave this empty for this provider — cookies are enough'
             },
             deepseek: {
                 title: 'DeepSeek localStorage required:',
                 body: 'DeepSeek needs browser storage in addition to cookies. In your normal browser on <code>chat.deepseek.com</code>, run <code>localStorage.getItem("userToken")</code> in the console and paste the result below. You can also paste <code>{"userToken":"..."}</code> or a full <code>{"localStorage":{...}}</code> object.',
                 placeholder: 'Required for DeepSeek: paste localStorage.getItem("userToken"), {"userToken":"..."}, or {"localStorage":{"userToken":"..."}}'
+            },
+            grok: {
+                title: 'Grok browser storage may be required:',
+                body: 'Grok may keep part of its auth/session state in browser storage in addition to cookies. In your normal browser on <code>grok.com</code>, run the snippet below in the console and paste the JSON output here. If cookies alone work for your account, leave this empty. If DevTools still shows escaped text with <code>\\\\n</code> or outer quotes, paste it anyway and brAInstorm will normalize it.',
+                placeholder: 'Optional for Grok when cookies alone do not work: paste {"localStorage":{...}}'
             },
             zai: {
                 title: 'Z.ai localStorage required:',

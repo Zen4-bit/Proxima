@@ -40,6 +40,19 @@ We modify this and have more work to do. We welcome your help. Fork our GIT, add
 the features you need, and then send us a pull request. We grow stronger together and this tool helps 
 our AI tokens go further!
 
+I want to give massive credit to the original author that sparked the idea: 
+[Zen4-bit](https://github.com/Zen4-bit/Proxima). 
+
+It's with a bleeding heart that I forked and re-wrote much of this system (with the help of Codex) because I really needed a bunch of the Chinese AI's and his system was not modular enough to plug them in. I hope that ultimately we can bring a bunch of us to merge all these systems, perhaps starting with our specification documents, so we don't have divergent branches. Working together would be so much better. 
+
+For now, this code-base will be built around:
+1. modularity: each AI provider needs to have it's own plugin module
+2. skills separation: skills are simply text files fed to teh AI, so they should be a configurable directory, hot hard-coded into the code and passed off as some magical tool. 
+
+The magic is having access to each AI system, and then having usefully crafted skill files to feed to them. Let's keep that in mind and not get confused here.
+
+Ultimately anything beyond an "ask_{ai}" is simply passing some supplementary text to it (a "skill") to do that job. Let's work together to build out those "skills"!
+
 **One API. One URL. One function field. Any enabled model.**
 
 ```json

@@ -50,6 +50,8 @@ const APP_SLUG = 'brainstorm';
 const LEGACY_APP_DATA_DIRS = ['proxima'];
 const VERSION = readPackageVersion();
 const IPC_PORT = process.env.AGENT_HUB_PORT || 19222;
+const REST_API_BASE_URL = process.env.BRAINSTORM_REST_BASE_URL || process.env.PROXIMA_REST_BASE_URL || 'http://localhost:3210';
+const REST_CHAT_COMPLETIONS_PATH = '/v1/chat/completions';
 
 // --- IPC Client ---
 
@@ -520,7 +522,7 @@ const router = new SmartRouter(providersById);
 const server = new McpServer({
     name: APP_SLUG,
     version: VERSION,
-    description: `${APP_NAME} MCP Server v3 - Embedded Browser Edition`
+    description: `${APP_NAME} MCP Server v3 - Embedded Browser Edition. Use MCP tools directly in MCP clients. The localhost REST API is for external HTTP/SDK clients. Read ${APP_SLUG}://notes or call usage_notes for workflow guidance.`
 });
 
 // Helper functions
@@ -531,6 +533,39 @@ function toolResponse(result) {
 function toolError(error) {
     return { content: [{ type: 'text', text: `Error: ${error.message || error}` }], isError: true };
 }
+
+function getMcpUsageNotes() {
+    return `# ${APP_NAME} MCP usage notes
+
+This MCP server talks to the running ${APP_NAME} app over local TCP IPC on \`127.0.0.1:${IPC_PORT}\`.
+
+## Use MCP tools directly
+
+- In an MCP client, call MCP tools like \`smart_query\`, \`ask_grok\`, \`ask_claude\`, \`deep_search\`, \`list_skills\`, and \`run_skill\`.
+- Do not try to recreate an MCP tool call by making your own HTTP request from inside the MCP session.
+- The REST API at \`${REST_API_BASE_URL}${REST_CHAT_COMPLETIONS_PATH}\` is for external HTTP clients and SDKs, not for internal MCP tool execution.
+
+## Recommended workflow
+
+1. Call \`provider_status\` if you need to check whether a provider is enabled, logged in, or blocked by verification.
+2. Use \`smart_query\` for a normal "pick the best available provider" request.
+3. Use \`compare_ais\` when you want the same prompt sent to a chosen list of providers and returned side by side.
+4. Use \`ask_all_ais\` only when you explicitly want every enabled provider in parallel.
+5. Use \`ask_<provider>\` when you want one specific provider directly.
+6. Use \`list_skills\` and then \`run_skill\` for prompt files in \`skills/<name>.md\`.
+7. Use tools with a \`files\` parameter when you want file contents or attachments included.
+8. If a provider is blocked by login, Cloudflare, or a CAPTCHA, use \`show_window\` and \`navigate_provider\`, complete the check in the app, then retry.
+
+## REST mapping for reference only
+
+- MCP \`run_skill\` is roughly the same idea as REST \`POST ${REST_CHAT_COMPLETIONS_PATH}\` with \`{"function":"<skill_name>"}\`.
+- MCP \`smart_query\` or \`ask_<provider>\` is the MCP-side equivalent of sending a general \`message\` through the app.
+- If you are already inside MCP, prefer the MCP tools instead of manually constructing REST calls.
+`;
+}
+
+const DIRECT_PROVIDER_MCP_NOTE = `Direct provider call through the running ${APP_NAME} app. Use this tool directly from MCP; the REST API at ${REST_API_BASE_URL}${REST_CHAT_COMPLETIONS_PATH} is for external HTTP/SDK clients, not for re-creating MCP tool calls inside the MCP session.`;
+const MCP_MULTI_PROVIDER_NOTE = `Use this tool directly from MCP to fan out through the running ${APP_NAME} app. The REST API at ${REST_API_BASE_URL}${REST_CHAT_COMPLETIONS_PATH} is for external HTTP/SDK clients.`;
 
 function formatProviderLabel(providerId) {
     return getProviderLabel(providerId);
@@ -668,7 +703,21 @@ function checkDisabled(providerName) {
 }
 
 server.tool(
+    'usage_notes',
+    `Read this first if you are unsure how to use ${APP_NAME} over MCP. Explains when to use MCP tools directly vs the external REST API, plus the recommended workflow.`,
+    {},
+    async () => {
+        try {
+            return toolResponse(getMcpUsageNotes());
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+server.tool(
     'list_skills',
+    'List skills discovered from skills/*.md. Use this before run_skill if you need the available skill names, variables, or templates.',
     {
         includeTemplate: z.boolean().optional().describe('Include the full prompt text for each discovered skill')
     },
@@ -687,6 +736,7 @@ server.tool(
 
 server.tool(
     'run_skill',
+    `Run a discovered skill from skills/<name>.md. This is the MCP-side equivalent of passing {"function":"<skill_name>"} to the external REST API.`,
     {
         skill: z.string().describe('Skill name from skills/<name>.md'),
         provider: z.string().optional().describe('Optional provider override'),
@@ -1411,6 +1461,7 @@ server.tool(
 
 server.tool(
     'ask_chatgpt',
+    `${DIRECT_PROVIDER_MCP_NOTE} Targets ChatGPT.`,
     {
         message: z.string().describe('Message to send to ChatGPT'),
         files: z.array(z.string()).optional().describe('Optional: Array of file paths to upload as attachments')
@@ -1443,6 +1494,7 @@ server.tool(
 
 server.tool(
     'ask_claude',
+    `${DIRECT_PROVIDER_MCP_NOTE} Targets Claude.`,
     {
         message: z.string().describe('Message to send to Claude'),
         files: z.array(z.string()).optional().describe('Optional: Array of file paths to upload as attachments')
@@ -1472,6 +1524,7 @@ server.tool(
 
 server.tool(
     'ask_gemini',
+    `${DIRECT_PROVIDER_MCP_NOTE} Targets Gemini.`,
     {
         message: z.string().describe('Message to send to Gemini'),
         files: z.array(z.string()).optional().describe('Optional: Array of file paths to upload as attachments')
@@ -1501,6 +1554,7 @@ server.tool(
 
 server.tool(
     'ask_googleai',
+    `${DIRECT_PROVIDER_MCP_NOTE} Targets Google AI.`,
     {
         message: z.string().describe('Message to send to Google AI'),
         files: z.array(z.string()).optional().describe('Optional: Array of file paths to upload as attachments')
@@ -1528,6 +1582,7 @@ server.tool(
 
 server.tool(
     'ask_deepseek',
+    `${DIRECT_PROVIDER_MCP_NOTE} Targets DeepSeek.`,
     {
         message: z.string().describe('Message to send to DeepSeek'),
         files: z.array(z.string()).optional().describe('Optional: Array of file paths to upload as attachments')
@@ -1555,6 +1610,7 @@ server.tool(
 
 server.tool(
     'ask_grok',
+    `${DIRECT_PROVIDER_MCP_NOTE} Targets Grok.`,
     {
         message: z.string().describe('Message to send to Grok'),
         files: z.array(z.string()).optional().describe('Optional: Array of file paths to upload as attachments')
@@ -1582,6 +1638,7 @@ server.tool(
 
 server.tool(
     'ask_zai',
+    `${DIRECT_PROVIDER_MCP_NOTE} Targets Z.ai.`,
     {
         message: z.string().describe('Message to send to Z.ai'),
         files: z.array(z.string()).optional().describe('Optional: Array of file paths to upload as attachments')
@@ -1609,6 +1666,7 @@ server.tool(
 
 server.tool(
     'ask_copilot',
+    `${DIRECT_PROVIDER_MCP_NOTE} Targets Microsoft Copilot.`,
     {
         message: z.string().describe('Message to send to Microsoft Copilot'),
         files: z.array(z.string()).optional().describe('Optional: Array of file paths to upload as attachments')
@@ -1636,6 +1694,7 @@ server.tool(
 
 server.tool(
     'ask_metaai',
+    `${DIRECT_PROVIDER_MCP_NOTE} Targets Meta AI.`,
     {
         message: z.string().describe('Message to send to Meta AI'),
         files: z.array(z.string()).optional().describe('Optional: Array of file paths to upload as attachments')
@@ -1663,6 +1722,7 @@ server.tool(
 
 server.tool(
     'ask_qwen',
+    `${DIRECT_PROVIDER_MCP_NOTE} Targets Qwen.`,
     {
         message: z.string().describe('Message to send to Qwen'),
         files: z.array(z.string()).optional().describe('Optional: Array of file paths to upload as attachments')
@@ -1690,6 +1750,7 @@ server.tool(
 
 server.tool(
     'ask_all_ais',
+    `${MCP_MULTI_PROVIDER_NOTE} Sends the same message to every enabled provider in parallel. Prefer compare_ais when you only want a chosen subset.`,
     {
         message: z.string().describe('Message to send to all enabled AI providers'),
         files: z.array(z.string()).optional().describe('Optional: Array of file paths to include as context')
@@ -1751,6 +1812,7 @@ server.tool(
 
 server.tool(
     'compare_ais',
+    `${MCP_MULTI_PROVIDER_NOTE} Ask a chosen set of providers the same question and return their answers side by side. Prefer this over multiple ask_<provider> calls when the user wants a comparison.`,
     {
         question: z.string().describe('Question to ask multiple AIs'),
         providers: z.array(z.string()).optional().describe('Which providers to use'),
@@ -1800,6 +1862,7 @@ server.tool(
 
 server.tool(
     'smart_query',
+    `Send a general request through ${APP_NAME} and let it pick the best enabled provider. Use ask_<provider> when you want a specific provider directly.`,
     {
         message: z.string().describe('Message to send - auto-routes to best provider'),
         preferredProvider: z.string().optional().describe('Preferred provider'),
@@ -2095,6 +2158,7 @@ server.tool(
 
 server.tool(
     'provider_status',
+    `Check whether a provider is enabled, logged in, already typing, or blocked by verification before using ask_<provider>.`,
     {
         provider: z.string().describe('Provider ID or alias to inspect')
     },
@@ -2272,16 +2336,54 @@ function buildStatusResource(uri) {
                 server: `${APP_NAME} MCP Server`,
                 version: VERSION,
                 enabledProviders: Array.from(enabled),
-                connected: ipcClient.connected
+                connected: ipcClient.connected,
+                transport: {
+                    mode: 'mcp-stdio -> local tcp ipc -> running app',
+                    ipcAddress: `127.0.0.1:${IPC_PORT}`
+                },
+                restApi: {
+                    baseUrl: REST_API_BASE_URL,
+                    chatCompletionsEndpoint: `${REST_API_BASE_URL}${REST_CHAT_COMPLETIONS_PATH}`,
+                    use: 'External HTTP and SDK clients only. MCP clients should use MCP tools directly.'
+                },
+                resources: {
+                    notes: `${APP_SLUG}://notes`,
+                    skills: `${APP_SLUG}://skills`,
+                    status: `${APP_SLUG}://status`
+                }
             }, null, 2)
         }]
     };
 }
 
-server.resource('skills', 'brainstorm://skills', async (uri) => buildSkillsResource(uri));
-server.resource('skills_legacy', 'proxima://skills', async (uri) => buildSkillsResource(uri));
-server.resource('status', 'brainstorm://status', async (uri) => buildStatusResource(uri));
-server.resource('status_legacy', 'proxima://status', async (uri) => buildStatusResource(uri));
+function buildNotesResource(uri) {
+    return {
+        contents: [{
+            uri: uri.href,
+            mimeType: 'text/markdown',
+            text: getMcpUsageNotes()
+        }]
+    };
+}
+
+server.resource('notes', `${APP_SLUG}://notes`, {
+    description: `How to use ${APP_NAME} over MCP. Read this first if you are unsure when to use MCP tools directly vs the external REST API.`
+}, async (uri) => buildNotesResource(uri));
+server.resource('notes_legacy', 'proxima://notes', {
+    description: `Legacy alias for ${APP_SLUG}://notes`
+}, async (uri) => buildNotesResource(uri));
+server.resource('skills', `${APP_SLUG}://skills`, {
+    description: 'Discovered skills from skills/*.md, including variables and optional templates.'
+}, async (uri) => buildSkillsResource(uri));
+server.resource('skills_legacy', 'proxima://skills', {
+    description: `Legacy alias for ${APP_SLUG}://skills`
+}, async (uri) => buildSkillsResource(uri));
+server.resource('status', `${APP_SLUG}://status`, {
+    description: 'MCP server connection status, enabled providers, transport details, and the notes resource URI.'
+}, async (uri) => buildStatusResource(uri));
+server.resource('status_legacy', 'proxima://status', {
+    description: `Legacy alias for ${APP_SLUG}://status`
+}, async (uri) => buildStatusResource(uri));
 
 // --- Start ---
 

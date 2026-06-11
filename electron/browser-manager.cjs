@@ -14,6 +14,58 @@ function getProviderInterceptorScript(provider) {
     return buildProviderInterceptorScript(provider);
 }
 
+function getDomActivityMonitorScript() {
+    return `
+        (function() {
+            if (window.__proxima_dom_activity_tracked) {
+                window.__proxima_last_dom_mutation_time = Date.now();
+                return;
+            }
+
+            window.__proxima_dom_activity_tracked = true;
+            window.__proxima_last_dom_mutation_time = Date.now();
+
+            const targetNode = document.querySelector('main') ||
+                document.querySelector('#__next') ||
+                document.body ||
+                document.documentElement;
+
+            if (!targetNode) {
+                return;
+            }
+
+            const markMutation = () => {
+                window.__proxima_last_dom_mutation_time = Date.now();
+            };
+
+            const observer = new MutationObserver((mutations) => {
+                for (const mutation of mutations) {
+                    if (
+                        mutation.type === 'characterData' ||
+                        mutation.addedNodes.length > 0 ||
+                        mutation.removedNodes.length > 0
+                    ) {
+                        markMutation();
+                        return;
+                    }
+                }
+            });
+
+            observer.observe(targetNode, {
+                childList: true,
+                subtree: true,
+                characterData: true
+            });
+
+            window.addEventListener('beforeunload', () => {
+                try {
+                    observer.disconnect();
+                } catch (error) {}
+            }, { once: true });
+        })();
+    `;
+}
+
 
 class BrowserManager {
     constructor(mainWindow, options = {}) {
@@ -341,6 +393,7 @@ class BrowserManager {
         view.webContents.on('dom-ready', () => {
             if (view.webContents.isDestroyed()) return;
             view.webContents.executeJavaScript(this.getStealthScript()).catch(() => { });
+            view.webContents.executeJavaScript(getDomActivityMonitorScript()).catch(() => { });
 
             // FETCH INTERCEPTOR: Inject for ALL providers to capture raw API responses
             // This bypasses all DOM/CSS issues by capturing text at the network level

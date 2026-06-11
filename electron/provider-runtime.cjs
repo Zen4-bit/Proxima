@@ -293,7 +293,12 @@ class ProviderRuntime {
             images,
             imageCount: Number.isFinite(raw.imageCount) ? raw.imageCount : images.length,
             challenge,
-            url: typeof raw.url === 'string' ? raw.url : ''
+            url: typeof raw.url === 'string' ? raw.url : '',
+            domQuietMs: Number.isFinite(raw.domQuietMs) ? raw.domQuietMs : null,
+            lastDomMutationTime: Number.isFinite(raw.lastDomMutationTime) ? raw.lastDomMutationTime : 0,
+            networkStreaming: !!raw.networkStreaming,
+            networkQuietMs: Number.isFinite(raw.networkQuietMs) ? raw.networkQuietMs : null,
+            lastNetworkCaptureTime: Number.isFinite(raw.lastNetworkCaptureTime) ? raw.lastNetworkCaptureTime : 0
         };
     }
 
@@ -516,6 +521,9 @@ class ProviderRuntime {
                         };
                     })()
                 `);
+                const networkQuietMs = status.lastCaptureTime > 0
+                    ? Math.max(0, Date.now() - status.lastCaptureTime)
+                    : Number.POSITIVE_INFINITY;
 
                 if (!status.installed) {
                     console.log(`[getProviderResponse] ${provider}: Interceptor not installed, using DOM fallback`);
@@ -523,7 +531,7 @@ class ProviderRuntime {
                 }
 
                 if (status.response.length > 0) {
-                    if (!status.isStreaming) {
+                    if (!status.isStreaming && networkQuietMs >= responseOptions.minNetworkQuietMs) {
                         console.log(`[getProviderResponse] ⚡ ${provider}: Network capture COMPLETE! ${status.response.length} chars (poll #${i})`);
                         await webContents.executeJavaScript(`window.__proxima_captured_response = ''`).catch(() => {});
                         if (!imageCapableProviders.has(provider)) {
@@ -541,7 +549,7 @@ class ProviderRuntime {
                     }
                 }
 
-                if (i > 3 && !status.isStreaming && status.response.length === 0) {
+                if (i > 3 && !status.isStreaming && status.response.length === 0 && networkQuietMs >= responseOptions.minNetworkQuietMs) {
                     console.log(`[getProviderResponse] ${provider}: No usable stream data after ${i * 0.5}s, trying DOM fallback`);
                     break;
                 }
@@ -631,10 +639,17 @@ class ProviderRuntime {
                 lastSignature = signature;
             }
 
+            const domQuietMs = Number.isFinite(payload.domQuietMs) ? payload.domQuietMs : Number.POSITIVE_INFINITY;
+            const networkQuietMs = Number.isFinite(payload.networkQuietMs) ? payload.networkQuietMs : Number.POSITIVE_INFINITY;
+            const quietEnough = domQuietMs >= responseOptions.minDomQuietMs &&
+                !payload.networkStreaming &&
+                networkQuietMs >= responseOptions.minNetworkQuietMs;
+
             return {
-                ready: stableCount >= responseOptions.stableThreshold,
+                ready: stableCount >= responseOptions.stableThreshold && quietEnough,
                 payload: lastPayload || payload,
-                fingerprintText
+                fingerprintText,
+                quietEnough
             };
         };
 
@@ -683,7 +698,9 @@ class ProviderRuntime {
                 (function() {
                     const response = window.__proxima_captured_response || '';
                     const streaming = window.__proxima_is_streaming || false;
-                    if (response.length > 50 && !streaming) {
+                    const lastCaptureTime = Number(window.__proxima_last_capture_time || 0);
+                    const quietMs = lastCaptureTime > 0 ? Math.max(0, Date.now() - lastCaptureTime) : 86400000;
+                    if (response.length > 50 && !streaming && quietMs >= ${responseOptions.minNetworkQuietMs}) {
                         window.__proxima_captured_response = '';
                         return response;
                     }

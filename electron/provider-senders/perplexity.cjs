@@ -3,11 +3,14 @@ const {
     getShortcutModifier,
     clearFocusedInput,
     typeWithClipboardPaste,
-    typeWithNativeInsert
+    typeWithNativeInsert,
+    submissionLikelyStarted,
+    clickAtPoint
 } = require('./composer-helpers.cjs');
 
 const PERPLEXITY_COMPOSER_CONFIG = {
     inputSelectors: [
+        '#ask-input',
         '[contenteditable="true"][role="textbox"]',
         '[contenteditable="true"]',
         'textarea[placeholder*="follow"]',
@@ -39,49 +42,11 @@ async function focusPerplexityInput(webContents) {
     }));
 }
 
-async function getPerplexityState(webContents) {
-    return webContents.executeJavaScript(`
-        (function() {
-            const isVisible = (element) => {
-                if (!element) return false;
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' &&
-                    style.visibility !== 'hidden' &&
-                    (element.offsetWidth > 0 || element.offsetHeight > 0 || element.getClientRects().length > 0);
-            };
-
-            const input = document.querySelector('[contenteditable="true"][role="textbox"]') ||
-                document.querySelector('[contenteditable="true"]') ||
-                document.querySelector('textarea[placeholder*="follow"]') ||
-                document.querySelector('textarea[placeholder*="Ask"]') ||
-                document.querySelector('textarea');
-
-            const button = document.querySelector('button[aria-label="Submit"]') ||
-                document.querySelector('button[aria-label*="Submit"]') ||
-                document.querySelector('button[type="submit"]');
-
-            const rawText = String(input?.value || input?.innerText || input?.textContent || '');
-            const text = rawText.replace(/\\u00a0/g, ' ').replace(/\\s+/g, ' ').trim();
-            const className = String(button?.className || '').toLowerCase();
-            const ariaDisabled = String(button?.getAttribute('aria-disabled') || '').toLowerCase();
-            const sendDisabled = !!button &&
-                (!!button.disabled ||
-                    button.hasAttribute('disabled') ||
-                    ariaDisabled === 'true' ||
-                    className.includes('disabled'));
-
-            return {
-                ready: !!input,
-                text,
-                textLength: text.length,
-                sendButtonFound: !!button,
-                sendButtonVisible: isVisible(button),
-                sendButtonDisabled: sendDisabled,
-                sendButtonAria: button?.getAttribute('aria-label') || '',
-                url: window.location.href
-            };
-        })()
-    `);
+async function getPerplexityComposerState(webContents) {
+    return webContents.executeJavaScript(buildComposerScript({
+        ...PERPLEXITY_COMPOSER_CONFIG,
+        action: 'state'
+    }));
 }
 
 async function waitForPerplexityExpectedText(webContents, runtime, expectedText, options = {}) {
@@ -91,7 +56,7 @@ async function waitForPerplexityExpectedText(webContents, runtime, expectedText,
 
     let state = null;
     for (let attempt = 0; attempt < attempts; attempt++) {
-        state = await getPerplexityState(webContents);
+        state = await getPerplexityComposerState(webContents);
         if (
             state?.ready &&
             state.sendButtonFound &&
@@ -105,71 +70,19 @@ async function waitForPerplexityExpectedText(webContents, runtime, expectedText,
         await runtime.sleep(delayMs);
     }
 
-    return state || await getPerplexityState(webContents);
+    return state || await getPerplexityComposerState(webContents);
 }
 
-async function clickPerplexitySubmit(webContents) {
-    return webContents.executeJavaScript(`
-        (function() {
-            const isVisible = (element) => {
-                if (!element) return false;
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' &&
-                    style.visibility !== 'hidden' &&
-                    (element.offsetWidth > 0 || element.offsetHeight > 0 || element.getClientRects().length > 0);
-            };
-
-            const button = document.querySelector('button[aria-label="Submit"]') ||
-                document.querySelector('button[aria-label*="Submit"]') ||
-                document.querySelector('button[type="submit"]');
-
-            if (!button) {
-                return { clicked: false, reason: 'No Perplexity submit button found' };
-            }
-
-            const className = String(button.className || '').toLowerCase();
-            const ariaDisabled = String(button.getAttribute('aria-disabled') || '').toLowerCase();
-            const disabled = !!button.disabled ||
-                button.hasAttribute('disabled') ||
-                ariaDisabled === 'true' ||
-                className.includes('disabled');
-
-            if (disabled || !isVisible(button)) {
-                return {
-                    clicked: false,
-                    reason: disabled ? 'Perplexity submit button disabled' : 'Perplexity submit button not visible'
-                };
-            }
-
-            button.click();
-            return {
-                clicked: true,
-                ariaLabel: button.getAttribute('aria-label') || '',
-                className: String(button.className || '').slice(0, 160)
-            };
-        })()
-    `);
-}
-
-async function waitForPerplexitySubmissionStart(webContents, runtime, previousUrl, options = {}) {
-    const attempts = options.attempts || 16;
-    const delayMs = options.delayMs || 180;
-
-    let state = null;
-    for (let attempt = 0; attempt < attempts; attempt++) {
-        state = await getPerplexityState(webContents);
-        if (
-            state?.sendButtonDisabled ||
-            state?.textLength === 0 ||
-            (previousUrl && state?.url && state.url !== previousUrl)
-        ) {
-            return { started: true, state };
-        }
-
-        await runtime.sleep(delayMs);
+function perplexitySubmissionStarted(state, previousUrl) {
+    if (submissionLikelyStarted(state)) {
+        return true;
     }
 
-    return { started: false, state: state || await getPerplexityState(webContents) };
+    return !!(
+        previousUrl &&
+        state?.url &&
+        state.url !== previousUrl
+    );
 }
 
 module.exports = async function sendToPerplexity({ webContents, message, runtime }) {
@@ -232,24 +145,34 @@ module.exports = async function sendToPerplexity({ webContents, message, runtime
         };
     }
 
-    const beforeSubmitState = await getPerplexityState(webContents);
-    const clickResult = await clickPerplexitySubmit(webContents);
-    const submissionResult = await waitForPerplexitySubmissionStart(
-        webContents,
-        runtime,
-        beforeSubmitState?.url,
-        { attempts: 16, delayMs: 180 }
-    );
+    const beforeSubmitState = await getPerplexityComposerState(webContents);
+
+    let clickResult = await webContents.executeJavaScript(buildComposerScript({
+        ...PERPLEXITY_COMPOSER_CONFIG,
+        action: 'click'
+    }));
+    await runtime.sleep(200);
+
+    let postClickState = await getPerplexityComposerState(webContents);
+
+    if (!perplexitySubmissionStarted(postClickState, beforeSubmitState?.url) && clickResult?.clickPoint) {
+        console.log('[Perplexity] DOM click did not change composer state, retrying with real mouse click...');
+        await clickAtPoint(webContents, clickResult.clickPoint);
+        await runtime.sleep(200);
+        postClickState = await getPerplexityComposerState(webContents);
+        clickResult = { ...(clickResult || {}), physicalClick: true };
+    }
 
     console.log('[Perplexity] Click result:', clickResult);
-    console.log('[Perplexity] Submission result:', submissionResult);
+    console.log('[Perplexity] Post-click state:', postClickState);
 
-    if (!submissionResult.started) {
+    if (!perplexitySubmissionStarted(postClickState, beforeSubmitState?.url)) {
         await focusPerplexityInput(webContents);
         await runtime.sleep(100);
         await webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' });
         await webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' });
         await runtime.sleep(180);
+        postClickState = await getPerplexityComposerState(webContents);
     }
 
     return {
@@ -257,6 +180,6 @@ module.exports = async function sendToPerplexity({ webContents, message, runtime
         method: inputMethod,
         compose: composerState,
         submit: clickResult,
-        postClick: submissionResult.state
+        postClick: postClickState
     };
 };
