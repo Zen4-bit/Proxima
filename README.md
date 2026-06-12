@@ -4,6 +4,12 @@
 
 # Proxima
 
+> **This is a fork by [@usexless](https://github.com/usexless)** with the following improvements over the original [Zen4-bit/Proxima](https://github.com/Zen4-bit/Proxima):
+>
+> - **Image generation fixed** — ChatGPT reasoning UI (`Thought for X s`) previously returned "No response captured". Now waits for stop button to disappear before capturing, ensuring the final generated image is returned.
+> - **Reference image support** (`reference_image` param) — upload a local image as style reference when generating. Fixed false-positive bug where the uploaded reference was mistakenly returned as the generated result.
+> - **Improved `generate_image` MCP tool description** — AI clients now know to call `new_conversation` first, generate one image at a time, and how to structure prompts.
+
 **4 AI providers. 1 local server. No API keys.**
 
 Use ChatGPT, Claude, Gemini & Perplexity directly inside your coding tools — through your existing accounts.
