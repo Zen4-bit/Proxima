@@ -75,7 +75,7 @@
     "devDependencies": {
         "concurrently": "^9.2.1",
         "electron": "^33.4.11",
-        "electron-builder": "^25.1.8",
+        "electron-builder": "^26.15.2",
         "http-server": "^14.1.1"
     }
 }
