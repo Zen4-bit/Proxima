@@ -36,6 +36,7 @@ const MODEL_ALIASES = {
 // ─── State ───────────────────────────────────────────────
 let handleMCPRequest = null;
 let getEnabledProvidersList = null;
+let getApiKey = null;
 let httpServer = null;
 
 // ─── Response Time Tracking ──────────────────────────────
@@ -95,6 +96,7 @@ function getFormattedStats() {
 function initRestAPI(config) {
     handleMCPRequest = config.handleMCPRequest;
     getEnabledProvidersList = config.getEnabledProviders;
+    getApiKey = config.getApiKey;
 }
 
 // ─── Helpers ─────────────────────────────────────────────
@@ -118,9 +120,17 @@ function parseBody(req) {
 }
 
 function sendJSON(res, code, data) {
+    const origin = res.req && res.req.headers ? res.req.headers.origin : null;
+    let allowedOrigin = '*';
+    if (origin) {
+        const isLocal = origin.startsWith('http://localhost:') || 
+                        origin.startsWith('http://127.0.0.1:') || 
+                        origin.startsWith('chrome-extension://');
+        allowedOrigin = isLocal ? origin : 'null';
+    }
     res.writeHead(code, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin': allowedOrigin,
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         'X-Powered-By': 'Proxima AI'
@@ -393,14 +403,15 @@ function getChatHTML(accentColor = '#22c55e') {
         </div>`;
 }
 
-function getChatJS() {
+function getChatJS(apiKey) {
+    const key = apiKey || (typeof getApiKey === 'function' ? getApiKey() : '');
     return `
     <script>
     let ws=null,reqTimer=null,reqStart=0,battleMode=false,battleId=0,battleResults={};
     const msgArea=document.getElementById('chat-messages'),input=document.getElementById('chat-input'),statusEl=document.getElementById('ws-status'),connectBtn=document.getElementById('ws-connect-btn'),timerEl=document.getElementById('ws-timer');
     function setStatus(t,c){statusEl.textContent=t;const r=c==='#22c55e'?'34,197,94':c==='#f97316'?'249,115,22':'239,68,68';statusEl.style.background='rgba('+r+',.1)';statusEl.style.color=c;statusEl.style.borderColor='rgba('+r+',.15)';}
     function toggleWS(){if(ws&&ws.readyState===1){ws.close();return;}connectWS();}
-    function connectWS(){try{ws=new WebSocket('ws://localhost:${REST_PORT}/ws');}catch(e){addSystem('Connection failed');return;}
+    function connectWS(){try{ws=new WebSocket('ws://localhost:${REST_PORT}/ws?apiKey=${key}');}catch(e){addSystem('Connection failed');return;}
     setStatus('Connecting...','#f97316');connectBtn.textContent='Connecting...';
     ws.onopen=()=>{setStatus('Connected','#22c55e');connectBtn.textContent='Disconnect';connectBtn.style.background='rgba(239,68,68,.15)';connectBtn.style.color='#ef4444';connectBtn.style.borderColor='rgba(239,68,68,.25)';input.focus();};
     ws.onmessage=(e)=>{handleMsg(JSON.parse(e.data));};
@@ -429,7 +440,7 @@ function getChatJS() {
 }
 
 // ─── API Docs HTML ───────────────────────────────────────
-function getDocsPage() {
+function getDocsPage(apiKey) {
     const enabled = getEnabled();
     const s = getFormattedStats();
 
@@ -603,13 +614,13 @@ POST /v1/chat/completions
 
         <div class="foot">Proxima API v${VERSION} — Zen4-bit ⚡</div>
     </div>
-    ${getChatJS()}
+    ${getChatJS(apiKey)}
 </body>
 </html>`;
 }
 
 // ─── CLI Docs Page ───────────────────────────────────────
-function getCLIDocsPage() {
+function getCLIDocsPage(apiKey) {
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -836,13 +847,13 @@ proxima status
 
         <div class="foot">Proxima CLI v${VERSION} — Zen4-bit ⚡</div>
     </div>
-    ${getChatJS()}
+    ${getChatJS(apiKey)}
 </body>
 </html>`;
 }
 
 // ─── WebSocket Docs Page ─────────────────────────────────
-function getWSDocsPage() {
+function getWSDocsPage(apiKey) {
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -926,7 +937,7 @@ ws.send(JSON.stringify({
                 <div class="cmd"><div class="cmd-name">debate</div><div class="cmd-desc">Multi-provider debate</div></div>
                 <div class="cmd"><div class="cmd-name">audit</div><div class="cmd-desc">Security vulnerability scan</div></div>
                 <div class="cmd"><div class="cmd-name">ping</div><div class="cmd-desc">Connection health check</div></div>
-                <div class="cmd"><div class="cmd-name">stats</div><div class="cmd-desc">Server statistics</div></div>
+                <div class="cmd"><div class="cmd-name">stats</div><div class="cmd-desc">Server statistics data</div></div>
             </div>
         </div>
 
@@ -1090,7 +1101,7 @@ print(result["content"])</pre>
 
         <div class="foot">Proxima WebSocket v${VERSION} — Zen4-bit ⚡</div>
     </div>
-    ${getChatJS()}
+    ${getChatJS(apiKey)}
 </body>
 </html>`;
 }
@@ -1410,21 +1421,21 @@ End with a security score (0-100).`;
 
     // Docs page
     if (method === 'GET' && (pathname === '/' || pathname === '/docs')) {
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
-        res.end(getDocsPage());
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(getDocsPage(getApiKey ? getApiKey() : ''));
         return;
     }
 
     // CLI docs page
     if (method === 'GET' && pathname === '/cli') {
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
-        res.end(getCLIDocsPage());
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(getCLIDocsPage(getApiKey ? getApiKey() : ''));
         return;
     }
     // WebSocket docs page
     if (method === 'GET' && (pathname === '/ws' || pathname === '/websocket')) {
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
-        res.end(getWSDocsPage());
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(getWSDocsPage(getApiKey ? getApiKey() : ''));
         return;
     }
 
@@ -1440,8 +1451,16 @@ function startRestAPI() {
 
     httpServer = http.createServer(async (req, res) => {
         if (req.method === 'OPTIONS') {
+            const origin = req.headers.origin;
+            let allowedOrigin = '*';
+            if (origin) {
+                const isLocal = origin.startsWith('http://localhost:') || 
+                                origin.startsWith('http://127.0.0.1:') || 
+                                origin.startsWith('chrome-extension://');
+                allowedOrigin = isLocal ? origin : 'null';
+            }
             res.writeHead(204, {
-                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Origin': allowedOrigin,
                 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
                 'Access-Control-Allow-Headers': 'Content-Type, Authorization',
                 'Access-Control-Max-Age': '86400'
@@ -1450,6 +1469,14 @@ function startRestAPI() {
         }
 
         const url = new URL(req.url, `http://localhost:${REST_PORT}`);
+        const apiKey = getApiKey ? getApiKey() : null;
+        if (apiKey && !['/', '/docs', '/cli', '/ws', '/websocket', '/api/status'].includes(url.pathname)) {
+            const authHeader = req.headers.authorization;
+            if (!authHeader || authHeader !== `Bearer ${apiKey}`) {
+                return sendError(res, 401, 'Unauthorized: Invalid or missing API key', 'unauthorized');
+            }
+        }
+
         try {
             const body = req.method === 'POST' ? await parseBody(req) : {};
             await handleRoute(req.method, url.pathname, body, res);
@@ -1465,7 +1492,7 @@ function startRestAPI() {
 
         // Init WebSocket on same server
         try {
-            initWebSocket(httpServer, handleMCPRequest, getEnabled);
+            initWebSocket(httpServer, handleMCPRequest, getEnabled, getApiKey);
             console.log(`[API] 🔌 WebSocket ready at ws://localhost:${REST_PORT}/ws`);
         } catch (err) {
             console.error('[API] WebSocket init failed:', err.message);

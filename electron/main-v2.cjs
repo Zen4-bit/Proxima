@@ -3,6 +3,7 @@
 const { app, BrowserWindow, ipcMain, shell, session, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const net = require('net');
 const BrowserManager = require('./browser-manager.cjs');
 const { initRestAPI, startRestAPI, stopRestAPI, isRestAPIRunning } = require('./rest-api.cjs');
@@ -74,12 +75,21 @@ function loadSettings() {
     try {
         if (fs.existsSync(settingsPath)) {
             const saved = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-            return { ...defaultSettings, ...saved };
+            const settings = { ...defaultSettings, ...saved };
+            if (!settings.apiKey) {
+                settings.apiKey = crypto.randomBytes(24).toString('hex');
+                saveSettings(settings);
+            }
+            return settings;
         }
     } catch (e) {
         console.error('Error loading settings:', e);
     }
-    return defaultSettings;
+    const settings = { ...defaultSettings, apiKey: crypto.randomBytes(24).toString('hex') };
+    try {
+        saveSettings(settings);
+    } catch(e) {}
+    return settings;
 }
 
 function saveSettings(settings) {
@@ -396,6 +406,9 @@ function createWindow() {
                 const s = loadSettings();
                 return Object.entries(s.providers)
                     .filter(([_, c]) => c.enabled).map(([n]) => n);
+            },
+            getApiKey: () => {
+                return loadSettings().apiKey;
             }
         });
         // Only start if enabled (default: false — user must enable it)

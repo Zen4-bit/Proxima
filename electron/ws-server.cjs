@@ -8,6 +8,7 @@ const { WebSocketServer } = require('ws');
 
 let handleMCPRequest = null;
 let getEnabledProviders = null;
+let getApiKey = null;
 let wss = null;
 const clients = new Map();
 
@@ -21,9 +22,10 @@ const wsStats = {
 };
 
 // ─── Init ────────────────────────────────────────────
-function initWebSocket(httpServer, mcpHandler, enabledProvidersFn) {
+function initWebSocket(httpServer, mcpHandler, enabledProvidersFn, apiKeyFn) {
     handleMCPRequest = mcpHandler;
     getEnabledProviders = enabledProvidersFn || (() => []);
+    getApiKey = apiKeyFn;
     wsStats.startTime = new Date();
 
     wss = new WebSocketServer({ noServer: true });
@@ -33,6 +35,15 @@ function initWebSocket(httpServer, mcpHandler, enabledProvidersFn) {
         const url = new URL(request.url, `http://${request.headers.host}`);
         
         if (url.pathname === '/ws' || url.pathname === '/websocket') {
+            const apiKey = getApiKey ? getApiKey() : null;
+            if (apiKey) {
+                const reqApiKey = url.searchParams.get('apiKey');
+                if (reqApiKey !== apiKey) {
+                    socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+                    socket.destroy();
+                    return;
+                }
+            }
             wss.handleUpgrade(request, socket, head, (ws) => {
                 wss.emit('connection', ws, request);
             });
