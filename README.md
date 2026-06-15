@@ -709,11 +709,52 @@ ws.onmessage = (e) => {
 <tr><td><code>ask_claude</code></td><td>Query Claude (supports file upload)</td></tr>
 <tr><td><code>ask_gemini</code></td><td>Query Gemini (supports file upload)</td></tr>
 <tr><td><code>ask_perplexity</code></td><td>Query Perplexity (supports file upload)</td></tr>
+<tr><td><code>ask_scoped_chat</code></td><td>Query an existing ChatGPT Project, Claude Project, Perplexity Space, or Gemini Gem using the logged-in browser session</td></tr>
 <tr><td><code>ask_all_ais</code></td><td>Send same query to all providers at once</td></tr>
 <tr><td><code>ask_selected</code></td><td>Pick specific providers to query</td></tr>
 <tr><td><code>compare_ais</code></td><td>Get and compare responses side by side</td></tr>
 <tr><td><code>smart_query</code></td><td>Auto-picks best provider, falls back if one fails</td></tr>
 </table>
+
+#### Scoped chat examples
+
+Use <code>ask_scoped_chat</code> when you want a provider-specific workspace to apply its saved instructions, files, or knowledge. The tool requires an existing scope URL and sends through DOM mode so the logged-in browser page controls the workspace context.
+
+```json
+{
+  "provider": "chatgpt",
+  "scopeUrl": "https://chatgpt.com/g/g-p-example/project?tab=chats",
+  "message": "Use this project's instructions and summarize the attached packet.",
+  "files": ["/absolute/path/packet.zip"],
+  "newChat": true
+}
+```
+
+```json
+{
+  "provider": "claude",
+  "scopeUrl": "https://claude.ai/project/example",
+  "message": "Continue from this project's knowledge base and draft the implementation checklist.",
+  "newChat": false
+}
+```
+
+```json
+{
+  "provider": "perplexity",
+  "scopeUrl": "https://www.perplexity.ai/spaces/example",
+  "message": "Search this Space's sources and give me the relevant findings."
+}
+```
+
+```json
+{
+  "provider": "gemini",
+  "scopeUrl": "https://gemini.google.com/gems/example",
+  "message": "Use this Gem's instructions to review the uploaded notes.",
+  "files": ["/absolute/path/notes.pdf"]
+}
+```
 
 ### 🔧 Development Tools
 
