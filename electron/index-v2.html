@@ -153,6 +153,10 @@
             background: linear-gradient(135deg, #4285f4, #8ab4f8);
         }
 
+        .tab-icon.zai {
+            background: linear-gradient(135deg, #3b6cf6, #6f9bff);
+        }
+
         .tab-icon.settings {
             background: transparent;
             border: none;
@@ -1010,6 +1014,11 @@
             <span class="tab-name">Gemini</span>
             <div class="tab-status offline" id="status-dot-gemini"></div>
         </div>
+        <div class="tab" data-provider="zai" onclick="switchTab('zai')">
+            <div class="tab-icon zai">G</div>
+            <span class="tab-name">GLM</span>
+            <div class="tab-status offline" id="status-dot-zai"></div>
+        </div>
         <div class="tab-spacer"></div>
         <div class="tab" data-tab="settings" onclick="switchTab('settings')">
             <div class="tab-icon settings">⚙️</div>
@@ -1126,6 +1135,17 @@
                             <div class="provider-card-status not-ready" id="card-status-gemini">Not logged in</div>
                         </div>
                         <div class="toggle-switch active" data-provider="gemini" onclick="toggleProvider(this)"></div>
+                    </div>
+                    <div class="provider-card disabled" data-provider="zai">
+                        <div class="provider-card-icon"
+                            style="background: linear-gradient(135deg, #3b6cf6, #6f9bff); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700;">
+                            G
+                        </div>
+                        <div class="provider-card-info">
+                            <div class="provider-card-name">GLM-5.2 (z.ai)</div>
+                            <div class="provider-card-status not-ready" id="card-status-zai">Disabled</div>
+                        </div>
+                        <div class="toggle-switch" data-provider="zai" onclick="toggleProvider(this)"></div>
                     </div>
                 </div>
             </div>

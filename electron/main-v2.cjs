@@ -53,7 +53,8 @@ const responseState = {
     perplexity: { fingerprint: '', blockCount: 0 },
     chatgpt: { fingerprint: '' },
     claude: { fingerprint: '' },
-    gemini: { fingerprint: '' }
+    gemini: { fingerprint: '' },
+    zai: { fingerprint: '' }
 };
 
 // Default settings
@@ -62,7 +63,8 @@ const defaultSettings = {
         perplexity: { enabled: true, loggedIn: false },
         chatgpt: { enabled: true, loggedIn: false },
         claude: { enabled: false, loggedIn: false },
-        gemini: { enabled: true, loggedIn: false }
+        gemini: { enabled: true, loggedIn: false },
+        zai: { enabled: false, loggedIn: false }
     },
     ipcPort: 19222, // Port for MCP server IPC communication
     theme: 'dark',
@@ -182,7 +184,8 @@ async function restoreCookies(provider, ses) {
             perplexity: { domain: 'perplexity.ai', authCookies: ['__Secure-next-auth.session-token', 'pplx_'] },
             chatgpt: { domain: 'openai.com', authCookies: ['__Secure-next-auth.session-token', '__cf_bm'] },
             claude: { domain: 'claude.ai', authCookies: ['sessionKey', '__cf_bm'] },
-            gemini: { domain: 'google.com', authCookies: ['SID', 'HSID', 'SSID', '__Secure-1PSID', '__Secure-3PSID'] }
+            gemini: { domain: 'google.com', authCookies: ['SID', 'HSID', 'SSID', '__Secure-1PSID', '__Secure-3PSID'] },
+            zai: { domain: 'z.ai', authCookies: ['token', '__cf_bm'] }
         };
         const authConfig = providerAuthDomains[provider];
         if (authConfig) {
@@ -767,6 +770,10 @@ async function sendMessageToProvider(provider, message, forceDOM = false) {
             return await sendToClaude(webContents, message);
         case 'gemini':
             return await sendToGemini(webContents, message);
+        case 'zai':
+            // Z.AI (GLM) is engine-only — it has no DOM scraping fallback.
+            // Reaching here means the injected engine didn't return content.
+            throw new Error('Z.AI engine unavailable — open chat.z.ai and ensure it loaded');
         default:
             throw new Error(`Unknown provider: ${provider}`);
     }
@@ -2479,7 +2486,8 @@ ipcMain.handle('open-in-system-browser', (event, provider) => {
         perplexity: 'https://www.perplexity.ai/',
         chatgpt: 'https://chat.openai.com/',
         claude: 'https://claude.ai/',
-        gemini: 'https://gemini.google.com/'
+        gemini: 'https://gemini.google.com/',
+        zai: 'https://chat.z.ai/'
     };
     if (urls[provider]) {
         shell.openExternal(urls[provider]);
@@ -2606,7 +2614,8 @@ ipcMain.handle('get-cookies', async (event, provider) => {
             perplexity: 'perplexity.ai',
             chatgpt: 'openai.com',
             claude: 'claude.ai',
-            gemini: 'google.com'
+            gemini: 'google.com',
+            zai: 'z.ai'
         };
 
         const domain = providerDomains[provider];

@@ -411,7 +411,7 @@ class SmartRouter {
 
     async smartQuery(message, preferredProvider = null) {
         const enabled = getEnabledProviders();
-        const order = ['chatgpt', 'claude', 'perplexity', 'gemini'];
+        const order = ['chatgpt', 'claude', 'perplexity', 'gemini', 'zai'];
 
         // Start with preferred if enabled
         if (preferredProvider && enabled.has(preferredProvider)) {
@@ -462,8 +462,9 @@ const perplexity = new AIProvider('perplexity', ipcClient);
 const chatgpt = new AIProvider('chatgpt', ipcClient);
 const claude = new AIProvider('claude', ipcClient);
 const gemini = new AIProvider('gemini', ipcClient);
+const zai = new AIProvider('zai', ipcClient);
 
-const router = new SmartRouter({ perplexity, chatgpt, claude, gemini });
+const router = new SmartRouter({ perplexity, chatgpt, claude, gemini, zai });
 
 // Create MCP Server
 const server = new McpServer({
@@ -1104,6 +1105,24 @@ server.tool(
         try {
             const fullMessage = buildMessageWithFiles(message, files);
             return toolResponse(await gemini.chat(fullMessage));
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+server.tool(
+    'ask_glm',
+    {
+        message: z.string().describe('Message to send to GLM-5.2 (z.ai)'),
+        files: z.array(z.string()).optional().describe('Optional: file paths to include as context. Supports line ranges like "path/file.js:10-50". For large files, always specify relevant line ranges only.')
+    },
+    async ({ message, files }) => {
+        const disabled = checkDisabled('zai');
+        if (disabled) return disabled;
+        try {
+            const fullMessage = buildMessageWithFiles(message, files);
+            return toolResponse(await zai.chat(fullMessage));
         } catch (err) {
             return toolError(err);
         }
