@@ -532,7 +532,8 @@ class AIProvider {
                 await this.sleep(Math.max(0, uploadSettleMs));
                 const button = await this.ipc.send('waitForSendButton', this.name, {});
                 if (!button?.ready) throw new Error(`Timed out waiting for send button after uploading: ${filePath}`);
-                const reason = (uploadResult && uploadResult.error) || 'upload failed';
+            } else {
+                const reason = uploadResult?.error || 'upload failed';
                 console.error(`[${this.name}] Scoped chat file upload failed: ${filePath} — ${reason}`);
                 failedUploads.push({ filePath, error: reason });
             }
