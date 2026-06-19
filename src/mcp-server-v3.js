@@ -346,6 +346,9 @@ function scopedDetailsForUrl(provider, urlLike) {
     }
 
     const segments = url.pathname.split('/').filter(Boolean);
+    // Canonical segment so equivalent scope URLs (e.g. /project/<id> vs
+    // /projects/<id>) resolve to the same identity for newChat=false reuse.
+    const canonicalSegment = config.scopeSegments[0];
     for (const scopeSegment of config.scopeSegments) {
         const index = segments.indexOf(scopeSegment);
         if (index >= 0 && segments[index + 1]) {
@@ -362,7 +365,7 @@ function scopedDetailsForUrl(provider, urlLike) {
             }
 
             return {
-                identity: `${provider}:${config.host}/${scopeSegment}/${scopeId.toLowerCase()}`,
+                identity: `${provider}:${config.host}/${canonicalSegment}/${scopeId.toLowerCase()}`,
                 landingUrl
             };
         }
@@ -370,9 +373,15 @@ function scopedDetailsForUrl(provider, urlLike) {
 
     const gemId = url.searchParams.get('gem') || url.searchParams.get('gemId');
     if (provider === 'gemini' && gemId) {
+        // Clear hash/query and use the canonical /gem/<id> path so the landing
+        // URL matches the segment-based branch instead of the raw input URL.
+        const landingUrl = new URL(url.href);
+        landingUrl.hash = '';
+        landingUrl.search = '';
+        landingUrl.pathname = `/gem/${gemId}`;
         return {
             identity: `${provider}:${config.host}/gem/${gemId.toLowerCase()}`,
-            landingUrl: url
+            landingUrl
         };
     }
 
@@ -500,12 +509,19 @@ class AIProvider {
         }
 
         const uploaded = [];
+        const failedUploads = [];
         for (const filePath of uploadFiles) {
             console.error(`[${this.name}] Uploading scoped chat file: ${filePath}`);
             const uploadResult = await this.ipc.send('uploadFile', this.name, { filePath });
-            uploaded.push({ filePath, result: uploadResult });
-            await this.sleep(Math.max(0, uploadSettleMs));
-            await this.ipc.send('waitForSendButton', this.name, {});
+            if (uploadResult && uploadResult.success) {
+                uploaded.push({ filePath, result: uploadResult });
+                await this.sleep(Math.max(0, uploadSettleMs));
+                await this.ipc.send('waitForSendButton', this.name, {});
+            } else {
+                const reason = (uploadResult && uploadResult.error) || 'upload failed';
+                console.error(`[${this.name}] Scoped chat file upload failed: ${filePath} — ${reason}`);
+                failedUploads.push({ filePath, error: reason });
+            }
         }
 
         let typingCheck = await this.getTypingStatus();
@@ -532,6 +548,8 @@ class AIProvider {
             currentUrl: await this.currentUrl(),
             newChat,
             filesUploaded: uploaded.length,
+            filesFailed: failedUploads.length,
+            ...(failedUploads.length ? { uploadErrors: failedUploads.map(f => `${f.filePath}: ${f.error}`) } : {}),
             response
         };
     }
@@ -733,6 +751,10 @@ function formatResult(obj) {
         out += `**Scope:** ${obj.scope}\n`;
         if (obj.currentUrl) out += `**Current URL:** ${obj.currentUrl}\n`;
         if (typeof obj.filesUploaded === 'number') out += `**Files uploaded:** ${obj.filesUploaded}\n`;
+        if (obj.filesFailed) out += `**Files failed:** ${obj.filesFailed}\n`;
+        if (Array.isArray(obj.uploadErrors) && obj.uploadErrors.length) {
+            out += `**Upload errors:**\n${obj.uploadErrors.map(e => `- ${e}`).join('\n')}\n`;
+        }
         out += `\n${obj.response}`;
         return out.trim();
     }
