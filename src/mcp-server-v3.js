@@ -312,8 +312,8 @@ function parseProviderScopedUrl(provider, rawUrl) {
         throw new Error(`Invalid ${config.label} URL: ${rawUrl}`);
     }
 
-    if (!['http:', 'https:'].includes(url.protocol)) {
-        throw new Error(`${config.label} URL must use http or https`);
+    if (url.protocol !== 'https:') {
+        throw new Error(`${config.label} URL must use https`);
     }
 
     if (!hostMatches(url.hostname, config.host)) {
@@ -530,8 +530,8 @@ class AIProvider {
             if (uploadResult && uploadResult.success) {
                 uploaded.push({ filePath, result: uploadResult });
                 await this.sleep(Math.max(0, uploadSettleMs));
-                await this.ipc.send('waitForSendButton', this.name, {});
-            } else {
+                const button = await this.ipc.send('waitForSendButton', this.name, {});
+                if (!button?.ready) throw new Error(`Timed out waiting for send button after uploading: ${filePath}`);
                 const reason = (uploadResult && uploadResult.error) || 'upload failed';
                 console.error(`[${this.name}] Scoped chat file upload failed: ${filePath} — ${reason}`);
                 failedUploads.push({ filePath, error: reason });
