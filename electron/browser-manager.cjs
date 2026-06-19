@@ -32,6 +32,11 @@ class BrowserManager {
                 url: 'https://gemini.google.com/app',
                 partition: 'persist:gemini',
                 color: '#4285f4'
+            },
+            zai: {
+                url: 'https://chat.z.ai/',
+                partition: 'persist:zai',
+                color: '#3b6cf6'
             }
         };
 
@@ -429,7 +434,8 @@ class BrowserManager {
                 perplexity: 'perplexity.ai',
                 chatgpt: 'chatgpt.com',
                 claude: 'claude.ai',
-                gemini: 'gemini.google.com'
+                gemini: 'gemini.google.com',
+                zai: 'z.ai'
             };
 
             const domain = providerDomains[provider];
@@ -583,6 +589,17 @@ class BrowserManager {
                             const hasSignIn = !!document.querySelector('a[href*="ServiceLogin"]') ||
                                             !!document.querySelector('a[data-action-id="sign-in"]');
                             return hasInput && !hasSignIn;
+                        })()
+                    `);
+                case 'zai':
+                    // chat.z.ai works with an auto-minted guest session, so a usable
+                    // state just means the page loaded with a token or a chat input.
+                    return await webContents.executeJavaScript(`
+                        (function() {
+                            try { if (window.localStorage.getItem('token')) return true; } catch(e) {}
+                            const hasInput = !!document.querySelector('textarea') ||
+                                           !!document.querySelector('[contenteditable="true"]');
+                            return hasInput;
                         })()
                     `);
                 default:

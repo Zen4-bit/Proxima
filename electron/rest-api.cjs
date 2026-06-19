@@ -25,10 +25,14 @@ const MODEL_ALIASES = {
     'gemini': 'gemini', 'gemini-pro': 'gemini', 'gemini-2': 'gemini', 'gemini-2.5': 'gemini',
     'google': 'gemini', 'bard': 'gemini',
 
-    
+
     'perplexity': 'perplexity', 'pplx': 'perplexity', 'sonar': 'perplexity',
 
-    
+
+    'zai': 'zai', 'z.ai': 'zai', 'glm': 'zai', 'glm-5.2': 'zai', 'glm-5': 'zai',
+    'glm5.2': 'zai', 'chatglm': 'zai',
+
+
     'auto': 'auto',   // Auto-pick best available
     'all': 'all'       // Query all providers
 };
@@ -186,7 +190,7 @@ function pickBestProvider(preferred) {
         if (enabled.includes(preferred)) return preferred;
         return null;
     }
-    return ['claude', 'chatgpt', 'gemini', 'perplexity'].find(p => enabled.includes(p)) || null;
+    return ['claude', 'chatgpt', 'gemini', 'perplexity', 'zai'].find(p => enabled.includes(p)) || null;
 }
 
 // Normalize a message value to a plain string.
@@ -367,6 +371,7 @@ function getChatHTML(accentColor = '#22c55e') {
                         <option value="chatgpt">🟢 ChatGPT</option>
                         <option value="gemini">🔵 Gemini</option>
                         <option value="perplexity">🟡 Perplexity</option>
+                        <option value="zai">🔷 GLM (z.ai)</option>
                     </select>
                     <button id="ws-connect-btn" onclick="toggleWS()" style="background:rgba(${rgb},.15);color:${accentColor};border:1px solid rgba(${rgb},.25);border-radius:6px;padding:5px 14px;font-size:11px;font-weight:600;cursor:pointer;transition:all .2s;">Connect</button>
                     <button id="battle-toggle-btn" onclick="toggleBattle()" style="background:rgba(249,115,22,.08);color:#f97316;border:1px solid rgba(249,115,22,.2);border-radius:6px;padding:5px 12px;font-size:11px;font-weight:600;cursor:pointer;transition:all .2s;">&#9876; Battle</button>
@@ -380,6 +385,7 @@ function getChatHTML(accentColor = '#22c55e') {
                         <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#22c55e;cursor:pointer;"><input type="checkbox" class="battle-cb" value="chatgpt" style="accent-color:#22c55e;"> ChatGPT</label>
                         <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#3b82f6;cursor:pointer;"><input type="checkbox" class="battle-cb" value="gemini" style="accent-color:#3b82f6;"> Gemini</label>
                         <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#f97316;cursor:pointer;"><input type="checkbox" class="battle-cb" value="perplexity" style="accent-color:#f97316;"> Perplexity</label>
+                        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#3b6cf6;cursor:pointer;"><input type="checkbox" class="battle-cb" value="zai" style="accent-color:#3b6cf6;"> GLM</label>
                     </div>
                 </div>
                 <div id="chat-messages" style="height:360px;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px;scroll-behavior:smooth;">
@@ -413,9 +419,9 @@ function getChatJS() {
     function addUser(t){const d=document.createElement('div');d.style.cssText='align-self:flex-end;max-width:75%;background:linear-gradient(135deg,rgba(34,197,94,.15),rgba(6,182,212,.1));border:1px solid rgba(34,197,94,.2);border-radius:12px 12px 2px 12px;padding:10px 14px;';d.innerHTML='<div style="font-size:9px;color:#22c55e;margin-bottom:4px;font-weight:600;">YOU</div><div style="font-size:13px;color:#e0e0e0;line-height:1.5;">'+esc(t)+'</div>';msgArea.appendChild(d);scroll();}
     function md(s){if(!s)return '';var bt=String.fromCharCode(96);s=s.replace(new RegExp(bt+bt+bt+'([\\\\s\\\\S]*?)'+bt+bt+bt,'g'),function(_,c){return '<pre style="background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.05);border-radius:6px;padding:8px;margin:6px 0;font-size:11px;font-family:monospace;color:#a5b4fc;overflow-x:auto;">'+esc(c.trim())+'</pre>';});s=s.replace(new RegExp(bt+'([^'+bt+']+)'+bt,'g'),'<code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px;font-size:11px;font-family:monospace;color:#67e8f9;">$1</code>');s=s.replace(/^### (.+)$/gm,'<div style="font-size:14px;font-weight:600;color:#e0e0e0;margin:8px 0 4px;">$1</div>');s=s.replace(/^## (.+)$/gm,'<div style="font-size:15px;font-weight:700;color:#e0e0e0;margin:10px 0 4px;">$1</div>');s=s.replace(/^# (.+)$/gm,'<div style="font-size:16px;font-weight:700;color:#fff;margin:10px 0 6px;">$1</div>');s=s.replace(/\\*\\*(.+?)\\*\\*/g,'<strong style="color:#e0e0e0;">$1</strong>');s=s.replace(/\\*(.+?)\\*/g,'<em>$1</em>');s=s.replace(/^- (.+)$/gm,'<div style="padding-left:12px;margin:2px 0;">&#8226; $1</div>');s=s.replace(/\\n/g,'<br>');return s;}
     function addSystem(t){const d=document.createElement('div');d.style.cssText='text-align:center;font-size:10px;color:#444;padding:4px;';d.textContent=t;msgArea.appendChild(d);scroll();}
-    function addAI(c,m,ms){const colors={claude:'#a78bfa',chatgpt:'#22c55e',gemini:'#3b82f6',perplexity:'#f97316',auto:'#06b6d4'};const cl=colors[m]||'#22c55e';const d=document.createElement('div');d.style.cssText='align-self:flex-start;max-width:85%;background:rgba(16,16,24,.8);border:1px solid rgba(255,255,255,.06);border-radius:12px 12px 12px 2px;padding:10px 14px;';d.innerHTML='<div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="font-size:9px;color:'+cl+';font-weight:600;">'+(m||'AI').toUpperCase()+'</span><span style="font-size:9px;color:#333;">'+(ms?(ms/1000).toFixed(1)+'s':'')+'</span></div><div style="font-size:13px;color:#ccc;line-height:1.6;word-wrap:break-word;">'+md(c)+'</div>';msgArea.appendChild(d);scroll();}
-    function addBattleGrid(providers){var colors={claude:'#a78bfa',chatgpt:'#22c55e',gemini:'#3b82f6',perplexity:'#f97316'};var cols=providers.length<=2?'1fr 1fr':providers.length===3?'1fr 1fr 1fr':'1fr 1fr';var d=document.createElement('div');d.id='battle-grid-'+battleId;d.style.cssText='display:grid;grid-template-columns:'+cols+';gap:8px;width:100%;';providers.forEach(function(p){var cell=document.createElement('div');cell.id='battle-cell-'+p+'-'+battleId;cell.style.cssText='background:rgba(16,16,24,.8);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:10px;min-height:80px;';var cl=colors[p]||'#22c55e';cell.innerHTML='<div style="font-size:9px;color:'+cl+';font-weight:700;margin-bottom:6px;text-transform:uppercase;display:flex;align-items:center;gap:4px;">'+p+'<span style="display:inline-flex;gap:2px;margin-left:4px;"><span style="width:3px;height:3px;background:'+cl+';border-radius:50%;animation:pulse 1s infinite;"></span><span style="width:3px;height:3px;background:'+cl+';border-radius:50%;animation:pulse 1s infinite .2s;"></span><span style="width:3px;height:3px;background:'+cl+';border-radius:50%;animation:pulse 1s infinite .4s;"></span></span></div><div class="battle-content" style="font-size:12px;color:#888;line-height:1.5;">Waiting...</div>';d.appendChild(cell);});msgArea.appendChild(d);scroll();}
-    function addBattleResponse(c,m,ms){var cell=document.getElementById('battle-cell-'+m+'-'+battleId);if(cell){var cl={claude:'#a78bfa',chatgpt:'#22c55e',gemini:'#3b82f6',perplexity:'#f97316'}[m]||'#22c55e';cell.innerHTML='<div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="font-size:9px;color:'+cl+';font-weight:700;text-transform:uppercase;">'+m+'</span><span style="font-size:9px;color:#555;">'+(ms?(ms/1000).toFixed(1)+'s':'')+'</span></div><div style="font-size:12px;color:#ccc;line-height:1.5;word-wrap:break-word;">'+md(c)+'</div>';cell.style.borderColor='rgba(255,255,255,.1)';scroll();}else{addAI(c,m,ms);}}
+    function addAI(c,m,ms){const colors={claude:'#a78bfa',chatgpt:'#22c55e',gemini:'#3b82f6',perplexity:'#f97316',zai:'#3b6cf6',auto:'#06b6d4'};const cl=colors[m]||'#22c55e';const d=document.createElement('div');d.style.cssText='align-self:flex-start;max-width:85%;background:rgba(16,16,24,.8);border:1px solid rgba(255,255,255,.06);border-radius:12px 12px 12px 2px;padding:10px 14px;';d.innerHTML='<div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="font-size:9px;color:'+cl+';font-weight:600;">'+(m||'AI').toUpperCase()+'</span><span style="font-size:9px;color:#333;">'+(ms?(ms/1000).toFixed(1)+'s':'')+'</span></div><div style="font-size:13px;color:#ccc;line-height:1.6;word-wrap:break-word;">'+md(c)+'</div>';msgArea.appendChild(d);scroll();}
+    function addBattleGrid(providers){var colors={claude:'#a78bfa',chatgpt:'#22c55e',gemini:'#3b82f6',perplexity:'#f97316',zai:'#3b6cf6'};var cols=providers.length<=2?'1fr 1fr':providers.length===3?'1fr 1fr 1fr':'1fr 1fr';var d=document.createElement('div');d.id='battle-grid-'+battleId;d.style.cssText='display:grid;grid-template-columns:'+cols+';gap:8px;width:100%;';providers.forEach(function(p){var cell=document.createElement('div');cell.id='battle-cell-'+p+'-'+battleId;cell.style.cssText='background:rgba(16,16,24,.8);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:10px;min-height:80px;';var cl=colors[p]||'#22c55e';cell.innerHTML='<div style="font-size:9px;color:'+cl+';font-weight:700;margin-bottom:6px;text-transform:uppercase;display:flex;align-items:center;gap:4px;">'+p+'<span style="display:inline-flex;gap:2px;margin-left:4px;"><span style="width:3px;height:3px;background:'+cl+';border-radius:50%;animation:pulse 1s infinite;"></span><span style="width:3px;height:3px;background:'+cl+';border-radius:50%;animation:pulse 1s infinite .2s;"></span><span style="width:3px;height:3px;background:'+cl+';border-radius:50%;animation:pulse 1s infinite .4s;"></span></span></div><div class="battle-content" style="font-size:12px;color:#888;line-height:1.5;">Waiting...</div>';d.appendChild(cell);});msgArea.appendChild(d);scroll();}
+    function addBattleResponse(c,m,ms){var cell=document.getElementById('battle-cell-'+m+'-'+battleId);if(cell){var cl={claude:'#a78bfa',chatgpt:'#22c55e',gemini:'#3b82f6',perplexity:'#f97316',zai:'#3b6cf6'}[m]||'#22c55e';cell.innerHTML='<div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="font-size:9px;color:'+cl+';font-weight:700;text-transform:uppercase;">'+m+'</span><span style="font-size:9px;color:#555;">'+(ms?(ms/1000).toFixed(1)+'s':'')+'</span></div><div style="font-size:12px;color:#ccc;line-height:1.5;word-wrap:break-word;">'+md(c)+'</div>';cell.style.borderColor='rgba(255,255,255,.1)';scroll();}else{addAI(c,m,ms);}}
     function addError(t){const d=document.createElement('div');d.style.cssText='align-self:flex-start;max-width:80%;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.15);border-radius:8px;padding:8px 12px;';d.innerHTML='<span style="font-size:10px;color:#ef4444;">⚠ '+esc(t)+'</span>';msgArea.appendChild(d);scroll();}
     function updateStatus(m){removeTyping();const d=document.createElement('div');d.className='typing-indicator';d.style.cssText='align-self:flex-start;font-size:10px;color:#22c55e;padding:6px 12px;background:rgba(34,197,94,.05);border-radius:8px;display:flex;align-items:center;gap:6px;';d.innerHTML='<span style="display:inline-flex;gap:3px;"><span style="width:4px;height:4px;background:#22c55e;border-radius:50%;animation:pulse 1s infinite;"></span><span style="width:4px;height:4px;background:#22c55e;border-radius:50%;animation:pulse 1s infinite .2s;"></span><span style="width:4px;height:4px;background:#22c55e;border-radius:50%;animation:pulse 1s infinite .4s;"></span></span> '+(m.status||'processing')+'...';msgArea.appendChild(d);scroll();}
     function removeTyping(){msgArea.querySelectorAll('.typing-indicator').forEach(e=>e.remove());}
@@ -492,7 +498,7 @@ function getDocsPage() {
             <div class="logo">⚡ Proxima API</div>
             <p class="sub">Unified AI Gateway · Port ${REST_PORT} · v${VERSION}</p>
             <div class="chips">
-                ${['perplexity', 'chatgpt', 'claude', 'gemini'].map(p =>
+                ${['perplexity', 'chatgpt', 'claude', 'gemini', 'zai'].map(p =>
         `<div class="chip ${enabled.includes(p) ? 'on' : 'off'}"><div class="d"></div>${p[0].toUpperCase() + p.slice(1)}</div>`
     ).join('')}
             </div>
@@ -541,6 +547,7 @@ POST /v1/chat/completions
                 <div class="model-item" style="border:1px solid rgba(249,115,22,.15)">claude · sonnet · anthropic</div>
                 <div class="model-item" style="border:1px solid rgba(59,130,246,.15)">gemini · google · bard</div>
                 <div class="model-item" style="border:1px solid rgba(168,85,247,.15)">perplexity · pplx · sonar</div>
+                <div class="model-item" style="border:1px solid rgba(59,108,246,.15)">zai · glm · glm-5.2 · z.ai</div>
                 <div class="model-item">auto → best available</div>
             </div>
         </div>
@@ -1277,7 +1284,7 @@ End with a security score (0-100).`;
             aliases: Object.entries(MODEL_ALIASES).filter(([_, v]) => v === p).map(([k]) => k).filter(k => k !== p)
         }));
         // Also show disabled ones
-        const allProviders = ['chatgpt', 'claude', 'gemini', 'perplexity'];
+        const allProviders = ['chatgpt', 'claude', 'gemini', 'perplexity', 'zai'];
         allProviders.filter(p => !enabled.includes(p)).forEach(p => {
             models.push({
                 id: p, object: 'model', owned_by: 'proxima', status: 'disabled',

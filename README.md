@@ -273,32 +273,39 @@ npm start
 
 <table>
 <tr>
-<td align="center" width="25%">
+<td align="center" width="20%">
 <br>
 <strong>ChatGPT</strong>
 <br>
 OpenAI's GPT
 <br><br>
 </td>
-<td align="center" width="25%">
+<td align="center" width="20%">
 <br>
 <strong>Claude</strong>
 <br>
 Anthropic's Claude
 <br><br>
 </td>
-<td align="center" width="25%">
+<td align="center" width="20%">
 <br>
 <strong>Gemini</strong>
 <br>
 Google's Gemini
 <br><br>
 </td>
-<td align="center" width="25%">
+<td align="center" width="20%">
 <br>
 <strong>Perplexity</strong>
 <br>
 Web search & research
+<br><br>
+</td>
+<td align="center" width="20%">
+<br>
+<strong>GLM</strong>
+<br>
+Zhipu's GLM (z.ai)
 <br><br>
 </td>
 </tr>
@@ -335,6 +342,7 @@ Your editor → MCP tool call → Proxima local server
 <tr><td><code>claude-engine.js</code></td><td>Claude</td><td>Org-level auth handling, SSE streaming, auto-recovery</td></tr>
 <tr><td><code>gemini-engine.js</code></td><td>Gemini</td><td>SSE streaming with auto-reconnect</td></tr>
 <tr><td><code>perplexity-engine.js</code></td><td>Perplexity</td><td>SSE streaming</td></tr>
+<tr><td><code>zai-engine.js</code></td><td>GLM (z.ai)</td><td>Guest JWT auth, signed requests (X-Signature HMAC), SSE streaming</td></tr>
 </table>
 
 
@@ -493,6 +501,15 @@ curl http://localhost:3210/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "claude", "message": "What is AI?"}'
 ```
+
+**Chat (GLM via z.ai):**
+```bash
+curl http://localhost:3210/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "glm-5.2", "message": "What is AI?"}'
+```
+
+> GLM accepts the aliases `zai`, `z.ai`, `glm`, `glm-5.2`, `chatglm` — all route to the z.ai provider. The engine targets the latest **GLM 5.2** model through your existing browser session.
 
 **Search:**
 ```bash
