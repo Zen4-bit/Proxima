@@ -322,7 +322,7 @@ function parseProviderScopedUrl(provider, rawUrl) {
 
     const details = scopedDetailsForUrl(provider, url);
     if (!details.identity) {
-        throw new Error(`${config.label} URL must point to an existing ${config.label.toLowerCase()}`);
+        throw new Error(`${config.label} URL must be a valid ${config.label.toLowerCase()} workspace URL`);
     }
 
     return { url, landingUrl: details.landingUrl, identity: details.identity, config };
@@ -504,7 +504,10 @@ class AIProvider {
             await this.ipc.send('navigate', this.name, { url: scope.landingUrl.href });
             await this.sleep(1500);
             currentUrl = await this.currentUrl();
-        } else {
+            const navigatedIdentity = scopedIdentityForUrl(this.name, currentUrl);
+            if (navigatedIdentity !== scope.identity) {
+                throw new Error(`Failed to open ${scope.config.label}. Expected ${scope.landingUrl.href} but landed on ${currentUrl}`);
+            }
             console.error(`[${this.name}] Continuing current ${scope.config.label}`);
         }
 
@@ -751,7 +754,7 @@ function formatResult(obj) {
         out += `**Scope:** ${obj.scope}\n`;
         if (obj.currentUrl) out += `**Current URL:** ${obj.currentUrl}\n`;
         if (typeof obj.filesUploaded === 'number') out += `**Files uploaded:** ${obj.filesUploaded}\n`;
-        if (obj.filesFailed) out += `**Files failed:** ${obj.filesFailed}\n`;
+        if (typeof obj.filesFailed === 'number') out += `**Files failed:** ${obj.filesFailed}\n`;
         if (Array.isArray(obj.uploadErrors) && obj.uploadErrors.length) {
             out += `**Upload errors:**\n${obj.uploadErrors.map(e => `- ${e}`).join('\n')}\n`;
         }
