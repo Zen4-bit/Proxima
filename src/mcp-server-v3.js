@@ -502,12 +502,23 @@ class AIProvider {
         if (shouldNavigate) {
             console.error(`[${this.name}] Navigating to ${scope.config.label}: ${scope.landingUrl.href}`);
             await this.ipc.send('navigate', this.name, { url: scope.landingUrl.href });
-            await this.sleep(1500);
-            currentUrl = await this.currentUrl();
-            const navigatedIdentity = scopedIdentityForUrl(this.name, currentUrl);
+
+            const NAV_TIMEOUT_MS = 15000;
+            const POLL_MS = 500;
+            const start = Date.now();
+            let navigatedIdentity = '';
+
+            while (Date.now() - start < NAV_TIMEOUT_MS) {
+                await this.sleep(POLL_MS);
+                currentUrl = await this.currentUrl();
+                navigatedIdentity = scopedIdentityForUrl(this.name, currentUrl);
+                if (navigatedIdentity === scope.identity) break;
+            }
+
             if (navigatedIdentity !== scope.identity) {
                 throw new Error(`Failed to open ${scope.config.label}. Expected ${scope.landingUrl.href} but landed on ${currentUrl}`);
             }
+        } else {
             console.error(`[${this.name}] Continuing current ${scope.config.label}`);
         }
 
@@ -1571,7 +1582,7 @@ server.tool(
         message: z.string().describe('Message to send inside the scoped chat using DOM mode'),
         files: z.array(z.string()).optional().describe('Optional: local file paths to upload into the scoped chat before sending. These are uploaded, not pasted as text context.'),
         newChat: z.boolean().optional().describe('Default true. When true, navigate to the scope URL before sending. When false, continue the current scoped chat if it matches the same scope.'),
-        uploadSettleMs: z.number().optional().describe('Milliseconds to wait after each upload before sending. Default: 3000.')
+        uploadSettleMs: z.number().int().min(0).optional().describe('Milliseconds to wait after each upload before sending. Default: 3000.')
     },
     async ({ provider, scopeUrl, message, files, newChat = true, uploadSettleMs = 3000 }) => {
         const disabled = checkDisabled(provider);
