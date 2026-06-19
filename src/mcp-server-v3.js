@@ -263,6 +263,149 @@ function buildMessageWithFiles(message, files) {
     return message;
 }
 
+// ─── Scoped Chat Helpers ─────────────────────────────
+
+const SCOPED_CHAT_PROVIDERS = {
+    chatgpt: {
+        label: 'ChatGPT Project',
+        host: 'chatgpt.com',
+        scopeSegments: ['g']
+    },
+    claude: {
+        label: 'Claude Project',
+        host: 'claude.ai',
+        scopeSegments: ['project', 'projects']
+    },
+    perplexity: {
+        label: 'Perplexity Space',
+        host: 'perplexity.ai',
+        scopeSegments: ['space', 'spaces']
+    },
+    gemini: {
+        label: 'Gemini Gem',
+        host: 'gemini.google.com',
+        scopeSegments: ['gem', 'gems']
+    }
+};
+
+function getScopedChatConfig(provider) {
+    const config = SCOPED_CHAT_PROVIDERS[provider];
+    if (!config) {
+        throw new Error(`Unsupported scoped chat provider: ${provider}`);
+    }
+    return config;
+}
+
+function hostMatches(actualHost, allowedHost) {
+    const host = actualHost.toLowerCase();
+    const allowed = allowedHost.toLowerCase();
+    return host === allowed || host.endsWith(`.${allowed}`);
+}
+
+function parseProviderScopedUrl(provider, rawUrl) {
+    const config = getScopedChatConfig(provider);
+    let url;
+
+    try {
+        url = new URL(rawUrl);
+    } catch {
+        throw new Error(`Invalid ${config.label} URL: ${rawUrl}`);
+    }
+
+    if (url.protocol !== 'https:') {
+        throw new Error(`${config.label} URL must use https`);
+    }
+
+    if (!hostMatches(url.hostname, config.host)) {
+        throw new Error(`${config.label} URL must be on ${config.host}`);
+    }
+
+    const details = scopedDetailsForUrl(provider, url);
+    if (!details.identity) {
+        throw new Error(`${config.label} URL must be a valid ${config.label.toLowerCase()} workspace URL`);
+    }
+
+    return { url, landingUrl: details.landingUrl, identity: details.identity, config };
+}
+
+function scopedIdentityForUrl(provider, urlLike) {
+    return scopedDetailsForUrl(provider, urlLike).identity;
+}
+
+function scopedDetailsForUrl(provider, urlLike) {
+    let url;
+    try {
+        url = urlLike instanceof URL ? urlLike : new URL(urlLike);
+    } catch {
+        return { identity: '', landingUrl: null };
+    }
+
+    const config = SCOPED_CHAT_PROVIDERS[provider];
+    if (!config || !hostMatches(url.hostname, config.host)) {
+        return { identity: '', landingUrl: null };
+    }
+
+    const segments = url.pathname.split('/').filter(Boolean);
+    // Canonical segment so equivalent scope URLs (e.g. /project/<id> vs
+    // /projects/<id>) resolve to the same identity for newChat=false reuse.
+    const canonicalSegment = config.scopeSegments[0];
+    for (const scopeSegment of config.scopeSegments) {
+        const index = segments.indexOf(scopeSegment);
+        if (index >= 0 && segments[index + 1]) {
+            const scopeId = segments[index + 1];
+            const landingUrl = new URL(url.href);
+            landingUrl.hash = '';
+            landingUrl.search = '';
+
+            if (provider === 'chatgpt' && scopeSegment === 'g') {
+                landingUrl.pathname = `/g/${scopeId}/project`;
+                landingUrl.search = '?tab=chats';
+            } else {
+                landingUrl.pathname = `/${scopeSegment}/${scopeId}`;
+            }
+
+            return {
+                identity: `${provider}:${config.host}/${canonicalSegment}/${scopeId.toLowerCase()}`,
+                landingUrl
+            };
+        }
+    }
+
+    const gemId = url.searchParams.get('gem') || url.searchParams.get('gemId');
+    if (provider === 'gemini' && gemId) {
+        // Clear hash/query and use the canonical /gem/<id> path so the landing
+        // URL matches the segment-based branch instead of the raw input URL.
+        const landingUrl = new URL(url.href);
+        landingUrl.hash = '';
+        landingUrl.search = '';
+        landingUrl.pathname = `/gem/${gemId}`;
+        return {
+            identity: `${provider}:${config.host}/gem/${gemId.toLowerCase()}`,
+            landingUrl
+        };
+    }
+
+    return { identity: '', landingUrl: null };
+}
+
+function resolveUploadFiles(files) {
+    if (!files || files.length === 0) return [];
+
+    return files.map((filePath) => {
+        const resolved = path.resolve(filePath);
+        if (!fs.existsSync(resolved)) {
+            throw new Error(`File not found: ${filePath}`);
+        }
+
+        const stat = fs.statSync(resolved);
+        if (!stat.isFile()) {
+            throw new Error(`Not a file: ${filePath}`);
+        }
+
+        return resolved;
+    });
+}
+
 // ─── AI Providers (IPC-backed) ─────────────────────
 
 class AIProvider {
@@ -347,6 +490,85 @@ class AIProvider {
         return result.response || 'No response received';
     }
 
+    async _doScopedChat({ scopeUrl, message, files = [], newChat = true, uploadSettleMs = 3000 }) {
+        await this.ensureInitialized();
+
+        const scope = parseProviderScopedUrl(this.name, scopeUrl);
+        const uploadFiles = resolveUploadFiles(files);
+        let currentUrl = await this.currentUrl();
+        const currentIdentity = scopedIdentityForUrl(this.name, currentUrl);
+        const shouldNavigate = newChat || currentIdentity !== scope.identity;
+
+        if (shouldNavigate) {
+            console.error(`[${this.name}] Navigating to ${scope.config.label}: ${scope.landingUrl.href}`);
+            await this.ipc.send('navigate', this.name, { url: scope.landingUrl.href });
+
+            const NAV_TIMEOUT_MS = 15000;
+            const POLL_MS = 500;
+            const start = Date.now();
+            let navigatedIdentity = '';
+
+            while (Date.now() - start < NAV_TIMEOUT_MS) {
+                await this.sleep(POLL_MS);
+                currentUrl = await this.currentUrl();
+                navigatedIdentity = scopedIdentityForUrl(this.name, currentUrl);
+                if (navigatedIdentity === scope.identity) break;
+            }
+
+            if (navigatedIdentity !== scope.identity) {
+                throw new Error(`Failed to open ${scope.config.label}. Expected ${scope.landingUrl.href} but landed on ${currentUrl}`);
+            }
+        } else {
+            console.error(`[${this.name}] Continuing current ${scope.config.label}`);
+        }
+
+        const uploaded = [];
+        const failedUploads = [];
+        for (const filePath of uploadFiles) {
+            console.error(`[${this.name}] Uploading scoped chat file: ${filePath}`);
+            const uploadResult = await this.ipc.send('uploadFile', this.name, { filePath });
+            if (uploadResult && uploadResult.success) {
+                uploaded.push({ filePath, result: uploadResult });
+                await this.sleep(Math.max(0, uploadSettleMs));
+                const button = await this.ipc.send('waitForSendButton', this.name, {});
+                if (!button?.ready) throw new Error(`Timed out waiting for send button after uploading: ${filePath}`);
+            } else {
+                const reason = uploadResult?.error || 'upload failed';
+                console.error(`[${this.name}] Scoped chat file upload failed: ${filePath} — ${reason}`);
+                failedUploads.push({ filePath, error: reason });
+            }
+        }
+
+        let typingCheck = await this.getTypingStatus();
+        let waitCount = 0;
+        while (typingCheck.isTyping && waitCount < 5) {
+            console.error(`[${this.name}] AI still typing, waiting before scoped chat send...`);
+            await this.sleep(1000);
+            typingCheck = await this.getTypingStatus();
+            waitCount++;
+        }
+
+        console.error(`[${this.name}] Sending scoped chat message with DOM mode...`);
+        await this.ipc.send('sendMessage', this.name, { message, forceDOM: true });
+
+        console.error(`[${this.name}] Waiting for scoped chat response...`);
+        const result = await this.ipc.send('getResponseWithTyping', this.name, {});
+        const response = result.response || 'No response received';
+
+        return {
+            scopedChat: true,
+            provider: this.name,
+            scope: scope.config.label,
+            scopeUrl: scope.landingUrl.href,
+            currentUrl: await this.currentUrl(),
+            newChat,
+            filesUploaded: uploaded.length,
+            filesFailed: failedUploads.length,
+            ...(failedUploads.length ? { uploadErrors: failedUploads.map(f => `${f.filePath}: ${f.error}`) } : {}),
+            response
+        };
+    }
+
     async chat(message, useCache = true) {
         // Cache check runs OUTSIDE queue — instant return, no waiting
         if (useCache && this.cache.has(message)) {
@@ -381,7 +603,27 @@ class AIProvider {
         return responsePromise;
     }
 
+    async scopedChat(options) {
+        this._queueLength++;
+        const position = this._queueLength;
+        if (position > 1) {
+            console.error(`[${this.name}] Scoped chat queued (position ${position}). Waiting for previous request...`);
+        }
 
+        const responsePromise = this._queue.then(async () => {
+            console.error(`[${this.name}] Processing scoped chat (${position} of ${this._queueLength})...`);
+            const response = await this._doScopedChat(options);
+            this._queueLength--;
+            return response;
+        }).catch((err) => {
+            this._queueLength--;
+            throw err;
+        });
+
+        this._queue = responsePromise.catch(() => {});
+
+        return responsePromise;
+    }
 
     async search(query, useCache = true) {
         return await this.chat(query, useCache);
@@ -390,6 +632,11 @@ class AIProvider {
     async executeScript(script) {
         const result = await this.ipc.send('executeScript', this.name, { script });
         return result;
+    }
+
+    async currentUrl() {
+        const result = await this.executeScript('window.location.href');
+        return result?.result || '';
     }
 
     async newConversation() {
@@ -463,6 +710,8 @@ const chatgpt = new AIProvider('chatgpt', ipcClient);
 const claude = new AIProvider('claude', ipcClient);
 const gemini = new AIProvider('gemini', ipcClient);
 
+const providerInstances = { perplexity, chatgpt, claude, gemini };
+
 const router = new SmartRouter({ perplexity, chatgpt, claude, gemini });
 
 // Create MCP Server
@@ -507,6 +756,21 @@ function formatResult(obj) {
             }
         }
         out += `## Final Output\n\n${obj.finalOutput}`;
+        return out.trim();
+    }
+
+    // ask_scoped_chat — { scopedChat, provider, scope, response }
+    if (obj.scopedChat && obj.response) {
+        let out = '';
+        out += `**Provider:** ${obj.provider}\n`;
+        out += `**Scope:** ${obj.scope}\n`;
+        if (obj.currentUrl) out += `**Current URL:** ${obj.currentUrl}\n`;
+        if (typeof obj.filesUploaded === 'number') out += `**Files uploaded:** ${obj.filesUploaded}\n`;
+        if (typeof obj.filesFailed === 'number') out += `**Files failed:** ${obj.filesFailed}\n`;
+        if (Array.isArray(obj.uploadErrors) && obj.uploadErrors.length) {
+            out += `**Upload errors:**\n${obj.uploadErrors.map(e => `- ${e}`).join('\n')}\n`;
+        }
+        out += `\n${obj.response}`;
         return out.trim();
     }
 
@@ -1305,6 +1569,35 @@ server.tool(
         try {
             const fullMessage = buildMessageWithFiles(message, files);
             return toolResponse(await perplexity.chat(fullMessage));
+        } catch (err) {
+            return toolError(err);
+        }
+    }
+);
+
+server.tool(
+    'ask_scoped_chat',
+    {
+        provider: z.enum(['chatgpt', 'claude', 'perplexity', 'gemini']).describe('Provider to use: chatgpt, claude, perplexity, or gemini'),
+        scopeUrl: z.string().describe('Existing project-like workspace URL: ChatGPT Project, Claude Project, Perplexity Space, or Gemini Gem'),
+        message: z.string().describe('Message to send inside the scoped chat using DOM mode'),
+        files: z.array(z.string()).optional().describe('Optional: local file paths to upload into the scoped chat before sending. These are uploaded, not pasted as text context.'),
+        newChat: z.boolean().optional().describe('Default true. When true, navigate to the scope URL before sending. When false, continue the current scoped chat if it matches the same scope.'),
+        uploadSettleMs: z.number().int().min(0).optional().describe('Milliseconds to wait after each upload before sending. Default: 3000.')
+    },
+    async ({ provider, scopeUrl, message, files, newChat = true, uploadSettleMs = 3000 }) => {
+        const disabled = checkDisabled(provider);
+        if (disabled) return disabled;
+
+        try {
+            const instance = providerInstances[provider];
+            return toolResponse(await instance.scopedChat({
+                scopeUrl,
+                message,
+                files,
+                newChat,
+                uploadSettleMs
+            }));
         } catch (err) {
             return toolError(err);
         }
