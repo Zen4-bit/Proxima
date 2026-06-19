@@ -754,6 +754,10 @@ async function sendMessageToProvider(provider, message, forceDOM = false) {
         }
     } else {
         console.log(`[${provider}] forceDOM=true — skipping API, typing into open conversation`);
+        // Drop any stale API response (e.g. left populated by a prior REST
+        // queryProvider that consumed sendResult.result.response directly) so
+        // getResponseWithTyping reads this DOM send instead of an old cache.
+        delete _apiResponseCache[provider];
     }
 
     // DOM fallback: types into currently open conversation
