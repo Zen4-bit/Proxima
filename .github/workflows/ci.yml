@@ -26,7 +26,7 @@ jobs:
         run: npm install
 
       - name: Check MCP server syntax
-        run: node --check src/mcp-server-v3.js
+        run: node --check src/mcp/index.js
 
       - name: Check CLI syntax
         run: node --check cli/proxima-cli.cjs
