@@ -1,0 +1,8 @@
+NETWORK
+Purpose: Fetch and interact with web APIs/resources.
+When to use: Direct HTTP calls, downloading raw files, communicating with external web services.
+When not to use: Interacting with JavaScript-rendered sites or browser UI flows (use browser).
+Import: import urllib.request, json
+API:
+  urllib.request.urlopen(req)   → Response object
+  urllib.request.urlretrieve(url, path) → tuple

@@ -1,666 +1,494 @@
 <div align="center">
 
-<img src="assets/proxima-icon.png" alt="Proxima" width="72"/>
+<img src="assets/proxima-icon.png" alt="Proxima Logo" width="100"/>
 
 # Proxima
 
-**4 AI providers. 1 local server. No API keys.**
+### All your AI models, working under one roof.
 
-Use ChatGPT, Claude, Gemini & Perplexity directly inside your coding tools — through your existing accounts.
+**Run frontier LLMs directly inside Cursor, VS Code, Windsurf, or Claude Desktop using free browser login sessions or local offline providers. Ships with a self-healing Python agent, multi-agent delegation, and cross-session memory.**
 
-<br>
-
-[![Version](https://img.shields.io/badge/version-4.1.0-blue)](https://github.com/Zen4-bit/Proxima/releases)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](https://github.com/Zen4-bit/Proxima#Install)
-
-[![License](https://img.shields.io/badge/license-Non--Commercial-red)](LICENSE)
-[![Website](https://img.shields.io/badge/Website-proximamcp.in-blue)](https://www.proximamcp.in)
-[![Stars](https://img.shields.io/github/stars/Zen4-bit/Proxima?style=social)](https://github.com/Zen4-bit/Proxima/stargazers)
-[![Sponsors](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?logo=github)](https://github.com/sponsors/Zen4-bit)
-
-<br>
-
-[Getting Started](#getting-started) · [CLI](#cli-tool) · [REST API](#rest-api) · [WebSocket](#websocket) · [SDKs](#sdks) · [MCP Tools](#mcp-tools)
+[![Version](https://img.shields.io/badge/Version-v5.0.0-555555?style=for-the-badge&logo=semver)](https://github.com/Zen4-bit/Proxima/releases)
+[![Platform](https://img.shields.io/badge/Windows%20·%20macOS%20·%20Linux-475569?style=for-the-badge&logo=electron&logoColor=white)](https://github.com/Zen4-bit/Proxima)
+[![Website](https://img.shields.io/badge/Website-proximamcp.in-d4af37?style=for-the-badge&logo=google-chrome&logoColor=white)](https://www.proximamcp.in)
+[![Sponsor](https://img.shields.io/badge/Sponsor-Proxima-d05c87?style=for-the-badge&logo=github-sponsors&logoColor=white)](https://github.com/sponsors/Zen4-bit)
+[![License: Non-Commercial](https://img.shields.io/badge/License-Non--Commercial-d73a49?style=for-the-badge)](LICENSE)
 
 </div>
 
-<br>
+---
+
+<details>
+<summary><b>📖 Table of Contents</b></summary>
+
+- [Why Proxima?](#why-proxima)
+  - [The Solution: Proxima](#the-solution-proxima)
+- [Interface Preview](#interface-preview)
+- [Routing Modes](#routing-modes)
+  - [1. Session Routing (Default)](#1-session-routing-default)
+  - [2. BYOK (Bring Your Own Key) Routing](#2-byok-bring-your-own-key-routing)
+- [Sponsor Wall](#sponsor-wall)
+- [Meet Proxima Agent](#meet-proxima-agent)
+  - [Core Agent Capabilities](#core-agent-capabilities)
+  - [A Real-World Agent Scenario](#a-real-world-agent-scenario)
+  - [Gated Execution Safety](#gated-execution-safety)
+- [State, Memory & Prompt Management](#state-memory--prompt-management)
+  - [Context Tracking & Prompt Routing](#context-tracking--prompt-routing)
+  - [Local SQLite Memory Engines](#local-sqlite-memory-engines)
+- [Quick Start](#quick-start)
+  - [1. Prerequisites](#1-prerequisites)
+  - [2. Install & Start](#2-install--start)
+  - [3. Connect to Your Editor (MCP)](#3-connect-to-your-editor-mcp)
+- [Architecture](#architecture)
+  - [1. System Topology & Data Flow](#1-system-topology--data-flow)
+  - [2. Core Subsystems](#2-core-subsystems)
+- [All MCP Tools (40)](#all-mcp-tools-40)
+  - [Core Orchestration Tools](#core-orchestration-tools)
+  - [Tool Catalog](#tool-catalog)
+- [REST API](#rest-api)
+- [WebSocket](#websocket)
+- [CLI](#cli)
+- [SDKs](#sdks)
+- [Security & Privacy](#security--privacy)
+- [Frequently Asked Questions](#frequently-asked-questions)
+- [Testing](#testing)
+- [Contributing](#contributing)
+- [License](#license)
+</details>
 
 ---
 
-## Demo
+## Why Proxima?
 
-**App Demo · CLI · Webhook Live Chat & Battle · Application Overview**
+In late 2025, I hit a massive roadblock with AI coding tools. Outdated training data caused coding models to frequently hallucinate, guess wrong solutions, and ruin codebases. I tried setting up local agents using Model Context Protocol (MCP) APIs, but the results were disappointing. The API responses were subpar and inaccurate, all while running up a bill for every single prompt.
 
-<table cellspacing="0" cellpadding="0">
-<tr>
-<td width="50%">
+That’s when a wild idea struck: What if we could turn actual web-based models—like ChatGPT, Gemini, Claude, and Perplexity—into local MCP servers? By routing queries directly through free, logged-in browser accounts, I could give my local agents access to frontier reasoning models. No expensive API keys required.
 
-https://github.com/user-attachments/assets/5e75eb68-b1b5-43dc-979d-3bf6faa48fa0
+Proxima was born as a personal utility. I used it heavily for months to streamline my own work with no plans to open-source it. However, seeing other developers struggle with the same API costs and model hallucinations, I decided to share it. Proxima was created to provide a local, privacy-focused routing engine that connects development tools to active sessions without requiring paid subscriptions or API plans.
 
-</td>
-<td width="50%">
+<details>
+<summary><b>TL;DR: Common Pain Points Solve</b></summary>
 
-https://github.com/user-attachments/assets/a8564fc9-b3b3-4a53-bc35-cfce72fe34da
+*   **API Subscription Fatigue:** Stacking multiple AI subscriptions (ChatGPT Plus, Claude Pro, Perplexity Pro) adds up fast.
+*   **Costly Development Keys:** Querying raw API endpoints directly from code editor extensions drains credits quickly on large codebases.
+*   **Local-Model Privacy:** When running fully local models via Ollama or LM Studio, your code never leaves your machine — no cloud provider, no data exposure.
+*   **Fragmented Tooling:** Constantly switching between browser windows, terminals, and editor panels disrupts your cognitive coding flow.
+</details>
 
-</td>
-</tr>
-<tr>
-<td width="50%">
-
-https://github.com/user-attachments/assets/bb7fa455-d379-4e69-b530-f7c09d2faccf
-
-</td>
-<td width="50%">
-
-https://github.com/user-attachments/assets/d4121fdb-f97e-4d35-846c-5ec7c5249a85
-
-</td>
-</tr>
-</table>
+### The Solution: Proxima
+Proxima serves as a local development gateway that centralizes and runs all your AI models together on `127.0.0.1`. By handling protocol translation and session routing in the background, it enables your coding agents and development clients to interact with multiple advanced providers or offline engines as a single, standard local endpoint.
 
 ---
+
+## Interface Preview
+
+<p align="center">
+  <b>Proxima Status Dashboard</b>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <b>Configuration & Settings</b>
+  <br/>
+  <img src="assets/proxima-provider.png" width="49.5%" alt="Proxima Status Dashboard" />
+  <img src="assets/proxima-settings.png" width="49.5%" alt="Configuration & Settings" />
+  <br/>
+  <img src="assets/proxima-agent-web.png" width="49.5%" alt="Agent Website" />
+  <img src="assets/proxima-agent.png" width="49.5%" alt="Agent Execution" />
+  <br/>
+  <b>Agent Website</b>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <b>Agent Execution</b>
+</p>
+
+---
+
+## Routing Modes
+
+Proxima supports two primary modes to power your editor and agent integrations:
+
+### 1. Session Routing (Default)
+*   **Free Account Emulation:** Routes prompts through your logged-in browser accounts (ChatGPT, Claude, Gemini, Perplexity) inside sandboxed background browser views.
+*   **No API Keys Required:** Reuses standard local cookies and browser sessions. No passwords or credentials are saved.
+*   **Renderer-Level Interception:** Captures tokens directly from internal WebSocket and API streams, bypassing brittle HTML selectors for faster and more stable routing.
+
+<blockquote style="border-left: 4px solid #d4af37; color: #d4af37; padding: 5px 15px; margin: 15px 0;">
+  <strong>Note:</strong> <small><i>Session Mode automates your existing logged-in browser sessions (like any browser automation tool). This may technically fall outside some providers' standard ToS for programmatic access. It's your account, your session, your choice — but for production/commercial use, we recommend BYOK Mode with official API keys.</i></small>
+</blockquote>
+
+### 2. BYOK (Bring Your Own Key) Routing
+*   **Broad Model Support:** Support for OpenAI, Anthropic, Google, DeepSeek, Groq, xAI, OpenRouter, Together, Fireworks, Mistral, and NVIDIA.
+*   **Local Offline Hardware:** Intercepts configurations to run local models via **Ollama** or **LM Studio**.
+*   **Secure Storage:** Keys are saved locally using your operating system's native keychain vault (via Electron's SafeStorage).
+*   **Local Brain Integration:** Automatically applies context compaction, factual recall, and prompt-injection screening.
+
+---
+
+## Sponsor Wall
 
 <div align="center">
 
-### 💖 Sponsor Wall
-
 *Proxima keeps evolving thanks to these amazing people*
 
-<br>
+<br/>
 
 <a href="https://github.com/TheNetworker">
-<img src="https://github.com/TheNetworker.png" width="80" alt="TheNetworker"/>
+  <img src="https://github.com/TheNetworker.png" width="50" style="border-radius: 50%; display: block; margin: 0 auto 8px;"/>
 </a>
-<br>
-<a href="https://github.com/TheNetworker"><b>@TheNetworker</b></a>
-<br>
-<sub>⭐ Star Sponsor · 🥇 First Sponsor</sub>
 
-<br><br>
+### [@TheNetworker](https://github.com/TheNetworker)
+⭐ **Star Sponsor** &nbsp;·&nbsp; 🥇 <b>First Sponsor</b>
 
-*Great things are built together —* [**Be a part of our journey →**](https://github.com/sponsors/Zen4-bit)
+<br/>
+
+*Great things are built together — [Be a part of our journey →](https://github.com/sponsors/Zen4-bit)*
 
 </div>
 
 ---
 
-## Overview
+## Meet Proxima Agent
 
-Proxima is a local AI gateway that connects multiple AI providers to your development environment. It communicates with each provider at the browser level through your active login sessions — the same way you'd chat with them in your browser.
+The repository contains `proxima-agent/`, a local Python assistant. It executes codebase edits, runs test suites, and drives browser tasks by routing LLM calls through Proxima. This allows the agent to run completely free using your website providers or with custom API keys via BYOK mode.
 
-<br>
+### Core Agent Capabilities
 
-<table>
-<tr>
-<td>🌐 <strong>One Endpoint</strong></td>
-<td>Everything through <code>/v1/chat/completions</code> — no separate URLs</td>
-</tr>
-<tr>
-<td>🤖 <strong>4 AI Providers</strong></td>
-<td>ChatGPT, Claude, Gemini, Perplexity — any model, any task</td>
-</tr>
-<tr>
-<td>⚡ <strong>Provider Engines</strong></td>
-<td>Native browser-level communication — 3–10x faster, more reliable</td>
-</tr>
-<tr>
-<td>🖥️ <strong>CLI Tool</strong></td>
-<td><code>proxima ask</code>, <code>proxima fix</code>, <code>proxima debate</code> — right from your terminal</td>
-</tr>
-<tr>
-<td>🔌 <strong>WebSocket</strong></td>
-<td>Real-time streaming at <code>ws://localhost:3210/ws</code></td>
-</tr>
-<tr>
-<td>🧰 <strong>45+ MCP Tools</strong></td>
-<td>Search, code, translate, analyze, debate, audit — all via MCP</td>
-</tr>
-<tr>
-<td>📡 <strong>REST API</strong></td>
-<td>OpenAI-compatible API on <code>localhost:3210</code></td>
-</tr>
-<tr>
-<td>📦 <strong>SDKs</strong></td>
-<td>Python & JavaScript — one function each</td>
-</tr>
-<tr>
-<td>🧠 <strong>Smart Router</strong></td>
-<td>Auto-picks the best available AI for your query</td>
-</tr>
-<tr>
-<td>🔑 <strong>No API Keys</strong></td>
-<td>Uses your existing browser sessions — see <a href="#security--privacy">how it works</a></td>
-</tr>
-<tr>
-<td>🔒 <strong>Local & Private</strong></td>
-<td>Runs on <code>127.0.0.1</code>, data goes only to providers you're logged into</td>
-</tr>
-</table>
+*   **Self-Healing Debugging Loop:** Executes code, captures terminal and test-suite errors, and iteratively refactors the codebase until all tests pass.
+*   **Autonomous Browser Control:** Drives Chrome instances via Chrome DevTools Protocol (CDP) to interact with frontends, verify UI layouts, and test user flows.
+*   **Dynamic Skill Generation:** Writes custom Python helper scripts on the fly, tests them, and packages them into reusable runtime skills (`skills.db`) to expand its capabilities.
+*   **Symbol-Mapped Codebase Analysis:** Maps local files, builds class/function symbol hierarchies, and isolates relevant code blocks to handle large context limits efficiently.
 
-<br>
+### A Real-World Agent Scenario
+
+Imagine you instruct the agent: *"Find the bug in my token verification module, patch it, and verify that the authentication tests pass."*
+
+Here is the exact trace of how Proxima Agent executes this task:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant Agent as Proxima Agent
+    participant Code as Codebase
+    participant Test as Test Suite
+    participant Browser as Chrome (CDP)
+    participant Audit as Reviewer Agent
+
+    User->>Agent: "Find the bug in token verification..."
+    Agent->>Code: 1. Ingest files & build symbol map
+    Agent->>Test: 2. Run test suite to capture failure trace
+    Agent->>Code: 3. Synthesize & write code patch
+    Agent->>Browser: 4. Emulate login & verify user flow
+    Agent->>Audit: 5. Spawn sub-agent to audit security
+    Agent->>User: 6. Request approval (present diff & logs)
+```
+
+### Gated Execution Safety
+The agent is bound by customizable safety permissions:
+*   **Full Auto:** Executes all file writes and terminal commands instantly.
+*   **Smart:** Auto-approves reading/searching but prompts you before running commands or overwriting code.
+*   **Suggest:** Shows proposed code diffs and command lines, waiting for your manual approval.
 
 ---
 
-## What's New in v4.1.0
+## State, Memory & Prompt Management
 
-<table>
-<tr>
-<td width="40"><strong>🔥</strong></td>
-<td><strong>Provider Engine System</strong><br>Proxima now uses native browser-level communication with AI providers — no DOM scraping. Responses are 3–10x faster and far more stable, with SSE streaming support and automatic fallback mechanisms.</td>
-</tr>
-<tr>
-<td><strong>⚡</strong></td>
-<td><strong>CLI Tool</strong><br>Run <code>proxima ask</code>, <code>proxima fix</code>, <code>proxima debate</code> from any terminal. Pipe errors straight from your build output. Supports file context, git diff piping, and JSON output for scripts.</td>
-</tr>
-<tr>
-<td><strong>🔌</strong></td>
-<td><strong>WebSocket Server</strong><br>Real-time streaming AI at <code>ws://localhost:3210/ws</code>. Bidirectional communication with status updates, request tracking, and keepalive. Useful for apps, scripts, anything that needs live output.</td>
-</tr>
-<tr>
-<td><strong>🛠️</strong></td>
-<td><strong>15 New MCP Tools</strong><br><code>chain_query</code>, <code>solve</code>, <code>debate</code>, <code>security_audit</code>, <code>verify</code>, <code>fix_error</code>, <code>build_architecture</code>, <code>write_tests</code>, <code>explain_error</code>, <code>convert_code</code>, <code>ask_selected</code>, <code>conversation_export</code>, <code>ask_perplexity</code>, <code>github_search</code>, <code>get_ui_reference</code></td>
-</tr>
-<tr>
-<td><strong>📄</strong></td>
-<td><strong>Interactive API Docs</strong><br>Live documentation at <code>/docs</code>, <code>/cli</code>, <code>/ws</code> — with a working chat widget to test queries directly in your browser.</td>
-</tr>
-<tr>
-<td><strong>🎯</strong></td>
-<td><strong>Multi-Model Queries</strong><br><code>model: "all"</code> queries every provider at once. <code>model: ["claude", "chatgpt"]</code> targets specific ones. Compare responses side-by-side from multiple AI providers in a single request.</td>
-</tr>
-<tr>
-<td><strong>📤</strong></td>
-<td><strong>Conversation Export</strong><br>Export full conversation history from any provider using <code>conversation_export</code>. Continue working on AI agent projects, revisit ideas discussed with providers, and build on previous plans without losing context.</td>
-</tr>
-<tr>
-<td><strong>🛡️</strong></td>
-<td><strong>New REST API Functions</strong><br>New <code>security_audit</code> and <code>debate</code> functions added to the REST API endpoint. File upload support via <code>file</code> field in request body.</td>
-</tr>
-</table>
+To keep workflows fast and context accurate, Proxima features separate prompt and memory systems depending on the active routing engine.
 
-<br>
+### Context Tracking & Prompt Routing
 
-**Bug fixes & improvements:**
-- 🔧 Staggered multi-provider queries — prevents UI freezes during parallel requests
-- 🔧 Smart provider selection — routes coding tasks to Claude, research to Perplexity
-- 🔧 Response caching with TTL (5 min) and automatic eviction (max 100 entries)
-- 🔧 Rate limit handling — detects 429 responses, auto-recovery on expired sessions
-- 🔧 Engine auto-injection on page navigation with duplicate guard
-- 🔧 Claude conversation auto-recovery (handles 404/410 expired sessions)
-- 🔧 ChatGPT SHA3-512 proof-of-work challenge solver
-- 🔧 10MB body size limit on REST API with CORS headers
-- 🔧 Socket leak prevention on IPC reconnect
+*   **Session Mode:** In this mode, the target provider website (e.g., ChatGPT, Claude) maintains the active conversation state. Sending a massive system prompt containing 40+ tool definitions on every message would bloat the browser's context window, increasing latency and cost. Instead, Proxima runs a fast local classifier every turn. It dynamically analyzes your task and injects only the necessary tool references and relevant self-generated procedural hints.
+*   **BYOK & Local Mode:** Proxima's prompt compiler manages the message payload lifecycle for custom API keys and offline endpoints. It formats the conversation history, applies system instructions dynamically, and executes a context compaction loop to summarize older chat turns, preventing token limit errors during large developer prompts.
+
+### Local SQLite Memory Engines
+
+Proxima maintains four separate, local, SQLite-backed databases (`~/.proxima-agent/*.db`) to enable cross-session statefulness:
+
+*   **Conversation Vault (`vault.db`):** Tracks session lineage (supporting parent-child structures for multi-agent forks) and stores message histories securely.
+*   **Insight Store (`insights.db`):** Extracts and stores cross-session user preferences, workspace patterns, and environmental facts to prevent repetitive setups.
+*   **Experience Learning (`memory.db`):** Automatically caches compilation errors, syntax exceptions, and the edits that resolved them. The agent queries this history during self-healing loops to apply proven fixes instantly.
+*   **Procedural Skills (`skills.db`):** Caches and evaluates custom script actions generated during tasks. The agent evaluates new skills through a Bayesian priority model, promoting them to "proven" or demoting/deprecating them based on Exponential Moving Average (EMA) success rates.
 
 ---
 
-## Getting Started
+## Quick Start
 
-### Requirements
+Follow these steps to configure and connect Proxima to your local environment.
 
-- [Node.js 18+](https://nodejs.org/) (for MCP server and CLI)
-- **Windows 10/11** — pre-built installer available
-- **macOS / Linux** — supported via source code
+### 1. Prerequisites
 
-<br>
+| Platform | Requirements |
+| :--- | :--- |
+| **Node.js** | Version 18+ (Required to run the main server process) |
+| **Python** | Version 3.10+ (Only required for the Proxima Agent) |
+| **OS** | Windows · macOS · Linux support |
 
-### Install
-
-<table>
-<tr>
-<td width="50%">
-
-**Download Installer (Windows)**
-
-Download the latest release and run the installer.
-
-<br>
-
-[Download Proxima v4.1.0 →](https://github.com/Zen4-bit/Proxima/releases)
-
-</td>
-<td width="50%">
-
-**Run from Source (Windows / macOS / Linux)**
+### 2. Install & Start
 
 ```bash
+# Clone the repository
 git clone https://github.com/Zen4-bit/Proxima.git
 cd Proxima
+
+# Install dependencies & start
 npm install
 npm start
 ```
 
-</td>
-</tr>
-</table>
+> 💡 **Windows Users:** You can also download and run the latest `.exe` installer directly from the [Releases](https://github.com/Zen4-bit/Proxima/releases) page.
 
-> Electron will open the Proxima window. Log in to your AI providers, enable REST API in Settings, and you're ready.
+Once the desktop app opens:
+1. **Session mode:** Log into ChatGPT, Claude, Gemini, or Perplexity in their respective tabs.
+2. **BYOK mode:** Click Settings and paste your custom API keys or local host addresses.
 
-<br>
+### 3. Connect to Your Editor (MCP)
 
-**CLI install:**
-- **Windows:** Settings → **⚡ Install CLI to PATH**, or `npm link`
-- **macOS / Linux:** `npm link` (may need `sudo npm link`)
-
-<br>
-
-### Connect to your editor
-
-1. Open Proxima and log into your AI providers (one-time setup)
-2. Go to **Settings → MCP Configuration** → copy the config
-3. Paste into your editor's MCP config file:
+Add this server configuration block to your editor's MCP configuration settings (for example, in Cursor under *Settings -> Features -> MCP*):
 
 ```json
 {
   "mcpServers": {
     "proxima": {
       "command": "node",
-      "args": ["C:/path/to/Proxima/src/mcp-server-v3.js"]
+      "args": [
+        "C:/absolute/path/to/Proxima/src/mcp/index.js"
+      ]
     }
   }
 }
 ```
 
-4. Restart your editor. The tools will appear.
-
-> **Tip:** Use the copy button in Settings — don't type the path manually.
-
-**Works with:** Cursor · VS Code (MCP extension) · Claude Desktop · Windsurf · Gemini CLI · any MCP-compatible client
+> 💡 **Tip:** You can copy the exact configuration block with your machine's absolute paths directly from the **Settings ➔ MCP Configuration** tab inside the Proxima desktop app window.
 
 ---
 
-## Supported Providers
+## Architecture
 
-<table>
-<tr>
-<td align="center" width="25%">
-<br>
-<strong>ChatGPT</strong>
-<br>
-OpenAI's GPT
-<br><br>
-</td>
-<td align="center" width="25%">
-<br>
-<strong>Claude</strong>
-<br>
-Anthropic's Claude
-<br><br>
-</td>
-<td align="center" width="25%">
-<br>
-<strong>Gemini</strong>
-<br>
-Google's Gemini
-<br><br>
-</td>
-<td align="center" width="25%">
-<br>
-<strong>Perplexity</strong>
-<br>
-Web search & research
-<br><br>
-</td>
-</tr>
-</table>
+The system consists of three primary layers: the **Proxima Runtime Host**, the **Model Context Protocol (MCP) Server**, and the **Local Agent Runtime**.
 
-Each provider runs through a dedicated **engine script** that handles communication at the browser level. Responses are streamed via SSE using your existing login. If an engine can't connect, Proxima falls back to DOM-based interaction automatically.
+### 1. System Topology & Data Flow
 
-<br>
+Below is the complete architectural map showing how protocols, IPC bridges, and providers communicate:
 
+```mermaid
+graph TD
+    subgraph Client Layer [Development Client]
+        Cursor[Cursor / VS Code / Windsurf]
+        ClaudeClient[Claude Desktop Client]
+    end
+
+    subgraph MCPServer [MCP Server - Node.js]
+        MCPIndex[src/mcp/index.js]
+        ToolHandlers["Modular Tool Handlers<br/>(tools-chat / tools-code / tools-search / tools-content / tools-workflow)"]
+    end
+
+    subgraph CoreEngine [Proxima Core Process - Electron]
+        HTTPServer["HTTP Server :3210<br/>(OpenAI REST & WS)"]
+        MessageBus["handleMCPRequest()<br/>(Central Message Bus)"]
+        PythonAgent["Local Agent Runtime<br/>(python-env)"]
+    end
+
+    subgraph RoutingEngines [Routing Engines]
+        SessionMode["Session Mode<br/>(Browser Manager & background BrowserViews)"]
+        BYOKMode["BYOK Mode<br/>(BYOK Router & Context Pipeline)"]
+    end
+
+    subgraph Providers [AI Providers]
+        WebSessions["Active Web Sessions<br/>(ChatGPT / Claude / Gemini / Perplexity)"]
+        OfficialAPIs["Official LLM APIs<br/>(OpenAI / Anthropic / Groq / etc.)"]
+    end
+
+    %% Communications
+    Cursor -->|StdIO JSON-RPC| MCPIndex
+    ClaudeClient -->|StdIO JSON-RPC| MCPIndex
+    MCPIndex --> ToolHandlers
+    ToolHandlers -->|IPC TCP:19222| MessageBus
+    HTTPServer --> MessageBus
+    PythonAgent --> MessageBus
+    MessageBus --> SessionMode
+    MessageBus --> BYOKMode
+    SessionMode -->|Session Compliance| WebSessions
+    BYOKMode -->|Dynamic Fallback / Decryption| OfficialAPIs
+```
+
+### 2. Core Subsystems
+
+#### Browser Session Compliance Layer
+For **Session Mode**, Proxima loads each provider inside isolated `BrowserView` containers. The compliance layer includes:
+*   **User-Agent Management:** Maintains standard browser user-agent strings for compatibility.
+*   **Page Context Configuration:** Sets up standard preload scripts for correct rendering and provider compatibility.
+*   **Direct Response Streaming:** Engine scripts (`electron/providers/engines/*`) capture streaming tokens directly from provider HTTP responses for real-time output.
+
+#### Worker Control Protocol (WCP)
+The Agent's workflow engine uses an internal command protocol (WCP) for multi-step task delegation, research routing, and temporary state management across sub-agents. See [docs/architecture.md](docs/architecture.md) for protocol details.
+
+#### BYOK Local Brain & Context Pipeline
+When **BYOK Mode** is active, Proxima utilizes a local intelligence buffer:
+*   **Factual Recall & Experience Log:** Stores previous code errors, terminal exceptions, and successful fixes in an encrypted SQLite database to avoid repeating programming mistakes.
+*   **Context Compaction Pipeline:** Uses token-estimation and cheap pruning heuristics (`byok/context/`) to summarize long conversation loops when approaching provider limits (preventing out-of-context crashes).
+*   **Ollama/LM Studio Bridge:** Intercepts unknown custom provider configurations and loops them through standard OpenAI-compatible endpoints to support offline, local hardware execution.
+
+Read [docs/architecture.md](docs/architecture.md) for full structural diagrams and details.
 
 ---
 
-## How It Works
+## All MCP Tools (40)
 
-In v4.1.0, Proxima uses a **Provider Engine System** instead of DOM scraping.
+Registered by the modular MCP server (`src/mcp/`).
 
-When you send a query, Proxima uses a lightweight engine script within the provider's browser tab. That script handles communication at the browser level and streams the response back via SSE. If the engine fails for any reason, Proxima automatically falls back to DOM-based interaction — so it keeps working either way.
+### Core Orchestration Tools
+The following signature capabilities represent Proxima's custom orchestration logic:
 
-```
-Your editor → MCP tool call → Proxima local server
-                                      ↓
-                           Engine injected into session
-                                      ↓
-                      Browser-level communication (SSE stream)
-                                      ↓
-                              Response returned
-```
+| Tool | Command | Description |
+| :--- | :--- | :--- |
+| **Multi-Agent Collaboration** | `crew` | Spawn a collaborative swarm of models to review, critique, and optimize code before returning it. |
+| **Consensus Routing** | `smart_query` | Query multiple model providers simultaneously, cross-verify their answers, or make them debate. |
+| **Codebase Intelligence** | `analyze_file` | Ingest local files, build structural symbol maps, and scan/strip credentials or secrets. |
+| **Multi-Source Research** | `deep_search` | Perform targeted searches across Web, Reddit, GitHub, News, Academic, and Fact-check engines. |
+| **Cross-AI Fact-Checking** | `verify` | Compare output from different providers, highlight inconsistencies, and score confidence. |
+| **Algorithmic Compilation** | `solve` | Loop with compiler output and test runners to self-correct code based on diagnostic output until compilation passes. |
+| **Vulnerability Scanner** | `security_audit` | Scan code snippets for SQL injections, XSS, insecure storage, and deprecated dependencies. |
+| **Complex Workflow Loops** | `run_workflow` | Chaperone multi-step tasks requiring chaining and conditional validation of different tools. |
 
-<br>
+---
 
-<table>
-<tr><th>Engine</th><th>Provider</th><th>How it works</th></tr>
-<tr><td><code>chatgpt-engine.js</code></td><td>ChatGPT</td><td>Handles proof-of-work challenges, streams via SSE</td></tr>
-<tr><td><code>claude-engine.js</code></td><td>Claude</td><td>Org-level auth handling, SSE streaming, auto-recovery</td></tr>
-<tr><td><code>gemini-engine.js</code></td><td>Gemini</td><td>SSE streaming with auto-reconnect</td></tr>
-<tr><td><code>perplexity-engine.js</code></td><td>Perplexity</td><td>SSE streaming</td></tr>
-</table>
+### Tool Catalog
 
+<details>
+<summary><b>Chat & Routing</b></summary>
 
-## CLI Tool
+| Tool | Description |
+| :-- | :-- |
+| `ask_chatgpt` | Send a message to ChatGPT |
+| `ask_claude` | Send a message to Claude |
+| `ask_gemini` | Send a message to Gemini |
+| `ask_perplexity` | Send a message to Perplexity |
+| `ask_model` | Send to any session or BYOK provider |
+| `ask_all_ais` | Query all enabled providers simultaneously |
+| `smart_query` | Auto-route with modes: `auto` · `verify` · `consensus` · `collaborate` |
+| `new_conversation` | Reset a provider's conversation |
 
-The `proxima` CLI lets you use any AI provider from your terminal.
+</details>
 
-<br>
+<details>
+<summary><b>Code</b></summary>
 
-### Install
+| Tool | Description |
+| :-- | :-- |
+| `generate_code` | Generate code from a description |
+| `review_code` | Review a snippet for bugs, security, and best practices |
+| `explain_code` | Line-by-line code explanation |
+| `optimize_code` | Performance optimization suggestions |
+| `verify_code` | Best-practices check for a stated purpose |
+| `solve` | Solve a programming problem |
+| `fix_error` | Fix an error with code patches |
+| `explain_error` | Plain-English error explanation with fixes |
+| `convert_code` | Translate code between languages/frameworks |
+| `build_architecture` | Design system architecture |
+| `write_tests` | Generate comprehensive test files |
+| `security_audit` | Deep security vulnerability audit |
 
-<table>
-<tr>
-<td width="33%">
+</details>
 
-**From the app**
+<details>
+<summary><b>Search & Web</b></summary>
 
-Settings → ⚡ Install CLI to PATH
+| Tool | Description |
+| :-- | :-- |
+| `deep_search` | Typed search: `web` · `reddit` · `github` · `news` · `math` · `academic` · `factcheck` · `stats` |
+| `ddg_search` | Free DuckDuckGo link search (no provider needed) |
+| `web_scrape` | URL → Markdown (SSRF-guarded) |
+| `get_ui_reference` | Fetch UI design references |
 
-</td>
-<td width="33%">
+</details>
 
-**From source**
+<details>
+<summary><b>Content</b></summary>
 
-```bash
-npm link                  # Windows
-sudo npm link             # macOS / Linux
-```
+| Tool | Description |
+| :-- | :-- |
+| `content` | `summarize` · `write` · `brainstorm` · `howto` · `analyze` · `extract` · `improve` |
+| `compare` | Side-by-side comparison |
+| `debate` | Multi-perspective debate |
+| `verify` | Cross-AI fact-checking with confidence ratings |
 
-</td>
-<td width="33%">
+</details>
 
-**Without installing**
+<details>
+<summary><b>Files & Codebase</b></summary>
 
-```bash
-npm run cli -- ask "question"
-```
+| Tool | Description |
+| :-- | :-- |
+| `analyze_file` | Codebase-pack + smart-slice + symbol extraction + secret scan |
+| `review_code_file` | Review a single file on disk |
 
-</td>
-</tr>
-</table>
+</details>
 
-<br>
+<details>
+<summary><b>Workflow & Agentic</b></summary>
 
-### Commands
+| Tool | Description |
+| :-- | :-- |
+| `run_workflow` | Execute a multi-step workflow |
+| `run_loop` | Run an iterative refinement loop |
+| `crew` | Multi-AI collaborative task execution |
+| `proxima_cost_report` | Token usage and cost report |
+| `proxima_agentic_status` | Agentic system status |
 
-```bash
-# Ask any provider
-proxima ask "How does async/await work in JS?"
-proxima ask claude "Review this approach"
-proxima ask chatgpt "Explain this error"
+</details>
 
-# Search
-proxima search "latest Node.js release"
+<details>
+<summary><b>Utility</b></summary>
 
-# Code
-proxima code "REST API with Express and JWT auth"
-proxima code review "function fetchUser(id) { ... }"
-proxima code explain "async/await"
+| Tool | Description |
+| :-- | :-- |
+| `clear_cache` | Clear internal caches |
+| `show_window` | Show the Proxima dashboard window |
+| `hide_window` | Hide the Proxima dashboard window |
+| `toggle_window` | Toggle Proxima window visibility |
+| `set_headless_mode` | Run Proxima in headless mode |
 
-# Smart tools
-proxima fix "SyntaxError: Unexpected token '<'"
-proxima debate "tabs vs spaces"
-proxima audit "SELECT * FROM users WHERE id=" + req.query.id
-proxima brainstorm "features for a dev productivity tool"
-
-# Translate
-proxima translate "Hello world" --to Hindi
-
-# Compare all providers
-proxima compare "Bun vs Node.js for production"
-
-# Utilities
-proxima status                     # server status
-proxima stats                      # response time stats
-proxima models                     # list available providers
-proxima new                        # reset all conversations
-```
-
-### Pipe Support
-
-```bash
-# Fix build errors directly
-npm run build 2>&1 | proxima fix
-
-# Review a git diff
-git diff | proxima code review
-
-# Pass file as context
-proxima ask "What does this do?" --file src/server.js
-```
-
-<br>
-
-### Flags
-
-<table>
-<tr><th>Flag</th><th>What it does</th></tr>
-<tr><td><code>-m</code> / <code>--model</code></td><td>Override provider (<code>claude</code>, <code>chatgpt</code>, <code>gemini</code>, <code>perplexity</code>, <code>auto</code>)</td></tr>
-<tr><td><code>--json</code></td><td>Raw JSON output for scripting</td></tr>
-<tr><td><code>-l</code> / <code>--lang</code></td><td>Specify code language</td></tr>
-<tr><td><code>--file</code></td><td>Include a file as context</td></tr>
-<tr><td><code>--to</code></td><td>Target language for translate</td></tr>
-<tr><td><code>--from</code></td><td>Source language for translate</td></tr>
-</table>
+</details>
 
 ---
 
 ## REST API
 
-Proxima runs an OpenAI-compatible REST API at `http://localhost:3210`.
-
-Enable it in **Settings → REST API & CLI**.
-
-<br>
+OpenAI-compatible API at `http://localhost:3210` (enable in Settings).
 
 ### Endpoints
 
+```http
+POST /v1/chat/completions      # OpenAI-compatible chat (stream, tools, functions)
+GET  /v1/models                # List available models (session or BYOK)
+GET  /v1/functions             # Function catalog
+GET  /v1/stats                 # Per-provider response stats
+POST /v1/conversations/new     # Reset a provider's conversation
+
+# BYOK brain endpoints
+GET  /v1/byok/keys             # BYOK key management
+GET  /v1/byok/models           # BYOK model management
+GET  /v1/brain/recall          # Cross-session recall
+GET  /v1/brain/experience      # Learned experiences
+GET  /v1/brain/skills          # Stored skills
+GET  /v1/brain/stats           # Brain statistics
+
+GET  /api/status               # Server status
+GET  /                         # Interactive documentation
 ```
-POST /v1/chat/completions   — OpenAI-compatible chat
-GET  /v1/models             — List available models
-GET  /v1/functions          — API function catalog with examples
-GET  /v1/stats              — Response time stats per provider
-POST /v1/conversations/new  — Reset all conversations
-GET  /api/status            — Server status
-GET  /docs                  — Interactive API docs (with live chat widget)
-GET  /cli                   — CLI documentation
-GET  /ws                    — WebSocket documentation
-```
 
-<br>
+### Example Request
 
-### Functions
-
-The `"function"` field controls what happens. No function = normal chat.
-
-<table>
-<tr><th>Function</th><th>Body Fields</th><th>What it does</th></tr>
-<tr><td><em>(none)</em></td><td><code>model</code>, <code>message</code></td><td>Normal chat</td></tr>
-<tr><td><code>"search"</code></td><td><code>model</code>, <code>message</code>, <code>function</code></td><td>Web search + AI analysis</td></tr>
-<tr><td><code>"translate"</code></td><td><code>model</code>, <code>message</code>, <code>function</code>, <code>to</code></td><td>Translate text</td></tr>
-<tr><td><code>"brainstorm"</code></td><td><code>model</code>, <code>message</code>, <code>function</code></td><td>Generate ideas</td></tr>
-<tr><td><code>"code"</code></td><td><code>model</code>, <code>message</code>, <code>function</code>, <code>action</code></td><td>Code generate/review/debug/explain</td></tr>
-<tr><td><code>"analyze"</code></td><td><code>model</code>, <code>function</code>, <code>url</code></td><td>Analyze URL or content</td></tr>
-<tr><td><code>"security_audit"</code></td><td><code>model</code>, <code>code</code>, <code>function</code></td><td>Scan code for vulnerabilities</td></tr>
-<tr><td><code>"debate"</code></td><td><code>model</code>, <code>message</code>, <code>function</code></td><td>Multi-perspective debate</td></tr>
-</table>
-
-<br>
-
-### Examples
-
-**Chat:**
 ```bash
 curl http://localhost:3210/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "claude", "message": "What is AI?"}'
 ```
 
-**Search:**
-```bash
-curl http://localhost:3210/v1/chat/completions \
-  -d '{"model": "perplexity", "message": "AI news 2026", "function": "search"}'
-```
-
-**Translate:**
-```bash
-curl http://localhost:3210/v1/chat/completions \
-  -d '{"model": "gemini", "message": "Hello world", "function": "translate", "to": "Hindi"}'
-```
-
-**Code Generate:**
-```bash
-curl http://localhost:3210/v1/chat/completions \
-  -d '{"model": "claude", "message": "Sort algorithm", "function": "code", "action": "generate", "language": "Python"}'
-```
-
-**Query All Providers:**
-```bash
-curl http://localhost:3210/v1/chat/completions \
-  -d '{"model": "all", "message": "Explain quantum computing"}'
-```
-
-**Security Audit:**
-```bash
-curl http://localhost:3210/v1/chat/completions \
-  -d '{"model": "claude", "function": "security_audit", "code": "db.query(\"SELECT * FROM users WHERE id=\" + req.query.id)"}'
-```
-
-<br>
-
-### Multi-model queries
-
-```javascript
-model: "all"                       // all enabled providers
-model: ["claude", "chatgpt"]       // specific providers
-```
-
-<br>
-
-### Response Format
-
-```json
-{
-  "id": "proxima-abc123",
-  "model": "claude",
-  "choices": [{
-    "message": {
-      "role": "assistant",
-      "content": "AI response here..."
-    }
-  }],
-  "proxima": {
-    "provider": "claude",
-    "responseTimeMs": 2400
-  }
-}
-```
-
-When using `model: "all"`, each provider gets its own entry in `choices[]`.
-
----
-
-## SDKs
-
-<table>
-<tr>
-<td width="50%">
-
-### Python
-
-```python
-from proxima import Proxima
-client = Proxima()
-
-# Chat — any model
-response = client.chat("Hello", model="claude")
-response = client.chat("Hello", model="chatgpt")
-response = client.chat("Hello")  # auto picks best
-print(response.text)
-print(response.response_time_ms)
-
-# Search
-result = client.chat("AI news 2026",
-    model="perplexity", function="search")
-
-# Translate
-hindi = client.chat("Hello world",
-    model="gemini", function="translate",
-    to="Hindi")
-
-# Code
-code = client.chat("Sort algorithm",
-    model="claude", function="code",
-    action="generate", language="Python")
-
-# System
-models = client.get_models()
-stats = client.get_stats()
-client.new_conversation()
-```
-
-`pip install requests`, then copy `sdk/proxima.py` to your project.
-
-</td>
-<td width="50%">
-
-### JavaScript
-
-```javascript
-const { Proxima } = require('./sdk/proxima');
-const client = new Proxima();
-
-// Chat — any model
-const res = await client.chat("Hello",
-    { model: "claude" });
-console.log(res.text);
-
-// Search
-const news = await client.chat("AI news",
-    { model: "perplexity",
-      function: "search" });
-
-// Translate
-const hindi = await client.chat("Hello",
-    { model: "gemini",
-      function: "translate",
-      to: "Hindi" });
-
-// Code generate
-const code = await client.chat("Sort algo",
-    { model: "claude",
-      function: "code",
-      action: "generate" });
-
-// System
-const models = await client.getModels();
-const stats = await client.getStats();
-```
-
-Works with Node.js 18+ (native `fetch`).
-
-</td>
-</tr>
-</table>
-
-<br>
-
-### SDK Configuration
-
-```python
-client = Proxima(base_url="http://192.168.1.100:3210")   # custom URL
-client = Proxima(default_model="claude")                  # default model
-```
+The `model` field accepts: `auto`, a provider name (`claude`, `chatgpt`, `gemini`, `perplexity`), `all`, or an array like `["claude", "chatgpt"]`.
 
 ---
 
 ## WebSocket
 
-Real-time streaming AI at `ws://localhost:3210/ws`.
-
-Requires REST API to be enabled in Settings.
-
-<br>
-
-### Example
+Real-time streaming at `ws://localhost:3210/ws` (requires REST API enabled).
 
 ```javascript
 const ws = new WebSocket("ws://localhost:3210/ws");
@@ -668,240 +496,168 @@ const ws = new WebSocket("ws://localhost:3210/ws");
 ws.send(JSON.stringify({
   action: "ask",
   model: "claude",
-  message: "What is a closure?",
-  id: "req_1"
+  message: "Explain closures in JavaScript",
+  id: "req-1"
 }));
 
 ws.onmessage = (e) => {
-  const msg = JSON.parse(e.data);
-  // { type: "status",   id: "req_1", status: "processing", model: "claude" }
-  // { type: "response", id: "req_1", model: "claude", content: "...", responseTimeMs: 2400 }
+  const data = JSON.parse(e.data);
+  console.log(data); // status updates + streamed response chunks
 };
 ```
 
-<br>
+---
 
-### Available Actions
+## CLI
 
-<table>
-<tr><th>Action</th><th>What it does</th></tr>
-<tr><td><code>ask</code> / <code>chat</code></td><td>Chat with any provider</td></tr>
-<tr><td><code>search</code></td><td>Web search</td></tr>
-<tr><td><code>code</code></td><td>generate / review / explain / optimize / debug</td></tr>
-<tr><td><code>translate</code></td><td>Translate text</td></tr>
-<tr><td><code>brainstorm</code></td><td>Generate ideas</td></tr>
-<tr><td><code>debate</code></td><td>Multi-provider debate (queries all providers)</td></tr>
-<tr><td><code>audit</code></td><td>Security code audit</td></tr>
-<tr><td><code>new_conversation</code></td><td>Reset conversation context for all providers</td></tr>
-<tr><td><code>stats</code></td><td>Connection and provider statistics</td></tr>
-<tr><td><code>ping</code></td><td>Keepalive — returns <code>pong</code></td></tr>
-</table>
+Install via **Settings ➔ Install CLI to PATH**, or `npm link`.
+
+```bash
+# Ask any provider
+proxima ask "How does async/await work?"
+proxima ask claude "Explain React hooks"
+
+# Code tools
+proxima code review "function f(){...}"      # actions: generate/review/debug/explain
+proxima fix "SyntaxError: Unexpected token"
+
+# Pipe build errors directly
+npm run build 2>&1 | proxima fix
+proxima audit 'SELECT * FROM users WHERE id=' + input
+
+# Content tools
+proxima debate "tabs vs spaces"
+proxima brainstorm "dev productivity features"
+proxima compare "Bun vs Node.js"
+proxima translate "Hello world" --to Hindi
+
+# Search & analyze
+proxima search "latest Node.js release"
+proxima analyze "https://example.com" -q "what is this?"
+
+# Session management
+proxima new <provider>          # reset a conversation
+proxima models | status | stats
+```
+
+**Flags:** `-m/--model`, `--json`, `--file`, `--to`, `--from`, `-q/--question`
 
 ---
 
-## MCP Tools
-
-### 🤖 AI Provider Tools
+## SDKs
 
 <table>
-<tr><th>Tool</th><th>What it does</th></tr>
-<tr><td><code>ask_chatgpt</code></td><td>Query ChatGPT (supports file upload)</td></tr>
-<tr><td><code>ask_claude</code></td><td>Query Claude (supports file upload)</td></tr>
-<tr><td><code>ask_gemini</code></td><td>Query Gemini (supports file upload)</td></tr>
-<tr><td><code>ask_perplexity</code></td><td>Query Perplexity (supports file upload)</td></tr>
-<tr><td><code>ask_all_ais</code></td><td>Send same query to all providers at once</td></tr>
-<tr><td><code>ask_selected</code></td><td>Pick specific providers to query</td></tr>
-<tr><td><code>compare_ais</code></td><td>Get and compare responses side by side</td></tr>
-<tr><td><code>smart_query</code></td><td>Auto-picks best provider, falls back if one fails</td></tr>
-</table>
+<tr>
+<td>
 
-### 🔧 Development Tools
+**Python**
 
-<table>
-<tr><th>Tool</th><th>What it does</th></tr>
-<tr><td><code>solve</code></td><td>One-shot problem solver — senior engineer level</td></tr>
-<tr><td><code>fix_error</code></td><td>Root cause + exact fix for any error</td></tr>
-<tr><td><code>build_architecture</code></td><td>Full project architecture blueprint</td></tr>
-<tr><td><code>write_tests</code></td><td>Generate tests (jest / vitest / mocha / pytest)</td></tr>
-<tr><td><code>explain_error</code></td><td>Error explained in plain terms, no jargon</td></tr>
-<tr><td><code>convert_code</code></td><td>Convert code between languages or frameworks</td></tr>
-</table>
+```python
+# Requires: pip install requests
+# Copy sdk/proxima.py into your project
+from proxima import Proxima
 
-### ⚔️ Multi-AI Tools
+client = Proxima()
+response = client.chat("Hello", model="claude")
+print(response.text)
+```
 
-<table>
-<tr><th>Tool</th><th>What it does</th></tr>
-<tr><td><code>chain_query</code></td><td>Sequential multi-AI pipeline — use <code>{previous}</code> to pass output forward</td></tr>
-<tr><td><code>debate</code></td><td>Multi-provider debate with FOR / AGAINST / NEUTRAL stances</td></tr>
-<tr><td><code>verify</code></td><td>Cross-provider answer verification with confidence score (0–100%)</td></tr>
-<tr><td><code>security_audit</code></td><td>Code security scan — flags CRITICAL / HIGH / MEDIUM / LOW issues</td></tr>
-</table>
+</td>
+<td>
 
-### 💻 Code Tools
+**JavaScript**
 
-<table>
-<tr><th>Tool</th><th>What it does</th></tr>
-<tr><td><code>generate_code</code></td><td>Generate code from a description</td></tr>
-<tr><td><code>explain_code</code></td><td>Plain-English explanation of any code</td></tr>
-<tr><td><code>optimize_code</code></td><td>Performance improvement suggestions</td></tr>
-<tr><td><code>review_code</code></td><td>Code review feedback</td></tr>
-<tr><td><code>verify_code</code></td><td>Check against best practices</td></tr>
-</table>
+```javascript
+// Node 18+
+const { Proxima } = require('./sdk/proxima');
 
-### 🔍 Search Tools
+const res = await new Proxima().chat("Hello", {
+  model: "claude"
+});
+console.log(res.text);
+```
 
-<table>
-<tr><th>Tool</th><th>What it does</th></tr>
-<tr><td><code>deep_search</code></td><td>Comprehensive web search</td></tr>
-<tr><td><code>internet_search</code></td><td>General internet search on any topic</td></tr>
-<tr><td><code>news_search</code></td><td>Latest news articles</td></tr>
-<tr><td><code>reddit_search</code></td><td>Reddit discussions</td></tr>
-<tr><td><code>github_search</code></td><td>Find open-source repos, code, and solutions on GitHub</td></tr>
-<tr><td><code>academic_search</code></td><td>Papers and research</td></tr>
-<tr><td><code>math_search</code></td><td>Math problems step-by-step</td></tr>
-</table>
-
-### 📝 Content Tools
-
-<table>
-<tr><th>Tool</th><th>What it does</th></tr>
-<tr><td><code>brainstorm</code></td><td>Generate ideas on any topic</td></tr>
-<tr><td><code>summarize_url</code></td><td>Summarize any URL</td></tr>
-<tr><td><code>generate_article</code></td><td>Full article generation</td></tr>
-<tr><td><code>writing_help</code></td><td>Writing assistance</td></tr>
-<tr><td><code>fact_check</code></td><td>Fact verification</td></tr>
-<tr><td><code>find_stats</code></td><td>Find statistics and data</td></tr>
-<tr><td><code>how_to</code></td><td>Step-by-step instructions</td></tr>
-<tr><td><code>compare</code></td><td>Compare two things in depth</td></tr>
-</table>
-
-### 🔬 Analysis Tools
-
-<table>
-<tr><th>Tool</th><th>What it does</th></tr>
-<tr><td><code>analyze_document</code></td><td>Analyze documents from URL</td></tr>
-<tr><td><code>extract_data</code></td><td>Extract structured data from text or URL</td></tr>
-<tr><td><code>get_ui_reference</code></td><td>UI/UX design consultant — colors, layouts, components, CSS tokens, and code improvements</td></tr>
-</table>
-
-### 📁 File Tools
-
-<table>
-<tr><th>Tool</th><th>What it does</th></tr>
-<tr><td><code>analyze_file</code></td><td>Upload and analyze a local file</td></tr>
-<tr><td><code>review_code_file</code></td><td>Code review on a local file (bugs, performance, security)</td></tr>
-</table>
-
-### 🪟 Window Controls
-
-<table>
-<tr><th>Tool</th><th>What it does</th></tr>
-<tr><td><code>show_window</code></td><td>Show the Proxima window</td></tr>
-<tr><td><code>hide_window</code></td><td>Hide to system tray</td></tr>
-<tr><td><code>toggle_window</code></td><td>Toggle visibility</td></tr>
-<tr><td><code>set_headless_mode</code></td><td>Run fully in background</td></tr>
-</table>
-
-### 🔄 Session Tools
-
-<table>
-<tr><th>Tool</th><th>What it does</th></tr>
-<tr><td><code>new_conversation</code></td><td>Reset conversation context</td></tr>
-<tr><td><code>clear_cache</code></td><td>Clear response cache</td></tr>
-<tr><td><code>conversation_export</code></td><td>Export full conversation history</td></tr>
+</td>
+</tr>
 </table>
 
 ---
 
 ## Security & Privacy
 
-Since Proxima works without API keys, a few things worth knowing:
+| Principle | Implementation |
+| :--- | :--- |
+| **Local-first** | MCP/IPC (`:19222`) and REST/WS (`:3210`) bind to `127.0.0.1`. Nothing exposed to the internet. |
+| **Credential isolation** | Session mode reuses existing browser logins — no passwords saved. BYOK keys are encrypted in your OS keychain (SafeStorage). |
+| **No telemetry** | Only your explicit queries go to the providers you choose. |
+| **Gated execution** | The agent executes code by design, protected by permission modes and a safety gate. |
+| **SSRF protection** | `web_scrape` and the agent's web fetcher are SSRF-guarded. |
 
-- **No credentials stored.** Proxima uses your existing browser session cookies — the same way you're already logged in.
-- **Nothing leaves your machine** except the queries you send to AI providers you're logged into.
-- **Runs on localhost.** The MCP server, REST API, and WebSocket are all local. Nothing is exposed to the internet.
-- **No telemetry.** Proxima doesn't collect or send any usage data anywhere.
-- **Sessions are yours.** If you log out from a provider's website or clear browser data, you'll need to log in again through Proxima.
-
-> Proxima doesn't bypass authentication — it uses the sessions you already have. Same as using the site in a browser.
+> **Found a vulnerability?** Follow [SECURITY.md](SECURITY.md) — use GitHub Security Advisories, don't open a public issue.
 
 ---
 
-## Project Structure
+## Frequently Asked Questions
 
+### Is Proxima really free?
+Yes. If you use **Session Mode**, it communicates with the official web platforms through your active browser login sessions. There are no fees, and you don't need any paid API keys. You only pay if you explicitly choose **BYOK Mode** to connect your own API tokens.
+
+### Is my data private?
+Yes. Proxima itself stores nothing on external servers—no logs, chats, keys, or sessions leave your machine, and your configuration remains encrypted locally (using SafeStorage). However, remember that **Session Mode** still sends your prompts to the third-party AI provider you're logged into (that's how any AI chat works). For fully offline privacy where your code never leaves your local hardware, use local models via **BYOK Mode**.
+
+### How does Session Mode work without passwords?
+Proxima loads secure, isolated browser tabs (called BrowserViews) inside the background. When you log into ChatGPT or Claude inside these views, the browser maintains your active session logins locally on your device, just like Chrome or Firefox does. Proxima simply uses these local sessions to send standard prompts.
+
+### Can I run local offline models?
+Yes. BYOK mode supports any OpenAI-compatible custom endpoints. You can run **Ollama** or **LM Studio** offline on your own machine and route all requests through Proxima.
+
+### Does the Python agent delete or modify my code automatically?
+No. By default, the agent runs in **Suggest** or **Smart** mode. It will show you exactly what changes it wants to make and wait for you to click "Approve" before modifying any files or running commands.
+
+---
+
+## Testing
+
+```bash
+# JavaScript test suite
+npm test
+
+# Python agent test suite
+cd proxima-agent && python -m unittest discover -s tests -p "test_*.py"
 ```
-Proxima/
-├── electron/
-│   ├── main-v2.cjs                  # Electron main process
-│   ├── browser-manager.cjs          # Browser session management
-│   ├── rest-api.cjs                 # REST API server (OpenAI-compatible)
-│   ├── ws-server.cjs                # WebSocket server
-│   ├── provider-api.cjs             # Provider engine injection manager
-│   ├── index-v2.html                # App UI
-│   ├── preload.cjs                  # Renderer preload bridge
-│   └── providers/
-│       ├── chatgpt-engine.js        # SHA3-512 POW + SSE streaming
-│       ├── claude-engine.js         # Org auth + SSE streaming
-│       ├── gemini-engine.js         # Session SSE streaming
-│       └── perplexity-engine.js     # SSE streaming
-├── cli/
-│   └── proxima-cli.cjs              # Terminal CLI
-├── src/
-│   ├── mcp-server-v3.js             # MCP server (50+ tools)
-│   └── enabled-providers.json       # Provider config
-├── sdk/
-│   ├── proxima.py                   # Python SDK
-│   └── proxima.js                   # JavaScript SDK
-├── assets/                          # Icons, screenshots, demo
-└── package.json
-```
+
+See [TESTING.md](TESTING.md) for the full testing strategy and coverage details.
 
 ---
 
-## Troubleshooting
+## Contributing
 
-**Windows Firewall prompt on first launch**
-<br>Proxima runs on `localhost:19223` and `localhost:3210`. Click Allow — it only accepts local connections.
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for:
+*   Fork ➔ Branch ➔ PR workflow
+*   Coding style guidelines
+*   Mock-at-boundary test strategy
 
-**Provider shows "Not logged in"**
-<br>Each provider has a different login method:
-- **ChatGPT, Claude, Perplexity** — click the provider tab and log in using OTP (email code). Google Sign-In is restricted in embedded browsers by Google's policy.
-- **Gemini** — uses cookie-based authentication. Log in to Google in your regular browser first, then Proxima picks up the session automatically.
-
-**REST API not responding**
-<br>Check that REST API is enabled in Settings → REST API & CLI section. Visit `http://localhost:3210` in your browser to verify.
-
-**MCP tools not showing in editor**
-1. Make sure Proxima is running
-2. Verify the path in your MCP config (use the Settings copy button)
-3. Restart your editor
-
-**CLI: `proxima` not found after install**
-<br>Open a fresh terminal. If still not found, click **🔧 Fix** in Settings → CLI section.
-
-**CLI: "Cannot connect to Proxima"**
-<br>Proxima must be running and REST API must be enabled. The CLI connects to `localhost:3210`.
-
-**WebSocket won't connect**
-<br>WebSocket shares the REST API server. Enable REST API in Settings first.
+Please read our [Code of Conduct](CODE_OF_CONDUCT.md) before contributing.
 
 ---
-
-**Sponsors 💖**
--
-With ongoing development of Proxima, [![GitHub Sponsors](https://img.shields.io/badge/Sponsoring-%E2%9D%A4-pink?logo=github)](https://github.com/sponsors/Zen4-bit) contributes to maintaining and improving the project on [GitHub](https://github.com/sponsors/Zen4-bit)
-
 
 ## License
 
-Proxima is licensed for **non-commercial use only**. See [LICENSE](LICENSE) for full terms.
+Proxima is licensed under the **Proxima Personal Use License** (Personal, Non-Commercial use only).  
+See [LICENSE](LICENSE) for the full license text and terms. For commercial licensing inquiries, please contact the repository author.
 
 ---
 
 <div align="center">
 
-**Proxima v4.1.0** — One API, All AI Models ⚡
+<br/>
 
-Made by [Zen4-bit](https://github.com/Zen4-bit) · Every ⭐ matters 💕
+**Proxima v5.0.0** — Making every AI work together
+
+Built by [**Zen4-bit**](https://github.com/Zen4-bit)
+
+<br/>
+
+[Website](https://www.proximamcp.in) · [Releases](https://github.com/Zen4-bit/Proxima/releases) · [Architecture](docs/architecture.md) · [Changelog](CHANGELOG.md)
 
 </div>

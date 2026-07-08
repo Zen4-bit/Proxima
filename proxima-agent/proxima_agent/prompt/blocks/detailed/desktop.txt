@@ -1,0 +1,11 @@
+COMMON MISTAKES:
+❌ Interacting with elements without calling d.connect() first
+✅ Call d.connect('App Name') FIRST to connect to the target window
+
+TYPICAL PATTERNS:
+- Startup: d = Desktop() -> d.connect('App') -> d.windows() -> d.elements()
+- Click: d.click('Save Button')
+- Fill: d.write_text('Username Label', 'val')
+
+VERIFICATION HINTS:
+- Capture a screenshot using d.screenshot() to visually confirm elements/layout changes.

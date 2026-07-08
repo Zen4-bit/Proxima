@@ -1,0 +1,11 @@
+COMMON MISTAKES:
+❌ Re-initializing RepoIndex on every step (e.g. get_repo_index('.') repeatedly)
+✅ Initialize once: idx = get_repo_index('.') and reuse it
+
+TYPICAL PATTERNS:
+- Setup: idx = get_repo_index('.')
+- Define check: locs = idx.find_definition('symbol_name')
+- Refactor check: refs = idx.find_references('symbol_name')
+
+VERIFICATION HINTS:
+- Confirm that location dicts contain valid line numbers and correct files.

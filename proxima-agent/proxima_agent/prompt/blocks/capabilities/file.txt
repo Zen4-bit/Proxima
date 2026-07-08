@@ -1,0 +1,11 @@
+FILE
+Purpose: Standard file and directory operations.
+When to use: Basic file system management (listing files, creating directories, moving files, simple reads/writes).
+When not to use: Code-specific editing (use coding/repo) or remote files (use network/browser).
+Import: import os, shutil
+API:
+  os.listdir(dir)               → list[str]
+  os.makedirs(dir, exist_ok=T)  → None
+  os.path.exists(path)          → bool
+  read_file(path)               → str (with line numbers)
+  write_file(path, content)     → None

@@ -1,6 +1,6 @@
 {
     "name": "proxima",
-    "version": "4.1.0",
+    "version": "5.0.0",
     "description": "Proxima - Local MCP Server (requires localhost network access for AI coding tools)",
     "license": "SEE LICENSE IN LICENSE",
     "author": "Zen4-bit",
@@ -20,18 +20,30 @@
         "proxima": "./cli/proxima-cli.cjs"
     },
     "scripts": {
+        "prestart": "node scripts/ensure-deps.mjs",
         "start": "electron .",
-        "mcp": "node src/mcp-server-v3.js",
+        "mcp": "node src/mcp/index.js",
         "cli": "node cli/proxima-cli.cjs",
         "build": "electron-builder --win --x64",
-        "build:installer": "electron-builder --win --x64 -c.win.target=nsis"
+        "build:win": "electron-builder --win --x64",
+        "build:mac": "electron-builder --mac --x64 --arm64",
+        "build:linux": "electron-builder --linux --x64",
+        "build:all": "electron-builder -mwl",
+        "build:installer": "electron-builder --win --x64 -c.win.target=nsis",
+        "test": "node --experimental-vm-modules --test tests/**/*.test.js"
     },
     "build": {
         "appId": "com.proxima.app",
         "productName": "Proxima",
         "copyright": "Copyright © 2026 Proxima",
+        "publish": {
+            "provider": "github",
+            "owner": "Zen4-bit",
+            "repo": "Proxima"
+        },
         "directories": {
-            "output": "dist"
+            "output": "dist",
+            "buildResources": "build"
         },
         "files": [
             "electron/**/*",
@@ -40,7 +52,48 @@
             "sdk/**/*",
             "assets/**/*",
             "node_modules/**/*",
-            "package.json"
+            "package.json",
+            "docs/openapi.json",
+            "!electron/**/*.dna.txt",
+            "!electron/**/*.dna",
+            "!src/enabled-providers.json",
+            "!**/__pycache__/**",
+            "!**/*.pyc"
+        ],
+        "extraResources": [
+            {
+                "from": "src/prompts",
+                "to": "src/prompts"
+            },
+            {
+                "from": "proxima-agent",
+                "to": "proxima-agent",
+                "filter": [
+                    "**/*",
+                    "!.venv/**/*",
+                    "!**/__pycache__/**",
+                    "!**/*.pyc",
+                    "!*.egg-info/**",
+                    "!tests/**",
+                    "!amazon_deals*.txt"
+                ]
+            },
+            {
+                "from": "build/offline/python",
+                "to": "python",
+                "filter": [
+                    "**/*",
+                    "!.gitkeep"
+                ]
+            },
+            {
+                "from": "build/offline/wheels",
+                "to": "wheels",
+                "filter": [
+                    "**/*",
+                    "!.gitkeep"
+                ]
+            }
         ],
         "asarUnpack": [
             "src/**/*",
@@ -64,15 +117,62 @@
             "allowToChangeInstallationDirectory": true,
             "createDesktopShortcut": true,
             "createStartMenuShortcut": true,
-            "shortcutName": "Proxima"
+            "shortcutName": "Proxima",
+            "include": "build/installer.nsh"
+        },
+        "mac": {
+            "target": [
+                {
+                    "target": "dmg",
+                    "arch": [
+                        "x64",
+                        "arm64"
+                    ]
+                }
+            ],
+            "category": "public.app-category.developer-tools",
+            "icon": "assets/proxima-icon.png",
+            "artifactName": "${productName}-${version}-${arch}.${ext}",
+            "hardenedRuntime": true,
+            "gatekeeperAssess": false,
+            "entitlements": "build/entitlements.mac.plist",
+            "entitlementsInherit": "build/entitlements.mac.plist"
+        },
+        "dmg": {
+            "title": "${productName} ${version}"
+        },
+        "linux": {
+            "target": [
+                {
+                    "target": "AppImage",
+                    "arch": [
+                        "x64"
+                    ]
+                },
+                {
+                    "target": "deb",
+                    "arch": [
+                        "x64"
+                    ]
+                }
+            ],
+            "category": "Development",
+            "icon": "assets/proxima-icon.png",
+            "artifactName": "${productName}-${version}-${arch}.${ext}",
+            "maintainer": "Zen4-bit"
         }
     },
     "dependencies": {
-        "@modelcontextprotocol/sdk": "^1.29.0",
+        "@modelcontextprotocol/sdk": "^1.25.3",
+        "better-sqlite3": "^12.10.0",
+        "electron-updater": "^6.8.9",
+        "onnxruntime-node": "^1.26.0",
         "ws": "^8.20.0",
-        "zod": "^4.4.3"
+        "zod": "^4.3.6"
     },
     "devDependencies": {
+        "acorn": "^8.16.0",
+        "acorn-loose": "^8.5.2",
         "concurrently": "^9.2.1",
         "electron": "^33.4.11",
         "electron-builder": "^25.1.8",

@@ -1,0 +1,15 @@
+BROWSER
+Purpose: Control and read websites through Chrome.
+When to use: Automating browser actions, scraping JavaScript-rendered pages, interacting with web UIs.
+When not to use: Simple static HTTP requests or local file operations.
+Import: from proxima_agent.tools.browser_cdp import ChromeBrowser
+API:
+  b = ChromeBrowser()           → ChromeBrowser instance
+  b.goto(url)                   → None
+  b.click_text('text')          → None
+  b.write_text('field', value)  → None
+  b.read_content()              → str (markdown)
+  b.extract_records()           → list[dict]
+  b.elements()                  → str
+  b.screenshot()                → str (file path)
+  b.press('Enter')              → None

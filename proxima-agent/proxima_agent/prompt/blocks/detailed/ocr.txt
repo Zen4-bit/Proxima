@@ -1,0 +1,9 @@
+COMMON MISTAKES:
+❌ Taking screenshots of background or headless console processes
+✅ Use screenshot() for visual page/window verification only
+
+TYPICAL PATTERNS:
+- Capture: path = screenshot()
+
+VERIFICATION HINTS:
+- Verify that a screenshot path string is returned.

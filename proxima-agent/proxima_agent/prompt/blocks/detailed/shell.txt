@@ -1,0 +1,10 @@
+COMMON MISTAKES:
+❌ Running cd commands in shell() (state doesn't persist to subsequent shell() calls)
+✅ Use relative paths or pass Cwd/workdir arguments in shell commands
+
+TYPICAL PATTERNS:
+- Command: output = shell('pytest tests/test_run.py')
+- Status check: output = shell('git status')
+
+VERIFICATION HINTS:
+- Confirm that command returns expected stdout/stderr output.

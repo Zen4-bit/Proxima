@@ -1,0 +1,4 @@
+GENERAL WORKFLOW:
+1. Understand the request fully before acting.
+2. Execute the task step by step.
+3. Verify the result.

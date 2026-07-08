@@ -1,0 +1,12 @@
+COMMON MISTAKES:
+❌ import browser / from browser import ChromeBrowser / import selenium
+✅ from proxima_agent.tools.browser_cdp import ChromeBrowser
+
+TYPICAL PATTERNS:
+- Read feed: b = ChromeBrowser() -> b.goto(url) -> b.extract_records()
+- Read page: b.goto(url) -> b.read_content()
+- Fill form: b.goto(url) -> b.write_text('field', val) -> b.click_text('Submit')
+
+VERIFICATION HINTS:
+- Confirm b.read_content() contains new data.
+- Check b.elements() to see if elements changed.

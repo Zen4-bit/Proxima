@@ -1,43 +1,75 @@
 # Dependencies
 node_modules/
 
-# Build output
+# Build outputs & packaging
 dist/
+build/*.exe
+build/.icon-ico/
 
-# OS files
+# Editor & OS files
 .DS_Store
 Thumbs.db
-
-# Editor files
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# Logs
+# Logs & environment variables
 *.log
 npm-debug.log*
-
-# Environment files
 .env
 .env.local
 .env.*.local
 
-# User data (sessions, settings)
-src/enabled-providers.json
-
-# Python SDK cache
-sdk/__pycache__/
+# Python virtualenvs & caches
+.venv/
+venv/
+proxima-agent/.venv/
+**/__pycache__/
 *.pyc
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+**/.ruff_cache/
 
-# Session & cookie data
+# Python build artifacts
+proxima-agent/build/
+proxima-agent/dist/
+build/lib/
+build/bdist.*/
+
+# Runtime environment (provisioned dynamically)
+py-env/
+
+# Offline Python bundles (platform-specific placeholders)
+build/offline/python/*
+build/offline/wheels/*
+!build/offline/python/.gitkeep
+!build/offline/wheels/.gitkeep
+!build/offline/README.md
+
+# Proxima runtime/user data
+.proxima/
+**/.proxima/
+src/enabled-providers.json
 *.session
 cookies-backup/
+Proxima/
+New folder/
+byok.json
+settings.json
+api-key.json
+ipc-token.json
+ipc-port.json
 
-# Temporary files
+# Databases & SQLite logs
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Temp files
 *.tmp
 *.temp
-
-# Dev audit files
-Version_4.1.0.txt
-installer.nsh

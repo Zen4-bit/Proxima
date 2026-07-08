@@ -1,0 +1,696 @@
+<!-- Proxima — Web UI Layout. -->
+<!-- Single-page dashboard interface for real-time agent execution, chat messaging, and system telemetry. -->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Proxima Agent</title>
+    <meta name="description" content="Proxima Agent — AI with full computer access">
+    <link rel="stylesheet" href="/static/styles.css?v=6167">
+    <link rel="icon" type="image/svg+xml" href="/static/proxima-icon.svg">
+</head>
+
+<body>
+    <div id="app">
+        <div class="aurora-glow-1"></div>
+        <div class="aurora-glow-2"></div>
+        <div class="aurora-glow-3"></div>
+
+        <header class="topbar">
+            <div class="topbar-left">
+                <button id="sidebar-toggle" class="topbar-icon-btn" title="Toggle Sidebar (Ctrl+H)">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 12h18M3 6h18M3 18h18" />
+                    </svg>
+                </button>
+                <div class="topbar-brand">
+                    <span class="brand-text">Proxima Agent</span>
+                </div>
+            </div>
+
+            <div class="topbar-center">
+                <div id="brain-bar" class="brain-bar hidden">
+                    <div class="brain-progress-track">
+                        <div id="brain-progress-fill" class="brain-progress-fill" style="width:0%"></div>
+                    </div>
+                    <span id="brain-label" class="brain-label">0/0</span>
+                </div>
+            </div>
+
+            <div class="topbar-controls">
+                <button id="theme-toggle-btn" class="topbar-icon-btn" title="Toggle Theme (Alt+T)">
+                    <svg id="theme-icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" style="display: none;">
+                        <circle cx="12" cy="12" r="5" />
+                        <line x1="12" y1="1" x2="12" y2="3" />
+                        <line x1="12" y1="21" x2="12" y2="23" />
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                        <line x1="1" y1="12" x2="3" y2="12" />
+                        <line x1="21" y1="12" x2="23" y2="12" />
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                    </svg>
+                    <svg id="theme-icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                    </svg>
+                </button>
+
+                <div class="export-dropdown" id="export-dropdown-container">
+                    <button id="export-btn" class="topbar-icon-btn" title="Export Conversation">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                    </button>
+                    <div class="export-popup" id="export-popup">
+                        <div class="export-option" data-format="md">
+                            <span class="export-option-icon">📄</span>
+                            <div class="export-option-info">
+                                <div class="export-option-name">Export as Markdown (.md)</div>
+                                <div class="export-option-desc">Best for reading with formatting</div>
+                            </div>
+                        </div>
+                        <div class="export-option" data-format="txt">
+                            <span class="export-option-icon">📝</span>
+                            <div class="export-option-info">
+                                <div class="export-option-name">Export as Plain Text (.txt)</div>
+                                <div class="export-option-desc">Simple raw log format</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <button id="activity-toggle" class="topbar-icon-btn" title="Toggle Activity Panel (Ctrl+Alt+A)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="18" height="18" rx="2" />
+                        <line x1="15" y1="3" x2="15" y2="21" />
+                        <path d="M8 9h3m-3 3h4m-4 3h2" />
+                    </svg>
+                </button>
+
+                <button id="settings-btn" class="topbar-icon-btn" title="Settings (Ctrl+,)">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3" />
+                        <path
+                            d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+                    </svg>
+                </button>
+
+                <div id="connection-status" class="connection-status" title="Disconnected">
+                    <div id="connection-dot" class="connection-dot"></div>
+                    <span id="connection-text" class="connection-text">Offline</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="main-content">
+
+            <aside id="sidebar" class="sidebar">
+                <div class="sidebar-header">
+                    <h2 class="sidebar-title">Conversations</h2>
+                    <button id="sidebar-close" class="sidebar-close-btn" title="Hide Sidebar">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2.5">
+                            <path d="M18 6L6 18M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="sidebar-search">
+                    <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="8" />
+                        <path d="M21 21l-4.35-4.35" />
+                    </svg>
+                    <input type="text" id="history-search" class="sidebar-search-input"
+                        placeholder="Search conversations...">
+                </div>
+
+                <div class="sidebar-actions">
+                    <button id="new-session-btn" class="sidebar-new-chat-btn" title="New Chat (Ctrl+N)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2.5">
+                            <path d="M12 5v14M5 12h14" />
+                        </svg>
+                        <span>New Chat</span>
+                    </button>
+                </div>
+
+                <div class="sidebar-scrollable">
+                    <div id="sidebar-section-pinned" class="sidebar-section">
+                        <div class="sidebar-section-header">
+                            <svg class="section-icon" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2.5">
+                                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                            </svg>
+                            <span>Pinned</span>
+                        </div>
+                        <div id="pinned-chats-list" class="sidebar-list">
+                            <div class="sidebar-item-empty">No pinned chats</div>
+                        </div>
+                    </div>
+
+                    <div id="sidebar-section-folders" class="sidebar-section">
+                        <div class="sidebar-section-header">
+                            <svg class="section-icon" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2.5">
+                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                            </svg>
+                            <span>Folders</span>
+                        </div>
+                        <div id="folders-list" class="sidebar-list">
+                            <div class="sidebar-item-empty">No folders</div>
+                        </div>
+                    </div>
+
+                    <div class="sidebar-section">
+                        <div class="sidebar-section-header">
+                            <svg class="section-icon" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2.5">
+                                <circle cx="12" cy="12" r="10" />
+                                <path d="M12 6v6l4 2" />
+                            </svg>
+                            <span>Recent History</span>
+                        </div>
+                        <div id="history-list" class="history-list"></div>
+                    </div>
+                </div>
+            </aside>
+
+            <div id="sidebar-resizer" class="resizer-handle"></div>
+
+            <div class="chat-area">
+                <div id="chat-messages" class="chat-messages">
+                    <!-- Welcome screen injected by JS -->
+                </div>
+
+                <div class="composer-container">
+                    <div class="composer-card">
+                        <div id="typing-indicator" class="typing-indicator">
+                            <div class="typing-content">
+                                <div class="typing-dots">
+                                    <div class="typing-dot"></div>
+                                    <div class="typing-dot"></div>
+                                    <div class="typing-dot"></div>
+                                </div>
+                                <span class="typing-label" id="typing-label">Thinking</span>
+                            </div>
+                        </div>
+                        <div id="file-preview" class="file-preview hidden"></div>
+
+                        <div class="composer-input-row">
+                            <textarea id="chat-input"
+                                placeholder="Ask Proxima to edit code, run commands, or search the web..." rows="1"
+                                autofocus></textarea>
+                        </div>
+
+                        <div class="composer-toolbar">
+                            <div class="composer-toolbar-left">
+                                <label class="composer-btn" title="Attach Files (Drag & Drop)" id="attach-btn">
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <path
+                                            d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                                    </svg>
+                                    <input type="file" id="file-input" multiple hidden>
+                                </label>
+
+                                <div class="toolbar-divider"></div>
+
+                                <div class="model-dropdown">
+                                    <button class="composer-dropdown-btn" id="model-trigger" type="button">
+                                        <span class="model-color-indicator"></span>
+                                        <span id="model-trigger-text">Claude</span>
+                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2.5">
+                                            <path d="M6 9l6 6 6-6" />
+                                        </svg>
+                                    </button>
+                                    <div class="model-popup" id="model-popup">
+                                        <div class="model-page active" id="model-page-main">
+                                            <div class="model-popup-section" id="model-options-container">
+                                                <div class="model-option" data-value="auto">
+                                                    <div class="model-option-icon model-icon-auto">
+                                                        <div class="proxima-cube proxima-cube-xs">
+                                                            <div class="proxima-eye">
+                                                                <div class="proxima-pupil"></div>
+                                                            </div>
+                                                            <div class="proxima-eye">
+                                                                <div class="proxima-pupil"></div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="model-option-info">
+                                                        <div class="model-option-name">Auto</div>
+                                                        <div class="model-option-desc">Smart routing</div>
+                                                    </div>
+                                                    <div class="model-option-check" id="check-auto"></div>
+                                                </div>
+                                                <div class="model-option selected" data-value="claude">
+                                                    <img class="model-option-icon" src="/static/icons/claude.svg"
+                                                        alt="Claude">
+                                                    <div class="model-option-info">
+                                                        <div class="model-option-name">Claude 3.5 Sonnet</div>
+                                                        <div class="model-option-desc">Advanced reasoning</div>
+                                                    </div>
+                                                    <div class="model-option-check" id="check-claude">
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                                            stroke="currentColor" stroke-width="3">
+                                                            <path d="M20 6L9 17l-5-5" />
+                                                        </svg>
+                                                    </div>
+                                                </div>
+                                                <div class="model-option" data-value="chatgpt">
+                                                    <img class="model-option-icon" src="/static/icons/chatgpt.png"
+                                                        alt="ChatGPT">
+                                                    <div class="model-option-info">
+                                                        <div class="model-option-name">GPT-4o</div>
+                                                        <div class="model-option-desc">General productivity</div>
+                                                    </div>
+                                                    <div class="model-option-check" id="check-chatgpt"></div>
+                                                </div>
+                                                <div class="model-option-group" id="group-gemini-trigger">
+                                                    <img class="model-option-icon" src="/static/icons/gemini.png"
+                                                        alt="Gemini">
+                                                    <div class="model-option-info">
+                                                        <div class="model-option-name">Gemini</div>
+                                                        <div class="model-option-desc">Select sub-engine</div>
+                                                    </div>
+                                                    <div class="model-option-chevron">
+                                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                                                            stroke="currentColor" stroke-width="2.5">
+                                                            <path d="M9 5l7 7-7 7" />
+                                                        </svg>
+                                                    </div>
+                                                </div>
+                                                <div class="model-option" data-value="perplexity">
+                                                    <img class="model-option-icon" src="/static/icons/perplexity.png"
+                                                        alt="Perplexity">
+                                                    <div class="model-option-info">
+                                                        <div class="model-option-name">Perplexity</div>
+                                                        <div class="model-option-desc">Live search</div>
+                                                    </div>
+                                                    <div class="model-option-check" id="check-perplexity"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="model-page" id="model-page-gemini">
+                                            <div class="model-popup-section">
+                                                <div class="model-back-btn" id="model-gemini-back">
+                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+                                                        stroke="currentColor" stroke-width="2.5">
+                                                        <path d="M19 12H5M12 19l-7-7 7-7" />
+                                                    </svg>
+                                                    <span>Back</span>
+                                                </div>
+                                                <div class="model-popup-label">Gemini Sub-Engines</div>
+                                                <div class="model-option" data-value="gemini">
+                                                    <img class="model-option-icon" src="/static/icons/gemini.png"
+                                                        alt="Gemini Auto">
+                                                    <div class="model-option-info">
+                                                        <div class="model-option-name">Gemini (Auto)</div>
+                                                        <div class="model-option-desc">Auto-routing Ingestion</div>
+                                                    </div>
+                                                    <div class="model-option-check" id="check-gemini-auto"></div>
+                                                </div>
+                                                <div class="model-option" data-value="gemini:3.1-pro">
+                                                    <img class="model-option-icon" src="/static/icons/gemini.png"
+                                                        alt="Gemini Pro">
+                                                    <div class="model-option-info">
+                                                        <div class="model-option-name">Gemini 3.1 Pro</div>
+                                                        <div class="model-option-desc">Deep Coding</div>
+                                                    </div>
+                                                    <div class="model-option-check" id="check-gemini-pro"></div>
+                                                </div>
+                                                <div class="model-option" data-value="gemini:3.5-flash">
+                                                    <img class="model-option-icon" src="/static/icons/gemini.png"
+                                                        alt="Gemini Flash">
+                                                    <div class="model-option-info">
+                                                        <div class="model-option-name">Gemini 3.5 Flash</div>
+                                                        <div class="model-option-desc">High Speed</div>
+                                                    </div>
+                                                    <div class="model-option-check" id="check-gemini-flash"></div>
+                                                </div>
+                                                <div class="model-option" data-value="gemini:3.1-flash-lite">
+                                                    <img class="model-option-icon" src="/static/icons/gemini.png"
+                                                        alt="Gemini Lite">
+                                                    <div class="model-option-info">
+                                                        <div class="model-option-name">Gemini 3.1 Lite</div>
+                                                        <div class="model-option-desc">Low Latency</div>
+                                                    </div>
+                                                    <div class="model-option-check" id="check-gemini-lite"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                    </div>
+                                </div>
+
+                                <div class="toolbar-divider"></div>
+
+                                <button type="button" id="multi-agent-composer-btn" class="composer-tools-indicator"
+                                    title="Toggle Multi-Agent Mode">
+                                    <span class="tool-dot"></span>
+                                    <span class="tool-label">Multi-Agent</span>
+                                </button>
+
+                                <div class="toolbar-divider"></div>
+
+                                <div class="composer-mode-selector" id="composer-mode-selector">
+                                    <button type="button" class="mode-segment-btn" data-mode="full_auto"
+                                        title="Full Auto — execute commands without asking">Auto</button>
+                                    <button type="button" class="mode-segment-btn" data-mode="smart"
+                                        title="Smart — ask approval only for dangerous operations">Smart</button>
+                                    <button type="button" class="mode-segment-btn" data-mode="suggest"
+                                        title="Suggest — present choices for key steps">Suggest</button>
+                                </div>
+                            </div>
+
+                            <div class="composer-toolbar-right">
+                                <button id="send-btn" class="composer-send-btn" title="Send (Enter)">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2.5">
+                                        <line x1="22" y1="2" x2="11" y2="13" />
+                                        <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                                    </svg>
+                                </button>
+                                <button id="stop-btn" class="composer-stop-btn" title="Stop Agent"
+                                    style="display:none;">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                                        <rect x="4" y="4" width="16" height="16" rx="2" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="composer-hint">
+                        <span>Shift+Enter for newline. Your data stays local and secure.</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="activity-resizer" class="resizer-handle"></div>
+
+            <aside id="activity-panel" class="activity-panel">
+                <div class="activity-header">
+                    <h2 class="activity-title">Agent Control</h2>
+                    <div id="agent-badge" class="agent-badge idle">
+                        <span class="badge-dot"></span>
+                        <span id="agent-badge-text" class="badge-text">Idle</span>
+                    </div>
+                </div>
+
+                <div class="activity-body">
+                    <div class="activity-task-card" id="current-task-card">
+                        <div class="task-card-header">
+                            <span class="task-card-label">Current Execution</span>
+                            <span id="task-progress" class="task-card-progress">0/0 tool steps</span>
+                        </div>
+                        <div class="task-card-title" id="current-task-title">Standby — Waiting for prompt</div>
+                    </div>
+
+                    <div class="timeline-container">
+                        <div class="timeline-header">Timeline</div>
+                        <div id="timeline-steps" class="timeline-steps">
+                            <div class="timeline-empty">No active execution logs</div>
+                        </div>
+                    </div>
+
+                    <div class="activity-logs-container">
+                        <div class="logs-header">
+                            <span>System Logs</span>
+                            <button id="clear-activity-logs" class="logs-clear-btn" title="Clear logs">Clear</button>
+                        </div>
+                        <div id="activity-logs" class="activity-logs">
+                            <div class="log-line system">System standby. Ready for instructions.</div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+        </main>
+
+        <div id="approval-modal" class="modal-overlay">
+            <div class="modal">
+                <div class="modal-title">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                        <path d="M12 9v4M12 17h.01" />
+                    </svg>
+                    Safety Approval Required
+                </div>
+                <p class="modal-desc">The agent wants to execute potentially dangerous code:</p>
+                <pre id="approval-code" class="modal-code"></pre>
+                <div class="modal-actions">
+                    <button id="approve-deny-btn" class="btn btn-danger">Deny</button>
+                    <button id="approve-allow-btn" class="btn btn-primary">Allow Execution</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="settings-modal" class="modal-overlay">
+            <div class="modal modal-large">
+                <div class="modal-header">
+                    <div class="modal-title">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <circle cx="12" cy="12" r="3" />
+                            <path
+                                d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+                        </svg>
+                        Settings
+                    </div>
+                    <button id="settings-close" class="modal-close-btn">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M18 6L6 18M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="settings-body">
+                    <div class="settings-tabs">
+                        <button class="settings-tab active" data-tab="agent">Agent</button>
+                        <button class="settings-tab" data-tab="models">Models</button>
+                        <button class="settings-tab" data-tab="safety">Safety</button>
+                        <button class="settings-tab" data-tab="developer">Developer</button>
+                    </div>
+                    <div class="settings-content">
+                        <!-- Agent Settings Panel -->
+                        <div id="tab-agent" class="settings-tab-panel active">
+                            <div class="setting-group">
+                                <label class="setting-label">Custom Instructions</label>
+                                <p class="setting-desc">Rules prepended to every prompt — the agent always follows these
+                                </p>
+                                <textarea id="setting-instructions" class="setting-textarea" rows="4"
+                                    placeholder="e.g. Always explain before executing. Use Hindi for responses."></textarea>
+                            </div>
+                            <div class="setting-group">
+                                <label class="setting-label">Permission Mode</label>
+                                <p class="setting-desc">Controls how the agent asks for approval before executing code
+                                </p>
+                                <select id="setting-mode" class="setting-select">
+                                    <option value="full_auto">Full Auto — Execute everything without asking</option>
+                                    <option value="smart" selected>Smart — Ask only for dangerous operations</option>
+                                    <option value="suggest">Suggest — Show options, let you choose</option>
+                                </select>
+                            </div>
+                            <div class="setting-group">
+                                <label class="setting-label">Max Iterations</label>
+                                <p class="setting-desc">Maximum tool calls per conversation turn</p>
+                                <input type="number" id="setting-max-iterations" class="setting-input" value="50"
+                                    min="1" max="200">
+                            </div>
+                            <div class="setting-group">
+                                <label class="setting-label">Agent Memory</label>
+                                <p class="setting-desc">Learn from past sessions — remember preferences and patterns</p>
+                                <label class="setting-toggle"><input type="checkbox" id="setting-memory" checked><span
+                                        class="toggle-slider"></span><span class="toggle-text">Enabled</span></label>
+                            </div>
+                        </div>
+
+                        <!-- Models Settings Panel -->
+                        <div id="tab-models" class="settings-tab-panel">
+                            <div class="setting-group">
+                                <label class="setting-label">Default Model</label>
+                                <p class="setting-desc">Model to use when "Auto" is selected</p>
+                                <input type="text" id="setting-model" class="setting-input" value="claude">
+                            </div>
+                            <div class="setting-group">
+                                <label class="setting-label">Temperature</label>
+                                <p class="setting-desc">Creativity level (0.0 = deterministic, 1.0 = creative)</p>
+                                <div class="range-row">
+                                    <input type="range" id="setting-temperature" class="setting-range" min="0" max="1"
+                                        step="0.1" value="0.7">
+                                    <span id="temperature-value" class="range-value">0.7</span>
+                                </div>
+                            </div>
+                            <div class="setting-group">
+                                <label class="setting-label">API URL</label>
+                                <p class="setting-desc">Proxima gateway or custom OpenAI-compatible endpoint</p>
+                                <input type="text" id="setting-api-url" class="setting-input"
+                                    value="http://localhost:3210/v1">
+                            </div>
+                            <div class="setting-group">
+                                <label class="setting-label">API Key</label>
+                                <p class="setting-desc">Authentication key for the API</p>
+                                <div class="input-with-toggle">
+                                    <input type="password" id="setting-api-key" class="setting-input"
+                                        placeholder="sk-...">
+                                    <button type="button" id="toggle-api-key" class="input-eye-btn"
+                                        aria-label="Show API key" title="Show / hide API key" aria-pressed="false">
+                                        <svg class="eye-show" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                            stroke-linejoin="round">
+                                            <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+                                            <circle cx="12" cy="12" r="3" />
+                                        </svg>
+                                        <svg class="eye-hide" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                            stroke-linejoin="round" style="display:none">
+                                            <path
+                                                d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                                            <line x1="1" y1="1" x2="23" y2="23" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="byok-settings-section">
+                                <div class="byok-header">
+                                    <h3 class="byok-title">🔑 Agent API Keys</h3>
+                                    <p class="byok-subtitle">Keys added here are used <strong>only</strong> by this
+                                        Agent. For global keys, use the Proxima desktop app.</p>
+                                </div>
+                                <div class="setting-group">
+                                    <label class="setting-label">Provider</label>
+                                    <div class="byok-combo-wrapper" id="byok-combo-wrapper">
+                                        <input type="text" id="byok-provider-search"
+                                            class="setting-input byok-combo-input" placeholder="Search providers..."
+                                            autocomplete="off">
+                                        <div class="byok-combo-dropdown" id="byok-combo-dropdown"></div>
+                                    </div>
+                                </div>
+                                <div id="byok-key-form" class="byok-key-form" style="display:none;">
+                                    <div class="setting-group">
+                                        <label class="setting-label">API Key for <span
+                                                id="byok-form-provider-name"></span></label>
+                                        <div class="input-with-toggle">
+                                            <input type="password" id="byok-key-input" class="setting-input"
+                                                placeholder="Paste your API key...">
+                                            <button type="button" id="byok-key-toggle" class="input-eye-btn"
+                                                aria-label="Show key">
+                                                <svg class="eye-show" width="18" height="18" viewBox="0 0 24 24"
+                                                    fill="none" stroke="currentColor" stroke-width="2"
+                                                    stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+                                                    <circle cx="12" cy="12" r="3" />
+                                                </svg>
+                                                <svg class="eye-hide" width="18" height="18" viewBox="0 0 24 24"
+                                                    fill="none" stroke="currentColor" stroke-width="2"
+                                                    stroke-linecap="round" stroke-linejoin="round" style="display:none">
+                                                    <path
+                                                        d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                                                    <line x1="1" y1="1" x2="23" y2="23" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="byok-form-actions">
+                                        <button type="button" id="byok-save-btn" class="btn btn-primary btn-sm">Save
+                                            Key</button>
+                                        <button type="button" id="byok-remove-btn" class="btn btn-danger btn-sm"
+                                            style="display:none;">Remove</button>
+                                        <button type="button" id="byok-cancel-btn"
+                                            class="btn btn-ghost btn-sm">Cancel</button>
+                                    </div>
+                                </div>
+                                <div class="byok-configured-section">
+                                    <div class="byok-section-label">Agent Keys</div>
+                                    <div id="byok-local-list" class="byok-configured-list"></div>
+                                    <div class="byok-section-label" id="byok-global-label" style="display:none;">Global
+                                        Keys (from Proxima App)</div>
+                                    <div id="byok-global-list" class="byok-configured-list"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Safety Settings Panel -->
+                        <div id="tab-safety" class="settings-tab-panel">
+                            <div class="setting-group">
+                                <label class="setting-label">Safety Checks</label>
+                                <p class="setting-desc">Scan code for dangerous patterns before execution</p>
+                                <label class="setting-toggle"><input type="checkbox" id="setting-safety" checked><span
+                                        class="toggle-slider"></span><span class="toggle-text">Enabled</span></label>
+                            </div>
+                            <div class="setting-group">
+                                <label class="setting-label">Web Misuse Detection</label>
+                                <p class="setting-desc">Block code using webbrowser/selenium instead of ChromeBrowser
+                                </p>
+                                <label class="setting-toggle"><input type="checkbox" id="setting-web-misuse"
+                                        checked><span class="toggle-slider"></span><span
+                                        class="toggle-text">Enabled</span></label>
+                            </div>
+                            <div class="setting-group">
+                                <label class="setting-label">Blocked Patterns</label>
+                                <p class="setting-desc">Code containing these patterns will be blocked (one per line)
+                                </p>
+                                <textarea id="setting-blocked" class="setting-textarea" rows="3"
+                                    placeholder="os.remove('/')&#10;shutil.rmtree('/')"></textarea>
+                            </div>
+                        </div>
+
+                        <!-- Developer Settings Panel -->
+                        <div id="tab-developer" class="settings-tab-panel">
+                            <div class="setting-group">
+                                <label class="setting-label">Sound Effects</label>
+                                <p class="setting-desc">Play sounds on task completion and errors</p>
+                                <label class="setting-toggle"><input type="checkbox" id="setting-sound"><span
+                                        class="toggle-slider"></span><span class="toggle-text">Disabled</span></label>
+                            </div>
+                            <div class="setting-group">
+                                <label class="setting-label">Debug Mode</label>
+                                <p class="setting-desc">Show raw API messages and internal state in chat</p>
+                                <label class="setting-toggle"><input type="checkbox" id="setting-debug"><span
+                                        class="toggle-slider"></span><span class="toggle-text">Disabled</span></label>
+                            </div>
+                            <div class="setting-group">
+                                <label class="setting-label">Port</label>
+                                <p class="setting-desc">Web server port (requires restart)</p>
+                                <input type="number" id="setting-port" class="setting-input" value="8500" min="1024"
+                                    max="65535">
+                            </div>
+                            <div class="setting-group danger-zone">
+                                <label class="setting-label">Danger Zone</label>
+                                <div class="danger-actions">
+                                    <button id="clear-history-btn" class="btn btn-danger btn-sm">Clear All
+                                        History</button>
+                                    <button id="reset-settings-btn" class="btn btn-ghost btn-sm">Reset to
+                                        Defaults</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-footer">
+                        <button id="settings-save" class="btn btn-primary">Save Settings</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="toast-container" class="toast-container"></div>
+    </div>
+
+    <script src="/static/vendor/marked.min.js?v=12.0.2"></script>
+    <script src="/static/app.js?v=6167"></script>
+</body>
+
+</html>

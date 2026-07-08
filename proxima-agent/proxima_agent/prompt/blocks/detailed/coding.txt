@@ -1,0 +1,12 @@
+COMMON MISTAKES:
+❌ print(open('file').read()) (does not format nicely with line numbers)
+✅ read_file('file') (correctly prints with line numbers for context)
+
+TYPICAL PATTERNS:
+- Read: contents = read_file('src/file.py')
+- Edit: write_file('src/file.py', new_content)
+- Search: matches = grep('pattern', 'src')
+
+VERIFICATION HINTS:
+- Run syntax_check('file.py') after any modifications to ensure no syntax errors.
+- Run lint('file.py') to check formatting/conventions.

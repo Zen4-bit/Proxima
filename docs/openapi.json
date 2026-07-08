@@ -1,0 +1,682 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Proxima AI Gateway API",
+    "version": "5.0.0",
+    "description": "Unified AI Gateway — Route to ChatGPT, Claude, Gemini, and Perplexity through a single OpenAI-compatible API. Supports chat, search, translate, code, analyze, debate, and more via a single endpoint with function-based routing.",
+    "contact": {
+      "name": "Proxima Support",
+      "url": "https://github.com/zen4-bit/proxima"
+    },
+    "license": {
+      "name": "Proxima Personal Use License",
+      "url": "https://github.com/zen4-bit/proxima/blob/main/LICENSE"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3210",
+      "description": "Local Proxima Gateway"
+    }
+  ],
+  "tags": [
+    { "name": "Chat", "description": "OpenAI-compatible chat completions" },
+    { "name": "Functions", "description": "Function-based routing (search, translate, code, etc.)" },
+    { "name": "Multi-Provider", "description": "Multi-AI and battle mode endpoints" },
+    { "name": "Management", "description": "Status, stats, and conversation management" },
+    { "name": "Legacy", "description": "Legacy /api/* endpoints (backwards compatible)" },
+    { "name": "WebSocket", "description": "WebSocket-based real-time chat" }
+  ],
+  "paths": {
+    "/v1/chat/completions": {
+      "post": {
+        "summary": "Chat Completion (OpenAI-compatible)",
+        "description": "Send a message to any AI provider. Supports OpenAI message format, simple message format, and function-based routing. This single endpoint handles ALL Proxima capabilities.",
+        "operationId": "chatCompletion",
+        "tags": ["Chat"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              },
+              "examples": {
+                "simple_chat": {
+                  "summary": "Simple chat",
+                  "value": {
+                    "model": "claude",
+                    "message": "What is artificial intelligence?"
+                  }
+                },
+                "openai_format": {
+                  "summary": "OpenAI message format",
+                  "value": {
+                    "model": "chatgpt",
+                    "messages": [
+                      { "role": "user", "content": "Explain quantum computing" }
+                    ]
+                  }
+                },
+                "auto_pick": {
+                  "summary": "Auto-pick best provider",
+                  "value": {
+                    "model": "auto",
+                    "message": "Hello world"
+                  }
+                },
+                "search": {
+                  "summary": "Web search function",
+                  "value": {
+                    "model": "perplexity",
+                    "message": "Latest AI news 2026",
+                    "function": "search"
+                  }
+                },
+                "translate": {
+                  "summary": "Translation function",
+                  "value": {
+                    "model": "gemini",
+                    "message": "Hello world",
+                    "function": "translate",
+                    "to": "Hindi"
+                  }
+                },
+                "code_generate": {
+                  "summary": "Code generation function",
+                  "value": {
+                    "model": "claude",
+                    "message": "Sort algorithm",
+                    "function": "code",
+                    "action": "generate",
+                    "language": "Python"
+                  }
+                },
+                "security_audit": {
+                  "summary": "Security audit function",
+                  "value": {
+                    "model": "claude",
+                    "code": "app.get('/user', (req,res) => { db.query('SELECT * FROM users WHERE id=' + req.query.id) })",
+                    "function": "security_audit"
+                  }
+                },
+                "multi_provider": {
+                  "summary": "Query multiple providers",
+                  "value": {
+                    "model": ["claude", "chatgpt", "gemini"],
+                    "message": "What is consciousness?"
+                  }
+                },
+                "all_providers": {
+                  "summary": "Query all providers",
+                  "value": {
+                    "model": "all",
+                    "message": "Is water wet?"
+                  }
+                },
+                "debate": {
+                  "summary": "Multi-perspective debate",
+                  "value": {
+                    "model": "all",
+                    "message": "Is AI a threat to humanity?",
+                    "function": "debate"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful completion. When stream=true, returns text/event-stream (SSE) with OpenAI-compatible chunks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "description": "SSE stream of chat.completion.chunk objects, ending with data: [DONE]"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request — missing message or invalid model",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          },
+          "503": {
+            "description": "Provider not available",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "summary": "List available models",
+        "description": "Returns all available model aliases and which providers are currently enabled.",
+        "operationId": "listModels",
+        "tags": ["Management"],
+        "responses": {
+          "200": {
+            "description": "List of available models",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/functions": {
+      "get": {
+        "summary": "List available functions",
+        "description": "Returns all available function types (search, translate, code, etc.) with their parameters and examples.",
+        "operationId": "listFunctions",
+        "tags": ["Functions"],
+        "responses": {
+          "200": {
+            "description": "Available function specifications",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "endpoint": { "type": "string", "example": "POST /v1/chat/completions" },
+                    "functions": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "$ref": "#/components/schemas/FunctionSpec"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/stats": {
+      "get": {
+        "summary": "Get API statistics",
+        "description": "Returns request counts, error counts, per-provider timing stats, and uptime information.",
+        "operationId": "getStats",
+        "tags": ["Management"],
+        "responses": {
+          "200": {
+            "description": "API statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/conversations/new": {
+      "post": {
+        "summary": "Start new conversations",
+        "description": "Resets conversations across all providers. Equivalent to clicking 'New Chat' on each AI provider.",
+        "operationId": "newConversation",
+        "tags": ["Management"],
+        "responses": {
+          "200": {
+            "description": "Conversations reset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "message": { "type": "string", "example": "New conversations started" }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/status": {
+      "get": {
+        "summary": "Server status (legacy)",
+        "description": "Returns server health, version, enabled providers, and statistics.",
+        "operationId": "getStatusLegacy",
+        "tags": ["Legacy"],
+        "responses": {
+          "200": {
+            "description": "Server status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stats": {
+      "get": {
+        "summary": "API statistics (legacy)",
+        "description": "Same as /v1/stats. Returns request counts and provider timings.",
+        "operationId": "getStatsLegacy",
+        "tags": ["Legacy"],
+        "responses": {
+          "200": {
+            "description": "API statistics",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/StatsResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ask/{provider}": {
+      "post": {
+        "summary": "Ask a specific provider (legacy)",
+        "description": "Send a message to a specific provider. Use 'all' to query all providers simultaneously.",
+        "operationId": "askProviderLegacy",
+        "tags": ["Legacy"],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "description": "Provider name or 'all'",
+            "schema": {
+              "type": "string",
+              "enum": ["claude", "chatgpt", "gemini", "perplexity", "auto", "all"]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["message"],
+                "properties": {
+                  "message": { "type": "string", "description": "The message to send" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Provider response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "provider": { "type": "string" },
+                    "response": { "type": "string" },
+                    "responseTimeMs": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Missing message", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "503": { "description": "Provider not available", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "summary": "API Documentation (HTML)",
+        "description": "Interactive HTML documentation page with live chat widget and API reference.",
+        "operationId": "getDocs",
+        "tags": ["Management"],
+        "responses": {
+          "200": {
+            "description": "HTML documentation page",
+            "content": {
+              "text/html": {
+                "schema": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cli": {
+      "get": {
+        "summary": "CLI Documentation (HTML)",
+        "description": "HTML page documenting all Proxima CLI commands and usage.",
+        "operationId": "getCLIDocs",
+        "tags": ["Management"],
+        "responses": {
+          "200": {
+            "description": "CLI documentation page",
+            "content": {
+              "text/html": {
+                "schema": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ws": {
+      "get": {
+        "summary": "WebSocket Documentation (HTML)",
+        "description": "HTML page documenting WebSocket real-time chat protocol.",
+        "operationId": "getWSDocs",
+        "tags": ["WebSocket"],
+        "responses": {
+          "200": {
+            "description": "WebSocket documentation page",
+            "content": {
+              "text/html": {
+                "schema": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ChatRequest": {
+        "type": "object",
+        "description": "Chat completion request. Supports multiple input formats.",
+        "properties": {
+          "model": {
+            "description": "Model/provider to use. Can be a string, array of strings, or special values 'auto'/'all'.",
+            "oneOf": [
+              { "type": "string", "example": "claude" },
+              { "type": "array", "items": { "type": "string" }, "example": ["claude", "chatgpt"] }
+            ]
+          },
+          "message": {
+            "type": "string",
+            "description": "Simple message format (alternative to messages array)",
+            "example": "What is AI?"
+          },
+          "messages": {
+            "type": "array",
+            "description": "OpenAI-compatible messages array",
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            }
+          },
+          "function": {
+            "type": "string",
+            "description": "Function routing — changes behavior of the same endpoint",
+            "enum": ["search", "translate", "brainstorm", "code", "analyze", "security_audit", "debate"]
+          },
+          "action": {
+            "type": "string",
+            "description": "Sub-action for code function",
+            "enum": ["generate", "review", "debug", "explain"]
+          },
+          "to": {
+            "type": "string",
+            "description": "Target language for translate function",
+            "example": "Hindi"
+          },
+          "from": {
+            "type": "string",
+            "description": "Source language for translate (auto-detected if omitted)"
+          },
+          "language": {
+            "type": "string",
+            "description": "Programming language for code function",
+            "example": "Python"
+          },
+          "code": {
+            "type": "string",
+            "description": "Code snippet for code review/debug or security_audit"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message for code debug function"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL for analyze function",
+            "format": "uri"
+          },
+          "question": {
+            "type": "string",
+            "description": "Specific question for analyze function"
+          },
+          "sides": {
+            "type": "integer",
+            "description": "Number of perspectives for debate function",
+            "default": 2
+          },
+          "file": {
+            "type": "string",
+            "description": "Absolute path to a file to attach as context"
+          },
+          "stream": {
+            "type": "boolean",
+            "description": "Enable SSE streaming. Response comes as Server-Sent Events in OpenAI chat.completion.chunk format.",
+            "default": false
+          }
+        }
+      },
+      "Message": {
+        "type": "object",
+        "required": ["role", "content"],
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": ["system", "user", "assistant"],
+            "description": "Message role"
+          },
+          "content": {
+            "type": "string",
+            "description": "Message content"
+          }
+        }
+      },
+      "ChatResponse": {
+        "type": "object",
+        "description": "OpenAI-compatible chat completion response",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "chatcmpl-1713700000000"
+          },
+          "object": {
+            "type": "string",
+            "example": "chat.completion"
+          },
+          "created": {
+            "type": "integer",
+            "description": "Unix timestamp"
+          },
+          "model": {
+            "type": "string",
+            "description": "Provider that generated the response",
+            "example": "claude"
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Choice"
+            }
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage"
+          },
+          "proxima": {
+            "type": "object",
+            "description": "Proxima-specific metadata",
+            "properties": {
+              "provider": { "type": "string" },
+              "responseTimeMs": { "type": "integer" },
+              "providers": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Providers used (multi-provider mode)"
+              },
+              "timings": {
+                "type": "object",
+                "description": "Per-provider timing (multi-provider mode)",
+                "additionalProperties": { "type": "integer" }
+              }
+            }
+          }
+        }
+      },
+      "Choice": {
+        "type": "object",
+        "properties": {
+          "index": { "type": "integer" },
+          "message": { "$ref": "#/components/schemas/Message" },
+          "finish_reason": { "type": "string", "example": "stop" },
+          "model": { "type": "string", "description": "Provider (in multi-provider mode)" },
+          "responseTimeMs": { "type": "integer", "description": "Time taken (in multi-provider mode)" }
+        }
+      },
+      "Usage": {
+        "type": "object",
+        "properties": {
+          "prompt_tokens": { "type": "integer", "example": 0 },
+          "completion_tokens": { "type": "integer", "example": 0 },
+          "total_tokens": { "type": "integer", "example": 0 }
+        }
+      },
+      "ModelsResponse": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "array",
+            "items": { "type": "string" },
+            "example": ["claude", "chatgpt", "gemini", "perplexity"]
+          },
+          "aliases": {
+            "type": "object",
+            "description": "All model aliases mapping to provider names",
+            "additionalProperties": { "type": "string" }
+          },
+          "special": {
+            "type": "array",
+            "items": { "type": "string" },
+            "example": ["auto", "all"],
+            "description": "Special model keywords"
+          }
+        }
+      },
+      "FunctionSpec": {
+        "type": "object",
+        "properties": {
+          "description": { "type": "string" },
+          "body": { "type": "object" },
+          "optional": { "type": "object" },
+          "example": { "type": "object" },
+          "examples": {
+            "type": "array",
+            "items": { "type": "object" }
+          }
+        }
+      },
+      "StatsResponse": {
+        "type": "object",
+        "properties": {
+          "uptime": { "type": "string", "example": "3600s" },
+          "totalRequests": { "type": "integer", "example": 42 },
+          "totalErrors": { "type": "integer", "example": 2 },
+          "providers": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ProviderStats"
+            }
+          },
+          "timestamp": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ProviderStats": {
+        "type": "object",
+        "properties": {
+          "calls": { "type": "integer" },
+          "errors": { "type": "integer" },
+          "avgTime": { "type": "string", "example": "6.2s" },
+          "minTime": { "type": "string", "example": "4.1s" },
+          "maxTime": { "type": "string", "example": "12.5s" },
+          "last5": {
+            "type": "array",
+            "items": { "type": "string" },
+            "example": ["5.2s", "6.8s", "4.1s"]
+          },
+          "lastCall": { "type": "string", "format": "date-time" }
+        }
+      },
+      "StatusResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "server": { "type": "string", "example": "Proxima API" },
+          "version": { "type": "string", "example": "5.0.0" },
+          "port": { "type": "integer", "example": 3210 },
+          "enabledProviders": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "providers": { "type": "object" },
+          "stats": { "$ref": "#/components/schemas/StatsResponse" }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "message": { "type": "string", "example": "message required" },
+              "type": { "type": "string", "example": "api_error" },
+              "code": { "type": "integer", "example": 400 }
+            }
+          },
+          "timestamp": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  }
+}

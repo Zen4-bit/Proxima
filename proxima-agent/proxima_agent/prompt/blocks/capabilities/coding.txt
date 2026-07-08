@@ -1,0 +1,13 @@
+CODING
+Purpose: Find, view, modify, and validate repository code.
+When to use: Reading/writing source code, finding symbol definitions/references, searching in directories, or running tests.
+When not to use: Working with remote files or non-code visual environments.
+Import: from proxima_agent.tools.coding import lint, syntax_check
+API:
+  read_file(path)               → str (contents with line numbers)
+  read_file_raw(path)           → str (exact raw content)
+  write_file(path, content)     → None
+  grep(pattern, dir)            → str (search results)
+  find_files(glob, dir)         → list[str]
+  lint(path)                    → str (lint check feedback)
+  syntax_check(path)            → bool (is code syntax valid?)

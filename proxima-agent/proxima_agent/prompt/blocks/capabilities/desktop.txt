@@ -1,0 +1,14 @@
+DESKTOP
+Purpose: Interact with desktop applications.
+When to use: Automating native desktop software, GUI interactions on local system.
+When not to use: Server-only scripting, browser-only workflows.
+Import: from proxima_agent.tools.desktop import Desktop
+API:
+  d = Desktop()                 → Desktop instance
+  d.connect('App Name')         → None (call FIRST)
+  d.windows()                   → list[str]
+  d.elements()                  → str
+  d.write_text('field', val)    → dict
+  d.click('Button')             → None
+  d.click_menu('Menu -> Path')  → None
+  d.screenshot()                → str (file path)

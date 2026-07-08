@@ -1,0 +1,12 @@
+REPO
+Purpose: High-level repository structure and analysis.
+When to use: Complex code search across a repository, refactoring, finding references, status mapping.
+When not to use: Reading/writing simple text files or quick-checks.
+Import: from proxima_agent.tools.coding.repo_intel import get_repo_index
+API:
+  idx = get_repo_index(dir)     → RepoIndex instance
+  idx.find_definition(symbol)   → list[dict]
+  idx.find_references(symbol)   → list[dict]
+  idx.find_callers(symbol)      → list[dict]
+  idx.compress_context(files)   → str
+  idx.repo_status()             → dict

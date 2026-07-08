@@ -1,10 +1,4 @@
 // Proxima SDK - JavaScript/Node.js client
-//
-// Usage:
-//   const { Proxima } = require('./proxima');
-//   const client = new Proxima();
-//   const res = await client.chat("Hello", { model: "claude" });
-//   console.log(res.text);
 
 class ProximaResponse {
     constructor(data) {
@@ -27,16 +21,11 @@ class ProximaResponse {
 }
 
 class Proxima {
-    /**
- * @param {Object} options
- * @param {string} [options.baseUrl='http://localhost:3210']
- * @param {string} [options.apiKey]
- * @param {string} [options.model='auto'] - Default model
- * @param {number} [options.timeout=120000] - Request timeout in ms
- * @param {number} [options.maxRetries=3] - Max retry attempts on connection failure
- */
+
     constructor({ baseUrl = null, apiKey = null, model = 'auto', timeout = 120000, maxRetries = 3 } = {}) {
-        const port = typeof process !== 'undefined' && process.env && process.env.PROXIMA_PORT ? process.env.PROXIMA_PORT : '3210';
+
+        const _env = (typeof process !== 'undefined' && process.env) ? process.env : {};
+        const port = _env.PROXIMA_REST_PORT || _env.PROXIMA_PORT || '3210';
         this.baseUrl = (baseUrl || `http://localhost:${port}`).replace(/\/$/, '');
         this.defaultModel = model;
         this.timeout = timeout;
@@ -45,40 +34,7 @@ class Proxima {
         if (apiKey) this.headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
-    /**
-     * ONE function for everything.
-     *
-     * @param {string} message - Your message/prompt
-     * @param {Object} [options] - Options
-     * @param {string} [options.model] - "chatgpt", "claude", "gemini", "perplexity", "auto"
-     * @param {string} [options.function] - "search", "translate", "brainstorm", "code", "analyze"
-     *
-     * Extra options based on function:
-     *   function: "translate" → { to: "Hindi", from: "English" }
-     *   function: "code"      → { action: "generate|review|debug|explain", language: "Python", code: "..." }
-     *   function: "analyze"   → { url: "https://...", question: "...", focus: "..." }
-     *
-     * @returns {ProximaResponse} with .text, .model, .responseTimeMs
-     *
-     * @example
-     * // Chat
-     * await client.chat("Hello", { model: "claude" });
-     *
-     * // Search
-     * await client.chat("AI news", { model: "perplexity", function: "search" });
-     *
-     * // Translate
-     * await client.chat("Hello", { model: "gemini", function: "translate", to: "Hindi" });
-     *
-     * // Code generate
-     * await client.chat("Sort algo", { model: "claude", function: "code", action: "generate", language: "Python" });
-     *
-     * // Brainstorm
-     * await client.chat("Startup ideas", { function: "brainstorm" });
-     *
-     * // Analyze URL
-     * await client.chat("", { function: "analyze", url: "https://example.com" });
-     */
+
     async chat(message = '', options = {}) {
         const { model, ...rest } = options;
         const body = {
@@ -90,30 +46,28 @@ class Proxima {
         return this._post('/v1/chat/completions', body);
     }
 
-    // System
 
-    /** List all available models */
     async getModels() {
         const data = await this._get('/v1/models');
         return data.data || [];
     }
 
-    /** Get function catalog */
+
     async getFunctions() {
         return this._get('/v1/functions');
     }
 
-    /** Get response time statistics */
+
     async getStats() {
         return this._get('/v1/stats');
     }
 
-    /** Start fresh conversations */
-    async newConversation() {
-        return this._postRaw('/v1/conversations/new', {});
+
+    async newConversation(provider) {
+        return this._postRaw('/v1/conversations/new', { provider });
     }
 
-    // Internals
+
 
     async _fetchWithRetry(url, options, timeoutMs) {
         let lastError = null;
@@ -123,22 +77,24 @@ class Proxima {
                 const controller = new AbortController();
                 const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-                const res = await fetch(url, { ...options, signal: controller.signal });
-                clearTimeout(timer);
-                return res;
+                try {
+                    return await fetch(url, { ...options, signal: controller.signal });
+                } finally {
+                    clearTimeout(timer);
+                }
             } catch (err) {
                 if (err.name === 'AbortError') {
                     lastError = new Error(`Request to ${url} timed out after ${timeoutMs}ms`);
-                } else if (err.code === 'ECONNREFUSED' || err.message.includes('fetch failed')) {
+                } else if (err.code === 'ECONNREFUSED' || err.cause?.code === 'ECONNREFUSED' || err.message.includes('fetch failed')) {
                     lastError = new Error(
                         `Cannot connect to Proxima at ${this.baseUrl}. ` +
                         `Is the Proxima app running? (attempt ${attempt + 1}/${this.maxRetries})`
                     );
                 } else {
-                    throw err; // Don't retry unknown errors
+                    throw err;
                 }
 
-                // Wait before retry (exponential backoff: 1s, 2s)
+
                 if (attempt < this.maxRetries - 1) {
                     await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
                 }
@@ -180,7 +136,6 @@ class Proxima {
     }
 }
 
-// Export for Node.js
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { Proxima, ProximaResponse };
 }

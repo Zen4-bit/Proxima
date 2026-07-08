@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="cubeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00d4ff"/>
+      <stop offset="100%" style="stop-color:#a855f7"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#00d4ff" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+  
+  <!-- Main Cube Body -->
+  <rect x="28" y="28" width="200" height="200" rx="40" ry="40" fill="url(#cubeGrad)" filter="url(#shadow)"/>
+  
+  <!-- Left Eye -->
+  <ellipse cx="95" cy="128" rx="24" ry="30" fill="white"/>
+  <circle cx="100" cy="128" r="12" fill="#1a1a2e"/>
+  <circle cx="104" cy="124" r="4" fill="white"/>
+  
+  <!-- Right Eye -->
+  <ellipse cx="161" cy="128" rx="24" ry="30" fill="white"/>
+  <circle cx="166" cy="128" r="12" fill="#1a1a2e"/>
+  <circle cx="170" cy="124" r="4" fill="white"/>
+</svg>

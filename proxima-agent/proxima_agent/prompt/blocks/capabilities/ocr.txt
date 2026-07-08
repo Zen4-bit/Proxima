@@ -1,0 +1,11 @@
+OCR / SCREEN
+Purpose: Capture the screen (so the model can SEE it) and read on-screen text via OCR.
+When to use: Visual layout understanding, or locating/reading text on screen when there is no DOM/source to read.
+When not to use: Reading raw HTML/source code — use browser.read_content() or read_file().
+Import: from proxima_agent.tools.utils import screenshot
+Import: from proxima_agent.tools.ocr import read_screen, find_text_on_screen, click_text
+API:
+  screenshot()                  → str (full-screen capture; auto-attaches to your next turn so the model sees it)
+  read_screen()                 → dict (all on-screen text + word blocks)
+  find_text_on_screen('text')   → list (matches with center_x/center_y)
+  click_text('text')            → clicks the located on-screen text (OCR-based)

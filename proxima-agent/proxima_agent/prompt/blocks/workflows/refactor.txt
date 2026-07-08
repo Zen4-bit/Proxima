@@ -1,0 +1,7 @@
+REFACTOR WORKFLOW:
+1. Understand the full scope — read all affected files and callers.
+2. Plan the refactor — identify what changes and what stays.
+3. Edit incrementally — one logical change at a time.
+4. Lint and syntax check after each edit.
+5. Run tests to confirm nothing broke.
+6. Verify the refactor achieves the stated goal.

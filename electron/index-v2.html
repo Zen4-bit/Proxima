@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- Proxima — Renderer UI -->
 <html lang="en">
 
 <head>
@@ -23,7 +24,6 @@
             flex-direction: column;
         }
 
-        /* Header */
         .header {
             display: flex;
             align-items: center;
@@ -43,18 +43,20 @@
         .logo {
             font-size: 1.5rem;
             font-weight: 800;
-            background: linear-gradient(135deg, #00d4ff, #7c3aed, #f472b6);
+            background: linear-gradient(135deg, #ffffff 0%, #a1a1aa 100%);
             -webkit-background-clip: text;
             background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
         .version {
-            background: linear-gradient(135deg, #7c3aed, #f472b6);
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.12);
             padding: 3px 10px;
             border-radius: 12px;
             font-size: 0.7rem;
             font-weight: 600;
+            color: #ffffff;
         }
 
         .header-right {
@@ -83,7 +85,6 @@
             transform: translateY(-1px);
         }
 
-        /* Tab Navigation */
         .tab-nav {
             display: flex;
             align-items: center;
@@ -169,6 +170,22 @@
             filter: drop-shadow(2px 2px 4px rgba(0, 0, 0, 0.5));
         }
 
+        .tab-icon.clear-cache {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            font-size: 1.4rem;
+            text-shadow:
+                1px 1px 2px rgba(0, 0, 0, 0.5),
+                -1px -1px 1px rgba(255, 255, 255, 0.2);
+            filter: drop-shadow(2px 2px 3px rgba(0, 0, 0, 0.4));
+        }
+
+        .tab-icon.clear-cache:hover {
+            transform: scale(1.1) rotate(-15deg);
+            filter: drop-shadow(2px 2px 4px rgba(0, 0, 0, 0.5));
+        }
+
         .tab-name {
             font-weight: 500;
             font-size: 0.9rem;
@@ -213,7 +230,6 @@
             flex: 1;
         }
 
-        /* Main Content Area */
         .main-content {
             flex: 1;
             display: flex;
@@ -222,24 +238,305 @@
             overflow: hidden;
         }
 
-        /* Browser Container - Where BrowserView will be displayed */
         #browser-container {
             flex: 1;
             background: #1a1a2e;
             position: relative;
         }
 
-        /* Settings Panel */
         .settings-panel {
             display: none;
             flex: 1;
-            padding: 30px 40px;
-            overflow-y: auto;
-            background: linear-gradient(180deg, rgba(15, 15, 35, 0.95) 0%, rgba(10, 10, 26, 0.98) 100%);
+            background: #09090f;
+            height: 100%;
+            overflow: hidden;
         }
 
         .settings-panel.active {
+            display: flex;
+        }
+
+        .settings-sidebar {
+            width: 250px;
+            background: #07070d;
+            border-right: 1px solid rgba(255, 255, 255, 0.03);
+            display: flex;
+            flex-direction: column;
+            padding: 18px 4px;
+            box-sizing: border-box;
+            height: 100%;
+        }
+
+        .settings-sidebar-item {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 9px 12px 9px 22px;
+            margin: 2px 8px;
+            border-radius: 6px;
+            color: #9ca3af;
+            font-size: 0.82rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            user-select: none;
+            border: 1px solid transparent;
+        }
+
+        .settings-sidebar-item:hover {
+            background: rgba(255, 255, 255, 0.025);
+            color: #fff;
+            padding-left: 24px;
+        }
+
+        .settings-sidebar-item.active {
+            background: rgba(255, 255, 255, 0.04);
+            border-color: rgba(255, 255, 255, 0.08);
+            color: #fff;
+            font-weight: 600;
+            padding-left: 24px;
+        }
+
+        .settings-sidebar-item::before {
+            content: '';
+            position: absolute;
+            left: 8px;
+            top: 50%;
+            transform: translateY(-50%) scaleY(0);
+            width: 3px;
+            height: 12px;
+            background: #ffffff;
+            border-radius: 2px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            opacity: 0;
+            box-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
+        }
+
+        .settings-sidebar-item.active::before {
+            transform: translateY(-50%) scaleY(1.3);
+            opacity: 1;
+        }
+
+        .sidebar-section-header {
+            font-size: 0.65rem;
+            font-weight: 700;
+            color: #4b4b60;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            padding: 14px 14px 4px 22px;
+            user-select: none;
+        }
+
+        .sidebar-divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.03);
+            margin: 8px 14px;
+        }
+
+        .settings-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 30px 40px;
+            box-sizing: border-box;
+        }
+
+        .settings-sub-panel {
+            display: none;
+            animation: fadeInSubTab 0.15s ease-out;
+        }
+
+        .settings-sub-panel.active {
             display: block;
+        }
+
+        @keyframes fadeInSubTab {
+            from {
+                opacity: 0;
+                transform: translateY(4px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Unified Tabs for REST API/WebSockets */
+        .settings-tabs-header {
+            display: flex;
+            gap: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            margin-bottom: 20px;
+        }
+
+        .settings-tab-btn {
+            padding: 8px 16px;
+            color: #888;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s ease;
+        }
+
+        .settings-tab-btn:hover {
+            color: #fff;
+        }
+
+        .settings-tab-btn.active {
+            color: #ffffff;
+            border-bottom-color: #ffffff;
+        }
+
+        /* Radio group for Authentication Toggle */
+        .auth-mode-group {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .auth-mode-option {
+            flex: 1;
+            padding: 16px 20px;
+            background: rgba(255, 255, 255, 0.01);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .auth-mode-option:hover {
+            background: rgba(255, 255, 255, 0.03);
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .auth-mode-option.active {
+            background: rgba(255, 255, 255, 0.03);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .auth-radio-circle {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.25);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            box-sizing: border-box;
+        }
+
+        .auth-mode-option.active .auth-radio-circle {
+            border-color: #ffffff;
+        }
+
+        .auth-radio-circle::after {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ffffff;
+            transform: scale(0);
+            transition: transform 0.2s ease;
+        }
+
+        .auth-mode-option.active .auth-radio-circle::after {
+            transform: scale(1);
+        }
+
+        .auth-option-text {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .auth-option-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .auth-option-desc {
+            font-size: 0.78rem;
+            color: #777;
+            margin-top: 2px;
+        }
+
+        /* Architecture Card styles */
+        .arch-card {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0.005) 100%);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .arch-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-top: 16px;
+        }
+
+        .arch-item {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 10px;
+            padding: 14px;
+            text-align: center;
+        }
+
+        .arch-label {
+            font-size: 0.7rem;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+
+        .arch-value {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: #fff;
+        }
+
+        /* Diagnostic List styles */
+        .diag-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 20px;
+            background: rgba(255, 255, 255, 0.01);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 10px;
+            margin-bottom: 10px;
+        }
+
+        .diag-item-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: #fff;
+        }
+
+        .diag-item-status {
+            font-size: 0.82rem;
+            font-weight: 500;
+        }
+
+        /* Warning Badge for sidebar */
+        .sidebar-warning-badge {
+            background: #ef4444;
+            color: #fff;
+            font-size: 0.65rem;
+            font-weight: 700;
+            padding: 1px 6px;
+            border-radius: 10px;
+            margin-left: auto;
+            display: none;
         }
 
         .settings-section {
@@ -288,7 +585,6 @@
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
         }
 
-        /* Provider Cards in Settings */
         .provider-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -386,7 +682,6 @@
             transform: translateX(22px);
         }
 
-        /* Feature Toggle Row */
         .feature-toggle-row {
             display: flex;
             align-items: center;
@@ -421,7 +716,6 @@
             line-height: 1.4;
         }
 
-        /* MCP Config */
         .config-box {
             background: linear-gradient(180deg, #0d0d1a 0%, #0a0a15 100%);
             border-radius: 14px;
@@ -467,7 +761,6 @@
             transform: translateY(0);
         }
 
-        /* Method Toggle Buttons */
         .method-btn {
             background: rgba(255, 255, 255, 0.08);
             border: 1px solid rgba(255, 255, 255, 0.15);
@@ -492,7 +785,6 @@
             box-shadow: 0 4px 15px rgba(0, 212, 255, 0.3);
         }
 
-        /* Welcome Panel */
         .welcome-panel {
             display: flex;
             flex-direction: column;
@@ -501,14 +793,14 @@
             height: 100%;
             text-align: center;
             padding: 60px 40px;
-            background: radial-gradient(ellipse at top, rgba(99, 102, 241, 0.08) 0%, transparent 50%);
+            background: radial-gradient(ellipse at top, rgba(255, 255, 255, 0.02) 0%, transparent 50%);
         }
 
         .welcome-title {
             font-size: 2.5rem;
             font-weight: 600;
             margin-bottom: 16px;
-            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            background: linear-gradient(135deg, #ffffff 0%, #a1a1aa 100%);
             -webkit-background-clip: text;
             background-clip: text;
             -webkit-text-fill-color: transparent;
@@ -533,7 +825,7 @@
         .welcome-divider {
             width: 80px;
             height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(167, 139, 250, 0.4), transparent);
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
             margin: 40px 0;
         }
 
@@ -568,20 +860,21 @@
 
         .welcome-step:hover {
             background: rgba(255, 255, 255, 0.04);
-            border-color: rgba(167, 139, 250, 0.2);
+            border-color: rgba(255, 255, 255, 0.12);
         }
 
         .welcome-step-num {
             min-width: 36px;
             height: 36px;
-            background: linear-gradient(135deg, rgba(96, 165, 250, 0.15), rgba(167, 139, 250, 0.15));
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 10px;
             display: flex;
             align-items: center;
             justify-content: center;
             font-weight: 600;
             font-size: 0.95rem;
-            color: #a78bfa;
+            color: #ffffff;
         }
 
         .welcome-step-content {
@@ -601,7 +894,6 @@
             line-height: 1.4;
         }
 
-        /* Toast */
         .toast {
             position: fixed;
             bottom: 20px;
@@ -628,7 +920,6 @@
             }
         }
 
-        /* Browser Controls */
         .browser-controls {
             display: none;
             align-items: center;
@@ -687,7 +978,6 @@
             color: #f59e0b;
         }
 
-        /* Cookie Login Modal */
         .cookie-modal-overlay {
             display: none;
             position: fixed;
@@ -879,7 +1169,6 @@
             color: #ef4444;
         }
 
-        /* Cookie Login Button in browser controls */
         .cookie-login-btn {
             background: linear-gradient(135deg, #f472b6, #a855f7) !important;
             border: none !important;
@@ -890,7 +1179,6 @@
             box-shadow: 0 4px 15px rgba(168, 85, 247, 0.4);
         }
 
-        /* Proxima Cute Mascot */
         .proxima-mascot {
             display: inline-flex;
             align-items: center;
@@ -967,11 +1255,42 @@
             -webkit-text-fill-color: transparent;
             letter-spacing: 0.5px;
         }
+
+        /* BYOK API Mode Toggle (scoped — does NOT override provider toggles) */
+        .byok-toggle {
+            width: 38px;
+            height: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.25s;
+        }
+
+        .byok-toggle::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #555;
+            transition: all 0.25s;
+        }
+
+        .byok-toggle.active {
+            background: linear-gradient(135deg, #f59e0b, #ef4444);
+        }
+
+        .byok-toggle.active::after {
+            left: 20px;
+            background: #fff;
+        }
     </style>
 </head>
 
 <body>
-    <!-- Header -->
     <div class="header">
         <div class="header-left">
             <div class="proxima-mascot">
@@ -988,7 +1307,6 @@
         </div>
     </div>
 
-    <!-- Tab Navigation -->
     <div class="tab-nav">
         <div class="tab" data-provider="perplexity" onclick="switchTab('perplexity')">
             <img src="../assets/perplexity.png" class="tab-icon-img" alt="Perplexity">
@@ -1011,13 +1329,17 @@
             <div class="tab-status offline" id="status-dot-gemini"></div>
         </div>
         <div class="tab-spacer"></div>
+        <div class="tab" id="header-clear-cache-btn" onclick="triggerClearCache()" title="Clear cache and session data for this provider"
+            style="display: none;">
+            <div class="tab-icon clear-cache">🧹</div>
+            <span class="tab-name">Clear Cache</span>
+        </div>
         <div class="tab" data-tab="settings" onclick="switchTab('settings')">
             <div class="tab-icon settings">⚙️</div>
             <span class="tab-name">Settings</span>
         </div>
     </div>
 
-    <!-- Browser Controls -->
     <div class="browser-controls" id="browser-controls">
         <button class="browser-ctrl-btn" onclick="goBack()" title="Back">◀</button>
         <button class="browser-ctrl-btn" onclick="goForward()" title="Forward">▶</button>
@@ -1027,17 +1349,14 @@
             style="background: linear-gradient(135deg, #4285f4, #34a853);">
             <span>🌐</span> Open in Chrome
         </button>
-        <button class="header-btn cookie-login-btn" onclick="openCookieModal()" title="Login with cookies (for Gemini)">
+        <button class="header-btn cookie-login-btn" onclick="openCookieModal()" title="Login with cookies">
             <span>🍪</span> Cookie Login
         </button>
         <div class="login-status not-logged-in" id="login-status">Not logged in</div>
     </div>
 
-    <!-- Main Content -->
     <div class="main-content">
-        <!-- Browser Container (BrowserView will be attached here) -->
         <div id="browser-container">
-            <!-- Welcome Panel (shown when no tab selected) -->
             <div class="welcome-panel" id="welcome-panel">
                 <h1 class="welcome-title">Proxima</h1>
                 <p class="welcome-subtitle">
@@ -1075,86 +1394,643 @@
             </div>
         </div>
 
-        <!-- Settings Panel -->
         <div class="settings-panel" id="settings-panel">
-            <!-- Provider Settings -->
-            <div class="settings-section">
-                <h2 class="settings-title"><span class="section-icon"
-                        style="background: linear-gradient(135deg, #a855f7, #6366f1);">AI</span> Providers</h2>
-                <div class="provider-grid">
-                    <div class="provider-card enabled" data-provider="perplexity">
-                        <div class="provider-card-icon" style="background: transparent;">
-                            <img src="../assets/perplexity.png"
-                                style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
-                        </div>
-                        <div class="provider-card-info">
-                            <div class="provider-card-name">Perplexity</div>
-                            <div class="provider-card-status not-ready" id="card-status-perplexity">Not logged in</div>
-                        </div>
-                        <div class="toggle-switch active" data-provider="perplexity" onclick="toggleProvider(this)">
-                        </div>
+            <div class="settings-sidebar">
+                <!-- Branding Header -->
+                <div style="padding: 10px 14px 10px 22px; display: flex; align-items: center; gap: 10px;">
+                    <img src="../assets/proxima-icon.png" alt="Proxima" style="width: 20px; height: 20px;">
+                    <span
+                        style="font-weight: 800; font-size: 0.95rem; color: #fff; letter-spacing: -0.2px;">PROXIMA</span>
+                </div>
+
+                <div class="sidebar-divider"></div>
+
+                <!-- SYSTEM SECTION -->
+                <div class="sidebar-section-header">System</div>
+                <div class="settings-sidebar-item active" data-subtab="general"
+                    onclick="switchSettingsSubTab('general')">
+                    General
+                </div>
+                <div class="settings-sidebar-item" data-subtab="providers" onclick="switchSettingsSubTab('providers')">
+                    Providers
+                </div>
+                <div class="settings-sidebar-item" data-subtab="auth" onclick="switchSettingsSubTab('auth')">
+                    Authentication
+                </div>
+                <div class="settings-sidebar-item" data-subtab="agent" onclick="switchSettingsSubTab('agent')">
+                    Proxima Agent
+                </div>
+
+                <div class="sidebar-divider"></div>
+
+                <!-- DEVELOPER SECTION -->
+                <div class="sidebar-section-header">Developer</div>
+                <div class="settings-sidebar-item" data-subtab="api" onclick="switchSettingsSubTab('api')">
+                    REST API & WS
+                </div>
+                <div class="settings-sidebar-item" data-subtab="mcp" onclick="switchSettingsSubTab('mcp')">
+                    MCP Config
+                </div>
+                <div class="settings-sidebar-item" data-subtab="cli" onclick="switchSettingsSubTab('cli')">
+                    CLI Tool
+                </div>
+
+                <div class="sidebar-divider"></div>
+
+                <!-- SUPPORT SECTION -->
+                <div class="sidebar-section-header">Support</div>
+                <div class="settings-sidebar-item" data-subtab="diagnostics"
+                    onclick="switchSettingsSubTab('diagnostics')">
+                    Diagnostics
+                    <div id="diag-warning-badge" class="sidebar-warning-badge">!</div>
+                </div>
+                <div class="settings-sidebar-item" data-subtab="about" onclick="switchSettingsSubTab('about')">
+                    About & Community
+                </div>
+
+                <!-- Spacer to push footer down -->
+                <div style="flex: 1;"></div>
+
+                <!-- Sidebar Footer Status Card -->
+                <div
+                    style="padding: 12px 14px; background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.03); border-radius: 8px; margin: 8px; font-size: 0.74rem; color: #666; display: flex; flex-direction: column; gap: 4px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="color: #888; font-weight: 600;">Providers</span>
+                        <span id="sidebar-status-pill"
+                            style="color: #22c55e; display: flex; align-items: center; gap: 4px; font-weight: 600;">
+                            <span id="sidebar-status-dot"
+                                style="width: 6px; height: 6px; border-radius: 50%; background: #22c55e; display: inline-block;"></span>
+                            <span id="sidebar-status-text">--</span>
+                        </span>
                     </div>
-                    <div class="provider-card enabled" data-provider="chatgpt">
-                        <div class="provider-card-icon" style="background: transparent;">
-                            <img src="../assets/chatgpt.png"
-                                style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
-                        </div>
-                        <div class="provider-card-info">
-                            <div class="provider-card-name">ChatGPT</div>
-                            <div class="provider-card-status not-ready" id="card-status-chatgpt">Not logged in</div>
-                        </div>
-                        <div class="toggle-switch active" data-provider="chatgpt" onclick="toggleProvider(this)"></div>
-                    </div>
-                    <div class="provider-card disabled" data-provider="claude">
-                        <div class="provider-card-icon" style="background: transparent;">
-                            <img src="../assets/claude.svg"
-                                style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
-                        </div>
-                        <div class="provider-card-info">
-                            <div class="provider-card-name">Claude</div>
-                            <div class="provider-card-status not-ready" id="card-status-claude">Disabled</div>
-                        </div>
-                        <div class="toggle-switch" data-provider="claude" onclick="toggleProvider(this)"></div>
-                    </div>
-                    <div class="provider-card enabled" data-provider="gemini">
-                        <div class="provider-card-icon" style="background: transparent;">
-                            <img src="../assets/gemini.png"
-                                style="width: 100%; height: 100%; object-fit: contain; border-radius: 8px;">
-                        </div>
-                        <div class="provider-card-info">
-                            <div class="provider-card-name">Gemini</div>
-                            <div class="provider-card-status not-ready" id="card-status-gemini">Not logged in</div>
-                        </div>
-                        <div class="toggle-switch active" data-provider="gemini" onclick="toggleProvider(this)"></div>
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; color: #555; font-size: 0.7rem; margin-top: 2px;">
+                        <span>Mode: <span id="sidebar-mode-badge"
+                                style="color: #aaa; font-weight: 500;">BYOK</span></span>
+                        <span
+                            style="color: #10b981; font-weight: 600; display: flex; align-items: center; gap: 3px;"><span
+                                style="width: 4px; height: 4px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
+                            Python Ready</span>
                     </div>
                 </div>
             </div>
 
-            <!-- MCP Configuration -->
-            <div class="settings-section">
-                <h2 class="settings-title"><span class="section-icon"
-                        style="background: linear-gradient(135deg, #6b7280, #4b5563);">MCP</span> MCP Configuration</h2>
-                <p style="color: #b3b3b3; margin-bottom: 16px; font-size: 0.95rem; line-height: 1.5;">
-                    Add Proxima MCP server to your AI coding assistant. Choose your preferred method:
-                </p>
+            <div class="settings-content">
+                <!-- General / Dashboard Sub-panel -->
+                <div class="settings-sub-panel active" id="subpanel-general">
+                    <div class="arch-card">
+                        <h3
+                            style="margin: 0 0 12px 0; color: #fff; font-size: 1.05rem; display: flex; align-items: center; gap: 8px;">
+                            <span class="section-icon"
+                                style="background: linear-gradient(135deg, #10b981, #059669); padding: 4px 8px; font-size: 0.65rem;">SYS</span>
+                            Current System State
+                        </h3>
+                        <p style="color: #777; font-size: 0.8rem; margin: 0 0 16px 0;">An architectural snapshot of
+                            Proxima's active local integrations.</p>
+                        <div class="arch-grid">
+                            <div class="arch-item">
+                                <div class="arch-label">Auth Mode</div>
+                                <div class="arch-value" id="dash-auth-mode">Session</div>
+                            </div>
+                            <div class="arch-item">
+                                <div class="arch-label">REST API</div>
+                                <div class="arch-value" id="dash-api-status">Disabled</div>
+                            </div>
+                            <div class="arch-item">
+                                <div class="arch-label">CLI Tool</div>
+                                <div class="arch-value" id="dash-cli-status">Checking...</div>
+                            </div>
+                            <div class="arch-item">
+                                <div class="arch-label">Active Providers</div>
+                                <div class="arch-value" id="dash-active-count">0 / 4</div>
+                            </div>
+                        </div>
+                    </div>
 
-                <!-- Method Toggle -->
-                <div style="display: flex; gap: 10px; margin-bottom: 16px;">
-                    <button class="method-btn active" id="method-manual" onclick="switchConfigMethod('manual')">Manual
-                        Config</button>
-                    <button class="method-btn" id="method-ai" onclick="switchConfigMethod('ai')">AI Prompt</button>
+                    <div class="settings-section"
+                        style="border: none; background: transparent; padding: 0; box-shadow: none;">
+                        <h2 class="settings-title" style="font-size: 1.1rem; margin-bottom: 12px;"><span
+                                class="section-icon"
+                                style="background: linear-gradient(135deg, #10b981, #059669); padding: 4px 8px; font-size: 0.65rem;">INFO</span>
+                            Architecture Overview</h2>
+                        <p style="color: #888; font-size: 0.85rem; line-height: 1.5; margin: 0 0 16px 0;">
+                            Proxima binds locally to <code>127.0.0.1</code> to keep your credentials and code context
+                            100% private.
+                        </p>
+                        <div
+                            style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.04); border-radius: 10px; padding: 16px 20px; font-family: monospace; font-size: 0.78rem; color: #888; line-height: 1.6;">
+                            <div style="color: #fff; font-weight: bold; margin-bottom: 6px;">[Electron Main Process]
+                                (Core Router)</div>
+                            &nbsp;&nbsp;├── TCP IPC Port 19222 (MCP Bridge) &lt;──&gt; Coding Assistants (Cursor, VS
+                            Code, Windsurf)<br>
+                            &nbsp;&nbsp;├── HTTP Port 3210 (OpenAI REST API) &lt;──&gt; Custom scripts / CLI / SDKs<br>
+                            &nbsp;&nbsp;└── WebSockets (ws://localhost:3210/ws) &lt;──&gt; Real-time streaming clients
+                        </div>
+                    </div>
+
+                    <!-- Security & Storage Reference -->
+                    <div style="margin-top: 32px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 20px;">
+                        <h3 style="margin: 0 0 14px 0; font-size: 0.85rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 6px;">
+                            <span>🔒</span> Security & Key Storage Architecture
+                        </h3>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                            <!-- Session Mode Security Info -->
+                            <div style="background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.03); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+                                <div style="font-size: 0.78rem; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 5px;">
+                                    <span style="display: inline-block; width: 4px; height: 4px; border-radius: 50%; background: #22c55e;"></span>
+                                    Session Mode Security
+                                </div>
+                                <p style="font-size: 0.74rem; color: #777; line-height: 1.45; margin: 0;">
+                                    Operates via local Chromium instances. Session cookies and login tokens are stored locally on your machine.
+                                </p>
+                                <p style="font-size: 0.74rem; color: #777; line-height: 1.45; margin: 0;">
+                                    Credentials and tokens never leave your system. Direct encrypted connections are made to official AI provider domains.
+                                </p>
+                            </div>
+
+                            <!-- BYOK Key Security Info -->
+                            <div style="background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.03); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+                                <div style="font-size: 0.78rem; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 5px;">
+                                    <span style="display: inline-block; width: 4px; height: 4px; border-radius: 50%; background: #3b82f6;"></span>
+                                    API Key Encryption
+                                </div>
+                                <p style="font-size: 0.74rem; color: #777; line-height: 1.45; margin: 0;">
+                                    All Bring Your Own Key (BYOK) secrets are encrypted on-disk using hardware-bound encryption (DPAPI) via the <code>safeStorage</code> API.
+                                </p>
+                                <p style="font-size: 0.74rem; color: #777; line-height: 1.45; margin: 0;">
+                                    Once loaded, requests bypass browser views and communicate directly with raw endpoints, guaranteeing zero telemetry and privacy.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
-                <!-- Manual Config -->
-                <div id="config-manual" class="config-box">
-                    <button class="copy-btn" onclick="copyConfig()">Copy Config</button>
-                    <pre id="mcp-config">Loading...</pre>
+                <!-- Providers Sub-panel -->
+                <div class="settings-sub-panel" id="subpanel-providers">
+                    <div class="settings-section"
+                        style="border: none; background: transparent; padding: 0; box-shadow: none;">
+                        <h2 class="settings-title" style="font-size: 1.25rem; margin-bottom: 12px;"><span
+                                class="section-icon"
+                                style="background: linear-gradient(135deg, #a855f7, #6366f1); padding: 4px 8px; font-size: 0.65rem;">AI</span>
+                            AI Providers</h2>
+                        <p style="color: #888; margin-bottom: 24px; font-size: 0.85rem; line-height: 1.5;">
+                            Enable or disable the background AI browser views. Toggled providers are dynamically mounted
+                            or disposed.
+                        </p>
+                        <div class="provider-grid">
+                            <!-- Perplexity -->
+                            <div class="provider-card enabled" data-provider="perplexity"
+                                style="flex-direction: column; align-items: stretch; gap: 14px; padding: 18px; border: 1px solid rgba(255,255,255,0.05); background: rgba(255,255,255,0.01); box-shadow: none;">
+                                <div style="display: flex; align-items: center; justify-content: space-between;">
+                                    <div style="display: flex; align-items: center; gap: 12px;">
+                                        <img src="../assets/perplexity.png"
+                                            style="width: 28px; height: 28px; object-fit: contain;">
+                                        <span
+                                            style="font-weight: 700; font-size: 0.95rem; color: #fff;">Perplexity</span>
+                                    </div>
+                                    <div class="toggle-switch active" data-provider="perplexity"
+                                        onclick="toggleProvider(this)"></div>
+                                </div>
+                                <div
+                                    style="border-top: 1px solid rgba(255,255,255,0.04); padding-top: 12px; display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 6px; font-size: 0.72rem; color: #666;">
+                                    <div>Status: <span id="card-status-perplexity"
+                                            style="font-weight: 600; color: #f59e0b;">Checking...</span></div>
+                                    <div>Latency: <span id="card-latency-perplexity" style="color: #888;">--ms</span>
+                                    </div>
+                                    <div>Model: <span style="color: #888;">Auto</span></div>
+                                    <div>Account: <span style="color: #888;">Session</span></div>
+                                </div>
+                            </div>
+
+                            <!-- ChatGPT -->
+                            <div class="provider-card enabled" data-provider="chatgpt"
+                                style="flex-direction: column; align-items: stretch; gap: 14px; padding: 18px; border: 1px solid rgba(255,255,255,0.05); background: rgba(255,255,255,0.01); box-shadow: none;">
+                                <div style="display: flex; align-items: center; justify-content: space-between;">
+                                    <div style="display: flex; align-items: center; gap: 12px;">
+                                        <img src="../assets/chatgpt.png"
+                                            style="width: 28px; height: 28px; object-fit: contain;">
+                                        <span style="font-weight: 700; font-size: 0.95rem; color: #fff;">ChatGPT</span>
+                                    </div>
+                                    <div class="toggle-switch active" data-provider="chatgpt"
+                                        onclick="toggleProvider(this)"></div>
+                                </div>
+                                <div
+                                    style="border-top: 1px solid rgba(255,255,255,0.04); padding-top: 12px; display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 6px; font-size: 0.72rem; color: #666;">
+                                    <div>Status: <span id="card-status-chatgpt"
+                                            style="font-weight: 600; color: #f59e0b;">Checking...</span></div>
+                                    <div>Latency: <span id="card-latency-chatgpt" style="color: #888;">--ms</span></div>
+                                    <div>Model: <span style="color: #888;">Auto</span></div>
+                                    <div>Account: <span style="color: #888;">Session</span></div>
+                                </div>
+                            </div>
+
+                            <!-- Claude -->
+                            <div class="provider-card enabled" data-provider="claude"
+                                style="flex-direction: column; align-items: stretch; gap: 14px; padding: 18px; border: 1px solid rgba(255,255,255,0.05); background: rgba(255,255,255,0.01); box-shadow: none;">
+                                <div style="display: flex; align-items: center; justify-content: space-between;">
+                                    <div style="display: flex; align-items: center; gap: 12px;">
+                                        <img src="../assets/claude.svg"
+                                            style="width: 28px; height: 28px; object-fit: contain;">
+                                        <span style="font-weight: 700; font-size: 0.95rem; color: #fff;">Claude</span>
+                                    </div>
+                                    <div class="toggle-switch active" data-provider="claude"
+                                        onclick="toggleProvider(this)"></div>
+                                </div>
+                                <div
+                                    style="border-top: 1px solid rgba(255,255,255,0.04); padding-top: 12px; display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 6px; font-size: 0.72rem; color: #666;">
+                                    <div>Status: <span id="card-status-claude"
+                                            style="font-weight: 600; color: #f59e0b;">Checking...</span></div>
+                                    <div>Latency: <span id="card-latency-claude" style="color: #888;">--ms</span></div>
+                                    <div>Model: <span style="color: #888;">Auto</span></div>
+                                    <div>Account: <span style="color: #888;">Session</span></div>
+                                </div>
+                            </div>
+
+                            <!-- Gemini -->
+                            <div class="provider-card enabled" data-provider="gemini"
+                                style="flex-direction: column; align-items: stretch; gap: 14px; padding: 18px; border: 1px solid rgba(255,255,255,0.05); background: rgba(255,255,255,0.01); box-shadow: none;">
+                                <div style="display: flex; align-items: center; justify-content: space-between;">
+                                    <div style="display: flex; align-items: center; gap: 12px;">
+                                        <img src="../assets/gemini.png"
+                                            style="width: 28px; height: 28px; object-fit: contain;">
+                                        <span style="font-weight: 700; font-size: 0.95rem; color: #fff;">Gemini</span>
+                                    </div>
+                                    <div class="toggle-switch active" data-provider="gemini"
+                                        onclick="toggleProvider(this)"></div>
+                                </div>
+                                <div
+                                    style="border-top: 1px solid rgba(255,255,255,0.04); padding-top: 12px; display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 6px; font-size: 0.72rem; color: #666;">
+                                    <div>Status: <span id="card-status-gemini"
+                                            style="font-weight: 600; color: #f59e0b;">Checking...</span></div>
+                                    <div>Latency: <span id="card-latency-gemini" style="color: #888;">--ms</span></div>
+                                    <div>Model: <span style="color: #888;">Auto</span></div>
+                                    <div>Account: <span style="color: #888;">Session</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
-                <!-- AI Prompt -->
-                <div id="config-ai" class="config-box" style="display: none;">
-                    <button class="copy-btn" onclick="copyAIPrompt()">Copy Prompt</button>
-                    <pre id="ai-prompt" style="white-space: pre-wrap; word-wrap: break-word;">Add the Proxima MCP server to this application’s MCP configuration.
+                <!-- Authentication (BYOK) Sub-panel -->
+                <div class="settings-sub-panel" id="subpanel-auth">
+                    <div class="settings-section" id="byok-section"
+                        style="overflow: visible; position: relative; border: none; background: transparent; padding: 0; box-shadow: none;">
+                        <h2 class="settings-title" style="font-size: 1.25rem; margin-bottom: 12px;"><span
+                                class="section-icon"
+                                style="background: linear-gradient(135deg, #f59e0b, #ef4444); padding: 4px 8px; font-size: 0.65rem;">AUTH</span>
+                            Authentication Mode</h2>
+                        <p style="color: #888; margin-bottom: 20px; font-size: 0.85rem; line-height: 1.5;">
+                            Choose whether Proxima routes calls via active browser sessions (free) or through your
+                            direct API keys (BYOK).
+                        </p>
+
+                        <div class="auth-mode-group">
+                            <div class="auth-mode-option active" id="auth-mode-session"
+                                onclick="setAuthMode('session')">
+                                <div class="auth-radio-circle"></div>
+                                <div class="auth-option-text">
+                                    <span class="auth-option-title">Session Mode</span>
+                                    <span class="auth-option-desc">Connects via browser sessions (no API keys
+                                        required)</span>
+                                </div>
+                            </div>
+                            <div class="auth-mode-option" id="auth-mode-byok" onclick="setAuthMode('byok')">
+                                <div class="auth-radio-circle"></div>
+                                <div class="auth-option-text">
+                                    <span class="auth-option-title">BYOK Mode</span>
+                                    <span class="auth-option-desc">Bring Your Own Key (stable API billing)</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Back-compatibility elements to support existing script logic -->
+                        <div id="byok-mode-toggle" class="byok-toggle" style="display: none;"
+                            onclick="byokToggleEnabled()"></div>
+                        <p id="byok-mode-desc" style="display: none;"></p>
+                        <span id="byok-mode-label" style="display: none;"></span>
+
+                        <div id="byok-panel-body"
+                            style="transition: opacity 0.3s; opacity: 1; border-top: 1px solid rgba(255,255,255,0.04); padding-top: 20px;">
+                            <div style="margin-bottom: 16px;">
+                                <label
+                                    style="color: #777; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 6px;">Select
+                                    Provider to Configure</label>
+                                <div id="byok-combo" style="position: relative; z-index: 100;">
+                                    <input type="text" id="byok-combo-input"
+                                        placeholder="Search or select a provider..." autocomplete="off"
+                                        spellcheck="false"
+                                        style="width: 100%; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 10px 36px 10px 14px; color: #fff; font-size: 0.85rem; box-sizing: border-box; transition: border-color 0.2s;"
+                                        onfocus="byokOpenDropdown()" onclick="byokOpenDropdown()"
+                                        oninput="byokFilterDropdown()">
+                                    <span
+                                        style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: #555; font-size: 0.7rem; pointer-events: none;">▼</span>
+                                    <div id="byok-combo-list"
+                                        style="display: none; position: absolute; top: 100%; left: 0; right: 0; margin-top: 6px; background: #0d0d15; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; max-height: 220px; overflow-y: auto; z-index: 9999; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent; box-shadow: 0 10px 30px rgba(0,0,0,0.65); padding: 4px 0;">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div id="byok-form"
+                                style="display: none; padding: 16px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.05); border-radius: 10px; margin-bottom: 20px;">
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 14px;">
+                                    <span id="byok-form-name"
+                                        style="font-size: 0.95rem; font-weight: 600; color: #fff;"></span>
+                                    <span id="byok-form-badge"
+                                        style="font-size: 0.62rem; padding: 2px 8px; border-radius: 10px; background: rgba(245,158,11,0.15); color: #f59e0b; font-weight: 600; letter-spacing: 0.3px;">NEW</span>
+                                </div>
+                                <div style="margin-bottom: 12px;">
+                                    <label
+                                        style="color: #777; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 6px;">API
+                                        Key</label>
+                                    <div style="position: relative;">
+                                        <input type="password" id="byok-form-key" placeholder=""
+                                            style="width: 100%; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 10px 40px 10px 14px; color: #fff; font-size: 0.85rem; font-family: 'Consolas','Monaco',monospace; transition: border-color 0.2s; box-sizing: border-box;">
+                                        <button onclick="byokToggleKeyVis()" id="byok-eye-btn"
+                                            style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #555; cursor: pointer; font-size: 1rem; padding: 4px;"
+                                            title="Show/Hide">👁</button>
+                                    </div>
+                                </div>
+                                <div style="display: flex; gap: 8px; margin-bottom: 4px;">
+                                    <button onclick="byokSaveFromForm()" id="byok-form-save-btn"
+                                        style="background: linear-gradient(135deg, #22c55e, #16a34a); border: none; padding: 8px 20px; border-radius: 8px; color: #fff; font-size: 0.8rem; font-weight: 600; cursor: pointer;">Save
+                                        Key</button>
+                                    <button onclick="byokTestFromForm()"
+                                        style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); padding: 8px 16px; border-radius: 8px; color: #fff; font-size: 0.8rem; font-weight: 500; cursor: pointer;"
+                                        onmouseover="this.style.background='rgba(255,255,255,0.08)';"
+                                        onmouseout="this.style.background='rgba(255,255,255,0.04)';">Test
+                                        Connection</button>
+                                    <button onclick="byokCancelForm()"
+                                        style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); padding: 8px 16px; border-radius: 8px; color: #666; font-size: 0.8rem; cursor: pointer;">Cancel</button>
+                                </div>
+                                <div id="byok-form-status"
+                                    style="font-size: 0.78rem; min-height: 18px; margin-top: 6px;"></div>
+
+                                <div id="byok-model-section"
+                                    style="display: none; margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.06);">
+                                    <div
+                                        style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                                        <label
+                                            style="color: #777; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Add
+                                            Models</label>
+                                        <button onclick="byokRefreshModels()" id="byok-model-refresh-btn"
+                                            style="background: none; border: none; color: #555; cursor: pointer; font-size: 0.78rem; padding: 2px 8px; transition: color 0.2s;"
+                                            onmouseover="this.style.color='#f59e0b'"
+                                            onmouseout="this.style.color='#555'" title="Refresh models">↻
+                                            Refresh</button>
+                                    </div>
+                                    <div id="byok-model-combo" style="position: relative;">
+                                        <input type="text" id="byok-model-input" placeholder="Search & add models..."
+                                            style="width: 100%; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 10px 36px 10px 14px; color: #fff; font-size: 0.82rem; box-sizing: border-box; outline: none; transition: border-color 0.2s; font-family: 'Consolas','Monaco',monospace;"
+                                            onfocus="byokModelOpenDropdown()" onclick="byokModelOpenDropdown()"
+                                            oninput="byokModelFilterDropdown()" autocomplete="off">
+                                        <span
+                                            style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: #555; font-size: 0.7rem; pointer-events: none;">▼</span>
+                                        <div id="byok-model-list"
+                                            style="display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; max-height: 220px; overflow-y: auto; background: #1a1a1a; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.5);">
+                                        </div>
+                                    </div>
+                                    <div id="byok-model-status"
+                                        style="font-size: 0.72rem; color: #555; margin-top: 5px; min-height: 16px;">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div id="byok-configured-section" style="display: none;">
+                                <div
+                                    style="color: #777; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">
+                                    Configured Providers</div>
+                                <div id="byok-configured-list" style="display: flex; flex-direction: column; gap: 6px;">
+                                </div>
+                            </div>
+
+                            <div id="byok-empty-state"
+                                style="text-align: center; padding: 16px 0; color: #555; font-size: 0.82rem;">
+                                Select a provider above to configure an API key.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Proxima Agent Sub-panel -->
+                <div class="settings-sub-panel" id="subpanel-agent">
+                    <div
+                        style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                        <h2 class="settings-title"
+                            style="margin: 0; font-size: 1.25rem; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 8px; border: none; padding: 0; box-shadow: none; background: transparent;">
+                            <span class="section-icon"
+                                style="background: linear-gradient(135deg, #6b7280, #4b5563); padding: 4px 8px; font-size: 0.65rem;">AGENT</span>
+                            Proxima Agent
+                        </h2>
+                        <span class="status-badge" id="agent-status-badge"
+                            style="font-size: 0.72rem; padding: 4px 10px; border-radius: 20px; font-weight: 500;">Checking...</span>
+                    </div>
+
+                    <p style="color: #9ca3af; font-size: 0.85rem; line-height: 1.6; margin-bottom: 24px;">
+                        Proxima Agent is a standalone, local agent that uses Proxima as its backend.
+                        It executes Python code, reads/writes files, runs shell commands, drives browsers, and debugs
+                        codebases directly on your machine.
+                    </p>
+
+                    <div class="arch-card"
+                        style="margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px; background: rgba(255, 255, 255, 0.01); border: 1px solid rgba(255, 255, 255, 0.04);">
+                        <div>
+                            <div style="font-size: 0.95rem; font-weight: 600; color: #fff; margin-bottom: 6px;">
+                                Web-Based Control Panel</div>
+                            <div style="font-size: 0.82rem; color: #9ca3af; line-height: 1.4;">
+                                Interact with the agent, view screenshots, and monitor terminal execution visually in
+                                the browser.
+                            </div>
+                        </div>
+                        <button onclick="agentHub.openExternal('http://localhost:8500')" class="btn-primary"
+                            style="white-space: nowrap; padding: 10px 20px; background: #ffffff; border-radius: 8px; border: none; color: #000; font-size: 0.84rem; font-weight: 700; cursor: pointer; transition: all 0.2s;"
+                            onmouseover="this.style.background='#e4e4e7'" onmouseout="this.style.background='#ffffff'">
+                            Open Web UI (Port 8500)
+                        </button>
+                    </div>
+
+                    <div class="dashboard-grid"
+                        style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; display: grid;">
+                        <div class="arch-card" style="padding: 16px; margin-bottom: 0;">
+                            <div
+                                style="font-size: 0.75rem; color: #777777; font-weight: 500; text-transform: uppercase; margin-bottom: 6px;">
+                                Safety Guardrails</div>
+                            <div style="font-size: 1.05rem; font-weight: 600; color: #fff; margin-bottom: 8px;">SSRF &
+                                Command Gated</div>
+                            <div style="font-size: 0.8rem; color: #9ca3af; line-height: 1.4;">
+                                All network scrapes, filesystem modifications, and subprocess commands run in a gated
+                                environment.
+                            </div>
+                        </div>
+                        <div class="arch-card" style="padding: 16px; margin-bottom: 0;">
+                            <div
+                                style="font-size: 0.75rem; color: #777777; font-weight: 500; text-transform: uppercase; margin-bottom: 6px;">
+                                Permission Modes</div>
+                            <div style="font-size: 1.05rem; font-weight: 600; color: #fff; margin-bottom: 8px;">Smart /
+                                Auto / Suggest</div>
+                            <div style="font-size: 0.8rem; color: #9ca3af; line-height: 1.4;">
+                                Adjust delegation levels from full automation to requiring user permission on every
+                                single terminal execution.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="arch-card">
+                        <h3 style="margin: 0 0 12px 0; color: #fff; font-size: 0.95rem; font-weight: 600;">How to Run in
+                            CLI</h3>
+                        <p style="color: #9ca3af; font-size: 0.82rem; line-height: 1.5; margin-bottom: 12px;">
+                            To run the agent directly from a local terminal or integrate it inside your development
+                            workflows:
+                        </p>
+                        <div
+                            style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: 12px 16px; font-family: monospace; font-size: 0.8rem; color: #d1d5db; display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <span>cd proxima-agent && python -m venv .venv && pip install -e . && proxima-agent</span>
+                            <button
+                                onclick="agentHub.copyToClipboard('cd proxima-agent && python -m venv .venv && pip install -e . && proxima-agent'); showToast('Command copied!')"
+                                style="background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 0.9rem;"
+                                title="Copy to clipboard">📋</button>
+                        </div>
+                        <div style="font-size: 0.78rem; color: #555; line-height: 1.4;">
+                            *Note: Make sure the Python environment is set up and ready under the Diagnostics tab.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- REST API & WebSockets Sub-panel -->
+                <div class="settings-sub-panel" id="subpanel-api">
+                    <div class="settings-section"
+                        style="border: none; background: transparent; padding: 0; box-shadow: none;">
+                        <h2 class="settings-title" style="font-size: 1.25rem; margin-bottom: 16px;">
+                            <span class="section-icon"
+                                style="background: linear-gradient(135deg, #06b6d4, #0891b2); padding: 4px 8px; font-size: 0.65rem;">API</span>
+                            REST API &amp; WebSockets
+                        </h2>
+                        <div class="settings-tabs-header">
+                            <div class="settings-tab-btn active" id="tabbtn-rest" onclick="switchApiTab('rest')">HTTP
+                                REST API</div>
+                            <div class="settings-tab-btn" id="tabbtn-ws" onclick="switchApiTab('ws')">WebSockets</div>
+                        </div>
+
+                        <!-- REST Subtab -->
+                        <div id="subtab-rest" class="api-subtab-content">
+                            <p style="color: #888; margin-bottom: 16px; font-size: 0.85rem; line-height: 1.5;">
+                                Run a local HTTP server that exposes an OpenAI-compatible REST API. External apps,
+                                scripts, and SDKs can send requests.
+                            </p>
+
+                            <div class="feature-toggle-row"
+                                style="background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.04); border-radius: 10px; margin-bottom: 20px; box-shadow: none;">
+                                <div class="feature-info">
+                                    <div class="feature-name">Enable REST API</div>
+                                    <div class="feature-desc">Start local server at http://localhost:3210</div>
+                                </div>
+                                <div class="toggle-switch" id="rest-api-toggle" onclick="toggleRestApi(this)"></div>
+                            </div>
+
+                            <div id="rest-api-info"
+                                style="margin-top: 16px; padding: 16px 20px; background: rgba(255, 255, 255, 0.02); border-radius: 10px; display: none; border-left: 4px solid #ffffff; border: 1px solid rgba(255, 255, 255, 0.06);">
+                                <p style="color: #d1d5db; font-size: 0.85rem; margin: 0; font-weight: 500;">
+                                    <strong style="color: #ffffff; font-size: 0.95rem;">⚡ REST API Active!</strong><br>
+                                    <span style="color: #9ca3af;">Server running at
+                                        <code>http://localhost:3210</code></span><br>
+                                    <span
+                                        style="color: #6b7280; font-size: 0.78rem; margin-top: 4px; display: inline-block;">API
+                                        Docs: <code>http://localhost:3210/docs</code></span>
+                                    <span style="color: #6b7280; font-size: 0.78rem; margin-left: 12px;">CLI Docs:
+                                        <code>http://localhost:3210/cli</code></span>
+                                </p>
+                            </div>
+
+                            <div
+                                style="margin-top: 16px; padding: 16px 20px; background: rgba(245, 158, 11, 0.02); border: 1px solid rgba(245, 158, 11, 0.08); border-radius: 12px;">
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                                    <span style="font-size: 1.1rem;">🔑</span>
+                                    <span style="color: #f59e0b; font-weight: 600; font-size: 0.9rem;">API Key
+                                        Authentication</span>
+                                    <span id="api-key-badge"
+                                        style="background: rgba(34,197,94,.1); color: #22c55e; border: 1px solid rgba(34,197,94,.15); padding: 1px 8px; border-radius: 10px; font-size: 0.65rem; font-weight: 600;">OPEN</span>
+                                </div>
+                                <p style="color: #888; font-size: 0.8rem; line-height: 1.5; margin-bottom: 12px;">
+                                    Generate an API key to secure your REST API. Without a key, anyone on your network
+                                    can access it.
+                                </p>
+                                <div id="api-key-display"
+                                    style="display: none; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(245, 158, 11, 0.1); border-radius: 8px; padding: 10px 14px; margin-bottom: 10px;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                                        <code id="api-key-value"
+                                            style="font-family: monospace; font-size: 0.82rem; color: #fbbf24; letter-spacing: 0.5px;"></code>
+                                        <button onclick="copyApiKey()"
+                                            style="background: rgba(245,158,11,.1); color: #f59e0b; border: 1px solid rgba(245,158,11,.2); border-radius: 6px; padding: 4px 10px; font-size: 0.68rem; font-weight: 600; cursor: pointer;">Copy</button>
+                                    </div>
+                                    <div id="api-key-stats" style="color: #555; font-size: 0.68rem; margin-top: 6px;">
+                                    </div>
+                                </div>
+                                <div style="display: flex; gap: 8px;">
+                                    <button id="gen-key-btn" onclick="genApiKey()"
+                                        style="background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; border: none; padding: 7px 16px; border-radius: 8px; font-size: 0.78rem; font-weight: 600; cursor: pointer;">Generate
+                                        Key</button>
+                                    <button id="revoke-key-btn" onclick="revokeKey()"
+                                        style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); padding: 7px 16px; border-radius: 8px; font-size: 0.78rem; font-weight: 600; cursor: pointer; display: none;">Revoke</button>
+                                </div>
+                                <p style="color: #555; font-size: 0.68rem; margin-top: 8px; margin-bottom: 0;">
+                                    Use in clients: <code
+                                        style="background: rgba(245,158,11,.05); padding: 2px 6px; border-radius: 4px; color: #fbbf24; font-size: 0.68rem;">Authorization: Bearer sk-xxx-proxima</code>
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- WebSocket Subtab -->
+                        <div id="subtab-ws" class="api-subtab-content" style="display: none;">
+                            <p style="color: #888; margin-bottom: 16px; font-size: 0.85rem; line-height: 1.5;">
+                                Persistent bidirectional connection for streaming AI responses. Auto-enabled with REST
+                                API.
+                            </p>
+                            <div
+                                style="background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 255, 255, 0.04); border-radius: 8px; padding: 14px;">
+                                <code
+                                    style="font-family: monospace; font-size: 0.75rem; color: #e4e4e7; line-height: 1.7; display: block; white-space: pre;">const ws = new WebSocket("ws://localhost:3210/ws");
+ws.send(JSON.stringify({ action: "ask", message: "Hello" }));
+ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
+                            </div>
+                            <p style="color: #555; font-size: 0.72rem; margin-top: 12px; margin-bottom: 0;">
+                                Endpoint: <code
+                                    style="background: rgba(6,182,212,.05); padding: 2px 6px; border-radius: 4px; color: #67e8f9; font-size: 0.72rem;">ws://localhost:3210/ws</code>
+                                &nbsp;&nbsp;•&nbsp;&nbsp;Docs: <code
+                                    style="background: rgba(6,182,212,.05); padding: 2px 6px; border-radius: 4px; color: #67e8f9; font-size: 0.72rem;">http://localhost:3210/ws-docs</code>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MCP Configuration Sub-panel -->
+                <div class="settings-sub-panel" id="subpanel-mcp">
+                    <div class="settings-section"
+                        style="border: none; background: transparent; padding: 0; box-shadow: none;">
+                        <h2 class="settings-title" style="font-size: 1.25rem; margin-bottom: 12px;"><span
+                                class="section-icon"
+                                style="background: linear-gradient(135deg, #6b7280, #4b5563); padding: 4px 8px; font-size: 0.65rem;">MCP</span>
+                            MCP Configuration</h2>
+                        <p style="color: #888; margin-bottom: 16px; font-size: 0.85rem; line-height: 1.5;">
+                            Add Proxima MCP server to your AI coding assistant. Choose your preferred method:
+                        </p>
+
+                        <div style="display: flex; gap: 10px; margin-bottom: 16px;">
+                            <button class="method-btn active" id="method-manual"
+                                onclick="switchConfigMethod('manual')">Manual Config</button>
+                            <button class="method-btn" id="method-ai" onclick="switchConfigMethod('ai')">AI
+                                Prompt</button>
+                        </div>
+
+                        <div id="config-manual" class="config-box"
+                            style="border: 1px solid rgba(255,255,255,0.06); box-shadow: none; background: rgba(0,0,0,0.25);">
+                            <button class="copy-btn" onclick="copyConfig()">Copy Config</button>
+                            <pre id="mcp-config">Loading...</pre>
+                        </div>
+
+                        <div id="config-ai" class="config-box"
+                            style="display: none; border: 1px solid rgba(255,255,255,0.06); box-shadow: none; background: rgba(0,0,0,0.25);">
+                            <button class="copy-btn" onclick="copyAIPrompt()">Copy Prompt</button>
+                            <pre id="ai-prompt" style="white-space: pre-wrap; word-wrap: break-word;">Add the Proxima MCP server to this application’s MCP configuration.
 
 Proxima is a Multi-AI MCP server that connects ChatGPT, Claude, Gemini & Perplexity with local server.
 
@@ -1164,115 +2040,441 @@ Here is the MCP configuration to add:
 
 
 Confirm when done</pre>
-                </div>
-            </div>
-
-            <!-- CLI — Terminal Interface -->
-            <div class="settings-section">
-                <h2 class="settings-title"><span class="section-icon"
-                        style="background: linear-gradient(135deg, #22c55e, #16a34a);">CLI</span> CLI — Terminal
-                    Interface</h2>
-                <p style="color: #b3b3b3; margin-bottom: 16px; font-size: 0.95rem; line-height: 1.5;">
-                    Terminal-native AI access across all providers. Requires REST API to be enabled.
-                </p>
-                <div
-                    style="background: rgba(6, 6, 12, 0.7); border: 1px solid rgba(34, 197, 94, 0.15); border-radius: 10px; padding: 12px 16px; margin-bottom: 14px;">
-                    <code
-                        style="font-family: 'JetBrains Mono', 'Consolas', monospace; font-size: 0.78rem; color: #86efac; line-height: 1.8; display: block; white-space: pre;">proxima ask claude "What is AI?"
-proxima search "latest AI news"
-proxima fix "TypeError" --file app.js
-npm run build 2>&1 | proxima fix</code>
-                </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <button onclick="installCli()" id="install-cli-btn"
-                        style="background: linear-gradient(135deg, #22c55e, #16a34a); color: #fff; border: none; padding: 7px 16px; border-radius: 8px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">⚡
-                        Install CLI to PATH</button>
-                    <button onclick="installCli()" id="fix-cli-btn"
-                        style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); padding: 7px 16px; border-radius: 8px; font-size: 0.8rem; font-weight: 600; cursor: pointer; display: none;">🔧
-                        Fix</button>
-                    <button onclick="uninstallCli()" id="uninstall-cli-btn"
-                        style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); padding: 7px 16px; border-radius: 8px; font-size: 0.8rem; font-weight: 600; cursor: pointer; display: none;">🗑
-                        Uninstall</button>
-                    <span style="color: #555; font-size: 0.72rem;">Docs: <code
-                            style="background: rgba(34,197,94,.1); padding: 2px 6px; border-radius: 4px; color: #4ade80; font-size: 0.72rem;">http://localhost:3210/cli</code></span>
-                </div>
-                <p id="cli-install-status" style="color: #22c55e; font-size: 0.72rem; margin-top: 8px; display: none;">
-                </p>
-            </div>
-
-            <!-- REST API & CLI -->
-            <div class="settings-section">
-                <h2 class="settings-title"><span class="section-icon"
-                        style="background: linear-gradient(135deg, #a78bfa, #7c3aed);">API</span> REST API & CLI</h2>
-                <p style="color: #b3b3b3; margin-bottom: 16px; font-size: 0.95rem; line-height: 1.5;">
-                    Run a local HTTP server (port 3210) that exposes an OpenAI-compatible REST API. External apps,
-                    scripts, SDKs, and the <strong style="color:#06b6d4">CLI tool</strong> can send requests to your AI
-                    providers.
-                </p>
-                <div class="feature-toggle-row">
-                    <div class="feature-info">
-                        <div class="feature-name">Enable REST API</div>
-                        <div class="feature-desc">Start local server at http://localhost:3210 for external access</div>
+                        </div>
                     </div>
-                    <div class="toggle-switch" id="rest-api-toggle" onclick="toggleRestApi(this)"></div>
-                </div>
-                <div id="rest-api-info"
-                    style="margin-top: 16px; padding: 16px 20px; background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(139, 92, 246, 0.1)); border-radius: 12px; display: none; border-left: 4px solid #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3);">
-                    <p style="color: #c4b5fd; font-size: 0.95rem; margin: 0; font-weight: 500;">
-                        <strong style="color: #a78bfa; font-size: 1rem;">⚡ REST API Active!</strong><br>
-                        <span style="color: #ddd6fe;">Server running at <code
-                                style="background: rgba(139, 92, 246, 0.3); padding: 3px 8px; border-radius: 6px; color: #fff; font-weight: 600;">http://localhost:3210</code></span><br>
-                        <span style="color: #a5b4fc; font-size: 0.85rem; margin-top: 4px; display: inline-block;">API
-                            Docs: <code
-                                style="background: rgba(139, 92, 246, 0.2); padding: 2px 6px; border-radius: 4px; color: #c4b5fd;">http://localhost:3210/docs</code></span>
-                        <span style="color: #a5b4fc; font-size: 0.85rem; margin-left: 12px;">CLI Docs: <code
-                                style="background: rgba(6, 182, 212, 0.2); padding: 2px 6px; border-radius: 4px; color: #67e8f9;">http://localhost:3210/cli</code></span>
-                        <span style="color: #a5b4fc; font-size: 0.85rem; margin-left: 12px;">WS Docs: <code
-                                style="background: rgba(139, 92, 246, 0.2); padding: 2px 6px; border-radius: 4px; color: #c4b5fd;">http://localhost:3210/ws-docs</code></span>
-                    </p>
                 </div>
 
+                <!-- CLI Tool Sub-panel -->
+                <div class="settings-sub-panel" id="subpanel-cli">
+                    <div class="settings-section"
+                        style="border: none; background: transparent; padding: 0; box-shadow: none;">
+                        <h2 class="settings-title" style="font-size: 1.25rem; margin-bottom: 12px;"><span
+                                class="section-icon"
+                                style="background: linear-gradient(135deg, #22c55e, #16a34a); padding: 4px 8px; font-size: 0.65rem;">CLI</span>
+                            CLI Configuration</h2>
+                        <p style="color: #888; margin-bottom: 16px; font-size: 0.85rem; line-height: 1.5;">
+                            Terminal-native AI access. Execute queries, fix logs, and debate claims.
+                        </p>
 
-                <!-- WebSocket Info -->
-                <div
-                    style="margin-top: 16px; padding: 14px 18px; background: rgba(6, 182, 212, 0.06); border: 1px solid rgba(6, 182, 212, 0.15); border-radius: 12px;">
-                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                        <span style="font-size: 1.1rem;">🔌</span>
-                        <span style="color: #06b6d4; font-weight: 600; font-size: 0.95rem;">WebSocket — Real-time
-                            Connection</span>
-                        <span
-                            style="background: rgba(34,197,94,.1); color: #22c55e; border: 1px solid rgba(34,197,94,.15); padding: 1px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: 600;">NEW</span>
+                        <div style="display: flex; gap: 12px; margin-bottom: 20px; align-items: center;">
+                            <div
+                                style="flex: 1; padding: 14px; background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.04); border-radius: 10px; display: flex; align-items: center; gap: 12px;">
+                                <div style="font-size: 1.2rem;">🖥️</div>
+                                <div>
+                                    <div style="font-size: 0.85rem; font-weight: 600; color: #fff;">CLI Executable</div>
+                                    <div id="cli-path-val" style="font-size: 0.76rem; color: #666; margin-top: 2px;">
+                                        proxima</div>
+                                </div>
+                                <div id="cli-status-badge"
+                                    style="margin-left: auto; font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 8px; background: rgba(239, 68, 68, 0.1); color: #ef4444;">
+                                    Not Installed</div>
+                            </div>
+
+                            <div
+                                style="flex: 1; padding: 14px; background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.04); border-radius: 10px; display: flex; align-items: center; gap: 12px;">
+                                <div style="font-size: 1.2rem;">🧪</div>
+                                <div>
+                                    <div style="font-size: 0.85rem; font-weight: 600; color: #fff;">Test Command</div>
+                                    <div
+                                        style="font-size: 0.76rem; color: #666; margin-top: 2px; font-family: monospace;">
+                                        proxima --version</div>
+                                </div>
+                                <button
+                                    onclick="navigator.clipboard.writeText('proxima --version'); showToast('Copied test command');"
+                                    style="margin-left: auto; background: rgba(255,255,255,0.05); border: none; color: #aaa; padding: 4px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 600; cursor: pointer;">Copy</button>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 20px;">
+                            <button onclick="installCli()" id="install-cli-btn"
+                                style="background: linear-gradient(135deg, #22c55e, #16a34a); color: #fff; border: none; padding: 7px 16px; border-radius: 8px; font-size: 0.78rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">⚡
+                                Install CLI to PATH</button>
+                            <button onclick="installCli()" id="fix-cli-btn"
+                                style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); padding: 7px 16px; border-radius: 8px; font-size: 0.78rem; font-weight: 600; cursor: pointer; display: none;">🔧
+                                Fix</button>
+                            <button onclick="uninstallCli()" id="uninstall-cli-btn"
+                                style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); padding: 7px 16px; border-radius: 8px; font-size: 0.78rem; font-weight: 600; cursor: pointer; display: none;">🗑
+                                Uninstall</button>
+                            <span style="color: #555; font-size: 0.72rem;">Docs: <code
+                                    style="background: rgba(34,197,94,.05); padding: 2px 6px; border-radius: 4px; color: #4ade80; font-size: 0.72rem;">http://localhost:3210/cli</code></span>
+                        </div>
+
+                        <p id="cli-install-status"
+                            style="color: #22c55e; font-size: 0.72rem; margin-top: 8px; display: none;"></p>
+
+                        <!-- CLI Usage Documentation -->
+                        <div style="margin-top: 24px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 18px;">
+                            <h3
+                                style="margin: 0 0 14px 0; font-size: 0.85rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 6px;">
+                                <span>💡</span> Quick CLI Reference
+                            </h3>
+
+                            <div style="display: flex; flex-direction: column; gap: 8px;">
+                                <!-- Row: Ask -->
+                                <div
+                                    style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; gap: 16px;">
+                                    <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                                        <code
+                                            style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); padding: 3px 8px; border-radius: 4px; color: #fff; font-size: 0.72rem; font-family: monospace; font-weight: 500; min-width: 140px; display: inline-block;">proxima ask "..."</code>
+                                        <span style="font-size: 0.76rem; color: #888;">Chat with default model (or
+                                            specify: <code>proxima ask claude "..."</code>)</span>
+                                    </div>
+                                    <button
+                                        onclick="navigator.clipboard.writeText('proxima ask &quot;hello&quot;'); showToast('Copied');"
+                                        style="background: transparent; border: none; color: #555; cursor: pointer; font-size: 0.65rem; padding: 2px 6px; font-weight: 600;"
+                                        onmouseover="this.style.color='#aaa'"
+                                        onmouseout="this.style.color='#555'">Copy</button>
+                                </div>
+
+                                <!-- Row: Compare -->
+                                <div
+                                    style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; gap: 16px;">
+                                    <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                                        <code
+                                            style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); padding: 3px 8px; border-radius: 4px; color: #fff; font-size: 0.72rem; font-family: monospace; font-weight: 500; min-width: 140px; display: inline-block;">proxima compare "..."</code>
+                                        <span style="font-size: 0.76rem; color: #888;">Query all active providers and
+                                            display responses side-by-side</span>
+                                    </div>
+                                    <button
+                                        onclick="navigator.clipboard.writeText('proxima compare &quot;which is faster?&quot;'); showToast('Copied');"
+                                        style="background: transparent; border: none; color: #555; cursor: pointer; font-size: 0.65rem; padding: 2px 6px; font-weight: 600;"
+                                        onmouseover="this.style.color='#aaa'"
+                                        onmouseout="this.style.color='#555'">Copy</button>
+                                </div>
+
+                                <!-- Row: Code Actions -->
+                                <div
+                                    style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; gap: 16px;">
+                                    <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                                        <code
+                                            style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); padding: 3px 8px; border-radius: 4px; color: #fff; font-size: 0.72rem; font-family: monospace; font-weight: 500; min-width: 140px; display: inline-block;">proxima code ...</code>
+                                        <span style="font-size: 0.76rem; color: #888;">Perform code actions (e.g.
+                                            <code>code review</code>, <code>code explain</code>,
+                                            <code>code debug</code>)</span>
+                                    </div>
+                                    <button
+                                        onclick="navigator.clipboard.writeText('proxima code review &quot;code...&quot;'); showToast('Copied');"
+                                        style="background: transparent; border: none; color: #555; cursor: pointer; font-size: 0.65rem; padding: 2px 6px; font-weight: 600;"
+                                        onmouseover="this.style.color='#aaa'"
+                                        onmouseout="this.style.color='#555'">Copy</button>
+                                </div>
+
+                                <!-- Row: File Context -->
+                                <div
+                                    style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; gap: 16px;">
+                                    <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                                        <code
+                                            style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); padding: 3px 8px; border-radius: 4px; color: #fff; font-size: 0.72rem; font-family: monospace; font-weight: 500; min-width: 140px; display: inline-block;">proxima --file ...</code>
+                                        <span style="font-size: 0.76rem; color: #888;">Include local file context or
+                                            upload images/PDFs natively</span>
+                                    </div>
+                                    <button
+                                        onclick="navigator.clipboard.writeText('proxima ask --file screenshot.png &quot;describe this&quot;'); showToast('Copied');"
+                                        style="background: transparent; border: none; color: #555; cursor: pointer; font-size: 0.65rem; padding: 2px 6px; font-weight: 600;"
+                                        onmouseover="this.style.color='#aaa'"
+                                        onmouseout="this.style.color='#555'">Copy</button>
+                                </div>
+
+                                <!-- Row: Pipe Error Fixer -->
+                                <div
+                                    style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.03); border-radius: 6px; gap: 16px;">
+                                    <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                                        <code
+                                            style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); padding: 3px 8px; border-radius: 4px; color: #fff; font-size: 0.72rem; font-family: monospace; font-weight: 500; min-width: 140px; display: inline-block;">... | proxima fix</code>
+                                        <span style="font-size: 0.76rem; color: #888;">Pipe logs directly to debug
+                                            errors (e.g. <code>npm run build 2>&1 | proxima fix</code>)</span>
+                                    </div>
+                                    <button
+                                        onclick="navigator.clipboard.writeText('npm run build 2>&1 | proxima fix'); showToast('Copied');"
+                                        style="background: transparent; border: none; color: #555; cursor: pointer; font-size: 0.65rem; padding: 2px 6px; font-weight: 600;"
+                                        onmouseover="this.style.color='#aaa'"
+                                        onmouseout="this.style.color='#555'">Copy</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <p style="color: #888; font-size: 0.82rem; line-height: 1.5; margin-bottom: 10px;">
-                        Persistent bidirectional connection for streaming AI responses. Auto-enabled with REST API.
-                    </p>
+                </div>
+
+                <!-- Diagnostics Sub-panel -->
+                <div class="settings-sub-panel" id="subpanel-diagnostics">
+                    <div class="settings-section"
+                        style="border: none; background: transparent; padding: 0; box-shadow: none;">
+                        <h2 class="settings-title" style="font-size: 1.25rem; margin-bottom: 12px;"><span
+                                class="section-icon"
+                                style="background: linear-gradient(135deg, #ec4899, #db2777); padding: 4px 8px; font-size: 0.65rem;">DIAG</span>
+                            System Diagnostics</h2>
+                        <p style="color: #888; margin-bottom: 20px; font-size: 0.85rem; line-height: 1.5;">
+                            Check the status of dependent systems, environments, and binary requirements.
+                        </p>
+
+                        <div id="diagnostics-list">
+                            <div class="diag-item">
+                                <span class="diag-item-name">Python 3.10+ Environment</span>
+                                <span class="diag-item-status" id="diag-py-status"
+                                    style="color: #888;">Checking...</span>
+                            </div>
+                            <div class="diag-item">
+                                <span class="diag-item-name">Tesseract OCR (Optional)</span>
+                                <span class="diag-item-status" id="diag-tesseract-status"
+                                    style="color: #888;">Checking...</span>
+                            </div>
+                            <div class="diag-item">
+                                <span class="diag-item-name">CLI Tool Installation</span>
+                                <span class="diag-item-status" id="diag-cli-status"
+                                    style="color: #888;">Checking...</span>
+                            </div>
+                        </div>
+
+                        <!-- Environmental setup action banner, moved inside Diagnostics page -->
+                        <div id="env-banner"
+                            style="margin-top: 16px; padding: 16px 20px; background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.15); border-radius: 12px; display: none;">
+                            <div
+                                style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+                                <span id="env-banner-text" style="color: #fca5a5; font-size: 0.85rem;">Checking
+                                    environment…</span>
+                                <div style="display: flex; gap: 8px;">
+                                    <button id="env-banner-action"
+                                        style="display: none; padding: 6px 12px; background: #ffffff; color: #000; border: none; border-radius: 6px; cursor: pointer; font-size: 0.78rem; font-weight: 700;">Set
+                                        up now</button>
+                                    <button id="env-banner-dismiss"
+                                        style="padding: 6px 10px; background: transparent; color: #9ca3af; border: 1px solid #33334d; border-radius: 6px; cursor: pointer; font-size: 0.78rem;">Dismiss</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- About & Community Sub-panel -->
+                <div class="settings-sub-panel" id="subpanel-about" style="padding: 24px 32px;">
+                    <!-- Hero Section -->
                     <div
-                        style="background: rgba(6, 6, 12, 0.7); border: 1px solid rgba(6, 182, 212, 0.1); border-radius: 8px; padding: 10px 14px;">
-                        <code
-                            style="font-family: 'JetBrains Mono', 'Consolas', monospace; font-size: 0.75rem; color: #a5b4fc; line-height: 1.7; display: block; white-space: pre;">const ws = new WebSocket("ws://localhost:3210/ws");
-ws.send(JSON.stringify({ action: "ask", message: "Hello" }));
-ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
+                        style="text-align: center; padding: 10px 0 16px 0; border-bottom: 1px solid rgba(255,255,255,0.05); margin-bottom: 20px;">
+                        <!-- Micro Branding Row -->
+                        <div
+                            style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 8px;">
+                            <img src="../assets/proxima-icon.png" alt="Proxima Logo" style="width: 24px; height: 24px;">
+                            <h2
+                                style="color: #fff; margin: 0; font-size: 1.3rem; font-weight: 800; letter-spacing: -0.5px;">
+                                Proxima</h2>
+                            <span
+                                style="font-size: 0.7rem; color: #888; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 2px 6px; font-weight: 600; letter-spacing: 0.2px;">v5.0.0</span>
+                        </div>
+                        <!-- Compact Community & Release Specs -->
+                        <div
+                            style="display: flex; justify-content: center; align-items: center; gap: 14px; font-size: 0.75rem; color: #888; font-weight: 500;">
+                            <a href="#"
+                                onclick="event.preventDefault();agentHub.openExternal('https://github.com/Zen4-bit/Proxima/stargazers')"
+                                style="color: #888; text-decoration: none; display: flex; align-items: center; gap: 4px; transition: color 0.2s;"
+                                onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#888'">⭐ 1.2k+
+                                GitHub Stars</a>
+                            <span style="color: rgba(255,255,255,0.1);">|</span>
+                            <a href="#"
+                                onclick="event.preventDefault();agentHub.openExternal('https://github.com/Zen4-bit/Proxima/releases/latest')"
+                                style="color: #888; text-decoration: none; display: flex; align-items: center; gap: 4px; transition: color 0.2s;"
+                                onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#888'">📥 5,000+
+                                Downloads</a>
+                            <span style="color: rgba(255,255,255,0.1);">|</span>
+                            <span style="color: #555;">All Your AI Models Come Together</span>
+                        </div>
                     </div>
-                    <p style="color: #555; font-size: 0.72rem; margin-top: 8px;">
-                        Endpoint: <code
-                            style="background: rgba(6,182,212,.1); padding: 2px 6px; border-radius: 4px; color: #67e8f9; font-size: 0.72rem;">ws://localhost:3210/ws</code>
-                        — Docs: <code
-                            style="background: rgba(6,182,212,.1); padding: 2px 6px; border-radius: 4px; color: #67e8f9; font-size: 0.72rem;">http://localhost:3210/ws-docs</code>
-                    </p>
-                </div>
-            </div>
 
-            <!-- Version Footer -->
-            <div
-                style="text-align: center; padding: 20px 0; margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.05);">
-                <span style="color: #666; font-size: 0.8rem;">Proxima v4.1.0 • Multi-AI MCP Server</span>
+                    <!-- Two Column Details Grid -->
+                    <div
+                        style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; margin-bottom: 24px;">
+
+                        <!-- Left Column: Story, Support, Promise -->
+                        <div style="display: flex; flex-direction: column; gap: 20px;">
+                            <!-- Why Proxima Exists -->
+                            <div
+                                style="background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; padding: 18px;">
+                                <h3 onclick="const content = document.getElementById('why-proxima-content'); const chevron = document.getElementById('why-proxima-chevron'); if(content.style.display === 'none') { content.style.display = 'block'; chevron.textContent = '▾'; } else { content.style.display = 'none'; chevron.textContent = '▸'; }"
+                                    style="color: #fff; font-size: 0.9rem; font-weight: 700; margin: 0; display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none;">
+                                    <span style="display: flex; align-items: center; gap: 8px;">
+                                        <span style="font-size: 1.1rem;">💡</span> Why Proxima Exists
+                                    </span>
+                                    <span id="why-proxima-chevron" style="color: #666; font-size: 0.8rem;">▸</span>
+                                </h3>
+                                <div id="why-proxima-content"
+                                    style="color: #9ca3af; font-size: 0.8rem; line-height: 1.6; display: none; margin-top: 12px;">
+                                    <p style="margin: 0 0 12px 0;">In late 2025, I hit a massive roadblock with AI
+                                        coding tools. Due to outdated training data, coding models would frequently
+                                        hallucinate, guess wrong solutions, and end up ruining the source code and
+                                        overall code quality. To fix this, I tried setting up local agents using Model
+                                        Context Protocol (MCP) APIs, but the results were highly disappointing. The API
+                                        responses were low-quality and frustratingly inaccurate, all while draining
+                                        money for every single API call.</p>
+                                    <p style="margin: 0 0 12px 0;">That’s when a wild idea struck: What if we could turn
+                                        actual Web Models—like ChatGPT, Gemini, Claude, and Perplexity—into local MCP
+                                        servers? By tapping directly into web interfaces via free logged-in accounts, I
+                                        could give my local agents access to high-quality, up-to-date reasoning without
+                                        paying for expensive and subpar API keys.</p>
+                                    <p style="margin: 0;">Proxima was born as a purely personal utility. I used it
+                                        heavily for months to streamline my own work, with absolutely no plans of
+                                        open-sourcing it. However, seeing so many developers online struggling with the
+                                        exact same API costs and low-quality hallucinations, I decided to share it with
+                                        the world. Proxima exists to empower developers with absolute privacy, speed,
+                                        and high-quality local workflows—without forcing anyone to buy expensive
+                                        software or pay for unreliable API keys.</p>
+                                </div>
+                            </div>
+
+                            <!-- Support Development -->
+                            <div
+                                style="background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; padding: 18px;">
+                                <h3
+                                    style="color: #ffffff; font-size: 0.9rem; font-weight: 700; margin: 0 0 8px 0; display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 1.1rem;">❤️</span> Support Proxima
+                                </h3>
+                                <p style="color: #9ca3af; font-size: 0.78rem; line-height: 1.5; margin: 0 0 14px 0;">
+                                    Proxima is an independent open-source project. If it helps streamline your
+                                    workflows, consider supporting its active development:
+                                </p>
+                                <div
+                                    style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 16px; font-size: 0.76rem; color: #d1d5db;">
+                                    <div style="display: flex; align-items: center; gap: 6px;">
+                                        <span style="color: #fff;">✓</span> Better local agents
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 6px;">
+                                        <span style="color: #fff;">✓</span> Faster releases
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 6px;">
+                                        <span style="color: #fff;">✓</span> Custom integrations
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 6px;">
+                                        <span style="color: #fff;">✓</span> Open-source MCPs
+                                    </div>
+                                </div>
+
+                                <div style="display: flex; flex-direction: column; gap: 8px;">
+                                    <button
+                                        onclick="event.preventDefault();agentHub.openExternal('https://github.com/sponsors/Zen4-bit')"
+                                        style="background: #ffffff; border: none; padding: 8px 12px; border-radius: 6px; color: #000; font-size: 0.8rem; font-weight: 700; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 6px;"
+                                        onmouseover="this.style.background='#e4e4e7'"
+                                        onmouseout="this.style.background='#ffffff'">
+                                        Sponsor on GitHub
+                                    </button>
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                        <button
+                                            onclick="event.preventDefault();agentHub.openExternal('https://github.com/sponsors/Zen4-bit?frequency=one-time&sponsor=Zen4-bit')"
+                                            style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 8px; border-radius: 6px; color: #fff; font-size: 0.76rem; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 4px;"
+                                            onmouseover="this.style.background='rgba(255,255,255,0.08)'"
+                                            onmouseout="this.style.background='rgba(255,255,255,0.03)'">
+                                            ☕ Buy me a Coffee
+                                        </button>
+                                        <button
+                                            onclick="event.preventDefault();agentHub.openExternal('https://github.com/sponsors/Zen4-bit?frequency=one-time&sponsor=Zen4-bit')"
+                                            style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 8px; border-radius: 6px; color: #fff; font-size: 0.76rem; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 4px;"
+                                            onmouseover="this.style.background='rgba(255,255,255,0.08)'"
+                                            onmouseout="this.style.background='rgba(255,255,255,0.03)'">
+                                            🎁 One-time Gift
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+
+
+                        <!-- Right Column: Community & Built With -->
+                        <div style="display: flex; flex-direction: column; gap: 20px;">
+                            <!-- Ecosystem & Community Grid -->
+                            <div
+                                style="background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; padding: 18px;">
+                                <h3
+                                    style="color: #fff; font-size: 0.9rem; font-weight: 700; margin: 0 0 12px 0; display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 1.1rem;">🌐</span> Community Ecosystem
+                                </h3>
+                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
+                                    <a href="#"
+                                        onclick="event.preventDefault();agentHub.openExternal('https://github.com/Zen4-bit/Proxima')"
+                                        style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 10px; text-align: center; text-decoration: none; color: #d1d5db; font-size: 0.74rem; display: flex; flex-direction: column; align-items: center; gap: 4px; transition: all 0.2s;"
+                                        onmouseover="this.style.color='#fff'; this.style.borderColor='rgba(255,255,255,0.1)'; this.style.background='rgba(255,255,255,0.04)';"
+                                        onmouseout="this.style.color='#d1d5db'; this.style.borderColor='rgba(255,255,255,0.05)'; this.style.background='rgba(255,255,255,0.02)';">
+                                        <span style="font-size: 1.1rem;">💻</span> GitHub
+                                    </a>
+                                    <a href="#"
+                                        onclick="event.preventDefault();agentHub.openExternal('https://github.com/Zen4-bit/Proxima/discussions')"
+                                        style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 10px; text-align: center; text-decoration: none; color: #d1d5db; font-size: 0.74rem; display: flex; flex-direction: column; align-items: center; gap: 4px; transition: all 0.2s;"
+                                        onmouseover="this.style.color='#fff'; this.style.borderColor='rgba(255,255,255,0.1)'; this.style.background='rgba(255,255,255,0.04)';"
+                                        onmouseout="this.style.color='#d1d5db'; this.style.borderColor='rgba(255,255,255,0.05)'; this.style.background='rgba(255,255,255,0.02)';">
+                                        <span style="font-size: 1.1rem;">📢</span> Discussions
+                                    </a>
+                                    <a href="#"
+                                        onclick="event.preventDefault();agentHub.openExternal('https://github.com/Zen4-bit/Proxima/issues')"
+                                        style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 10px; text-align: center; text-decoration: none; color: #d1d5db; font-size: 0.74rem; display: flex; flex-direction: column; align-items: center; gap: 4px; transition: all 0.2s;"
+                                        onmouseover="this.style.color='#fff'; this.style.borderColor='rgba(255,255,255,0.1)'; this.style.background='rgba(255,255,255,0.04)';"
+                                        onmouseout="this.style.color='#d1d5db'; this.style.borderColor='rgba(255,255,255,0.05)'; this.style.background='rgba(255,255,255,0.02)';">
+                                        <span style="font-size: 1.1rem;">🐛</span> Report Bug
+                                    </a>
+                                    <a href="#"
+                                        onclick="event.preventDefault();agentHub.openExternal('https://github.com/Zen4-bit/Proxima/issues')"
+                                        style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 10px; text-align: center; text-decoration: none; color: #d1d5db; font-size: 0.74rem; display: flex; flex-direction: column; align-items: center; gap: 4px; transition: all 0.2s;"
+                                        onmouseover="this.style.color='#fff'; this.style.borderColor='rgba(255,255,255,0.1)'; this.style.background='rgba(255,255,255,0.04)';"
+                                        onmouseout="this.style.color='#d1d5db'; this.style.borderColor='rgba(255,255,255,0.05)'; this.style.background='rgba(255,255,255,0.02)';">
+                                        <span style="font-size: 1.1rem;">💡</span> Request Features
+                                    </a>
+                                </div>
+                            </div>
+
+                            <!-- Built With (Transparency) -->
+                            <div
+                                style="background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; padding: 18px;">
+                                <h3
+                                    style="color: #fff; font-size: 0.9rem; font-weight: 700; margin: 0 0 10px 0; display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 1.1rem;">⚙️</span> Built With
+                                </h3>
+                                <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                                    <span
+                                        style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); padding: 4px 10px; border-radius: 6px; font-size: 0.72rem; color: #ccc;">Electron</span>
+                                    <span
+                                        style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); padding: 4px 10px; border-radius: 6px; font-size: 0.72rem; color: #ccc;">Python</span>
+                                    <span
+                                        style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); padding: 4px 10px; border-radius: 6px; font-size: 0.72rem; color: #ccc;">Node.js</span>
+                                    <span
+                                        style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); padding: 4px 10px; border-radius: 6px; font-size: 0.72rem; color: #ccc;">Playwright</span>
+                                    <span
+                                        style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); padding: 4px 10px; border-radius: 6px; font-size: 0.72rem; color: #ccc;">Chrome
+                                        CDP</span>
+                                    <span
+                                        style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); padding: 4px 10px; border-radius: 6px; font-size: 0.72rem; color: #ccc;">SQLite</span>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- Usage Stats & Credits -->
+                    <div
+                        style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; padding: 20px 0; border-top: 1px solid rgba(255,255,255,0.05); border-bottom: 1px solid rgba(255,255,255,0.05); margin-top: 24px;">
+                        <div style="font-size: 0.78rem; color: #9ca3af; line-height: 1.4;">
+                            <div style="color: #fff; font-weight: 700; margin-bottom: 2px;">Made by:</div>
+                            Zen4-bit
+                        </div>
+                        <div style="font-size: 0.78rem; color: #9ca3af; line-height: 1.4;">
+                            <div style="color: #fff; font-weight: 700; margin-bottom: 2px;">Special Thanks:</div>
+                            Open Source Community
+                        </div>
+                        <div style="font-size: 0.78rem; color: #9ca3af; line-height: 1.4;">
+                            <div style="color: #fff; font-weight: 700; margin-bottom: 2px;">Platform Stats:</div>
+                            4 Providers • MCP Enabled • REST Server
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div
+                        style="text-align: center; padding-top: 20px; font-size: 0.76rem; color: #555; line-height: 1.5;">
+                        Made with ❤️ by Zen4-bit. Thanks for supporting independent software.<br>
+                        © 2026 Proxima
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
     <div class="toast" id="toast">Message</div>
 
-    <!-- Cookie Login Modal (fallback only) -->
+
+
     <div class="cookie-modal-overlay" id="cookie-modal-overlay" onclick="closeCookieModalOutside(event)">
         <div class="cookie-modal">
             <div class="cookie-modal-header">
@@ -1283,10 +2485,10 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
             </div>
 
             <div class="cookie-instructions">
-                <strong>� How to get cookies:</strong>
+                <strong>🍪 How to get cookies:</strong>
                 <ol>
                     <li>Install <code>EditThisCookie</code> or <code>Cookie-Editor</code> extension in Chrome</li>
-                    <li>Go to <a href="#" onclick="openGeminiInChrome(event)"
+                    <li>Go to <a href="#" id="cookie-modal-link" onclick="openProviderInChrome(event)"
                             style="color: #4285f4;">gemini.google.com</a> in Chrome and login normally</li>
                     <li>Click the cookie extension icon → <strong>Export</strong> (as JSON)</li>
                     <li>Paste the copied JSON below</li>
@@ -1311,15 +2513,206 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
         let settings = {};
         let currentTab = null;
         let providerStatus = {};
+        let currentSettingsSubTab = 'general';
 
-        // Initialize
+        function switchSettingsSubTab(subTabName) {
+            currentSettingsSubTab = subTabName;
+
+            // Toggle active class on sidebar items
+            document.querySelectorAll('.settings-sidebar-item').forEach(item => {
+                if (item.dataset.subtab === subTabName) {
+                    item.classList.add('active');
+                } else {
+                    item.classList.remove('active');
+                }
+            });
+
+            // Toggle active class on sub-panels
+            document.querySelectorAll('.settings-sub-panel').forEach(panel => {
+                if (panel.id === `subpanel-${subTabName}`) {
+                    panel.classList.add('active');
+                } else {
+                    panel.classList.remove('active');
+                }
+            });
+
+            // Run any specific tab setup/refresh
+            if (subTabName === 'general') {
+                updateDashboardStats();
+            } else if (subTabName === 'auth') {
+                byokRefreshAll();
+            } else if (subTabName === 'providers') {
+                refreshProviderLatencies();
+            } else if (subTabName === 'agent') {
+                updateDashboardStats();
+            }
+        }
+
+        async function updateDashboardStats() {
+            try {
+                // Auth Mode
+                const isByok = settings.byokModeEnabled;
+                document.getElementById('dash-auth-mode').textContent = isByok ? 'BYOK Mode' : 'Session Mode';
+
+                // Active Providers count
+                let activeCount = 0;
+                if (isByok) {
+                    if (window.agentHub && agentHub.byokGetStatus) {
+                        const status = await agentHub.byokGetStatus();
+                        if (status && status.success && status.providers) {
+                            for (const info of Object.values(status.providers)) {
+                                if (info.configured) activeCount++;
+                            }
+                        }
+                    }
+                    document.getElementById('dash-active-count').textContent = activeCount === 0 ? '0' : `${activeCount} Active`;
+                } else {
+                    Object.values(settings.providers || {}).forEach(p => {
+                        if (p && p.enabled) activeCount++;
+                    });
+                    document.getElementById('dash-active-count').textContent = `${activeCount} / 4`;
+                }
+
+                // Update Sidebar Footer Status Card top-row dynamically
+                const sbText = document.getElementById('sidebar-status-text');
+                const sbDot = document.getElementById('sidebar-status-dot');
+                const sbPill = document.getElementById('sidebar-status-pill');
+
+                if (sbText && sbDot && sbPill) {
+                    if (isByok) {
+                        sbText.textContent = `${activeCount} Active`;
+                    } else {
+                        sbText.textContent = `${activeCount} / 4`;
+                    }
+
+                    if (activeCount > 0) {
+                        sbDot.style.background = '#22c55e';
+                        sbPill.style.color = '#22c55e';
+                    } else {
+                        sbDot.style.background = '#666';
+                        sbPill.style.color = '#888';
+                    }
+                }
+
+                // REST API Status
+                document.getElementById('dash-api-status').textContent = settings.restApiEnabled ? 'Enabled' : 'Disabled';
+
+                // Agent Status
+                const agentBadge = document.getElementById('agent-status-badge');
+                if (agentBadge) {
+                    if (settings.restApiEnabled) {
+                        agentBadge.textContent = 'Active (Port 8500)';
+                        agentBadge.style.background = 'rgba(34, 197, 94, 0.1)';
+                        agentBadge.style.color = '#22c55e';
+                        agentBadge.style.border = '1px solid rgba(34, 197, 94, 0.15)';
+                    } else {
+                        agentBadge.textContent = 'REST API Disabled';
+                        agentBadge.style.background = 'rgba(239, 68, 68, 0.1)';
+                        agentBadge.style.color = '#ef4444';
+                        agentBadge.style.border = '1px solid rgba(239, 68, 68, 0.15)';
+                    }
+                }
+
+                // CLI status
+                if (agentHub.isCliInstalled) {
+                    const installed = await agentHub.isCliInstalled();
+                    const statusText = installed ? 'Installed' : 'Not Installed';
+                    document.getElementById('dash-cli-status').textContent = statusText;
+
+                    const diagCli = document.getElementById('diag-cli-status');
+                    if (diagCli) {
+                        diagCli.textContent = statusText;
+                        diagCli.style.color = installed ? '#22c55e' : '#ef4444';
+                    }
+                    const cliBadge = document.getElementById('cli-status-badge');
+                    if (cliBadge) {
+                        cliBadge.textContent = statusText;
+                        cliBadge.style.background = installed ? 'rgba(34,197,94,0.1)' : 'rgba(239, 68, 68, 0.1)';
+                        cliBadge.style.color = installed ? '#22c55e' : '#ef4444';
+                    }
+                }
+            } catch (e) {
+                console.error('Dashboard status check failed:', e);
+            }
+        }
+
+        async function refreshProviderLatencies() {
+            const providers = ['perplexity', 'chatgpt', 'claude', 'gemini'];
+            for (const p of providers) {
+                const el = document.getElementById(`card-latency-${p}`);
+                if (!el) continue;
+
+                if (!settings.providers[p]?.enabled) {
+                    el.textContent = '--';
+                    continue;
+                }
+
+                try {
+                    const start = Date.now();
+                    const status = await agentHub.checkLoginStatus(p);
+                    const diff = Date.now() - start;
+                    el.textContent = `${diff}ms`;
+                } catch {
+                    el.textContent = 'timeout';
+                }
+            }
+        }
+
+        async function setAuthMode(mode) {
+            const isByok = (mode === 'byok');
+            settings.byokModeEnabled = isByok;
+
+            // Save to settings
+            await agentHub.saveSettings(settings);
+            if (agentHub.byokSetEnabled) {
+                await agentHub.byokSetEnabled(isByok);
+            }
+
+            // Update auth options UI
+            document.querySelectorAll('.auth-mode-option').forEach(opt => {
+                if (opt.id === `auth-mode-${mode}`) {
+                    opt.classList.add('active');
+                } else {
+                    opt.classList.remove('active');
+                }
+            });
+
+            // Run existing UI updates
+            byokUpdateModeUI();
+
+            // Update dashboard too
+            updateDashboardStats();
+        }
+
+        function switchApiTab(tabName) {
+            document.querySelectorAll('.settings-tab-btn').forEach(btn => {
+                if (btn.id === `tabbtn-${tabName}`) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+
+            document.querySelectorAll('.api-subtab-content').forEach(sub => {
+                if (sub.id === `subtab-${tabName}`) {
+                    sub.style.display = 'block';
+                } else {
+                    sub.style.display = 'none';
+                }
+            });
+        }
+
         async function init() {
             settings = await agentHub.getSettings();
+            // Harden against a missing/partial settings payload — updateUI and
+            // the auto-switch logic iterate settings.providers, which would throw
+            // (and abort startup) if it were undefined.
+            if (!settings || typeof settings !== 'object') settings = {};
+            if (!settings.providers || typeof settings.providers !== 'object') settings.providers = {};
             updateUI();
             loadMcpConfig();
             loadRestApiState();
 
-            // Listen for auto-initialization from main process
             if (agentHub.onActiveProvider) {
                 agentHub.onActiveProvider((provider) => {
                     console.log('Auto-switching to:', provider);
@@ -1327,10 +2720,8 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
                 });
             }
 
-            // Listen for provider navigation — auto-trigger cookie login for Gemini
             if (agentHub.onProviderNavigated) {
                 agentHub.onProviderNavigated(({ provider, url }) => {
-                    // Update URL bar
                     if (provider === currentTab) {
                         const urlBar = document.getElementById('browser-url');
                         if (urlBar) urlBar.textContent = url.length > 60 ? url.substring(0, 60) + '...' : url;
@@ -1349,11 +2740,9 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
 
 
 
-            // Get first enabled provider
             const firstEnabled = Object.entries(settings.providers)
                 .find(([_, config]) => config.enabled)?.[0];
 
-            // Auto-switch to first enabled provider after short delay
             if (firstEnabled) {
                 setTimeout(() => {
                     if (!currentTab) {
@@ -1361,11 +2750,141 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
                     }
                 }, 2000);
             }
+
+            initEnvStatus();
+
+            // Initialize auth mode radio selection
+            const isByok = !!settings.byokModeEnabled;
+            setAuthMode(isByok ? 'byok' : 'session');
+
+            // Initialize Settings dashboard and default view
+            updateDashboardStats();
+            switchSettingsSubTab('general');
+        }
+
+        function _renderEnvBanner(report) {
+            const banner = document.getElementById('env-banner');
+            const text = document.getElementById('env-banner-text');
+            const action = document.getElementById('env-banner-action');
+            if (!banner || !report) return;
+
+            const py = report.python || {};
+            const checks = (report.checks && report.checks.checks) || [];
+            const missingRequired = checks.filter(c => c.required && !c.present);
+            const missingOptional = checks.filter(c => !c.required && !c.present);
+
+            // Update Diagnostics panel items
+            const pyStatusEl = document.getElementById('diag-py-status');
+            const tessStatusEl = document.getElementById('diag-tesseract-status');
+            const diagWarningBadge = document.getElementById('diag-warning-badge');
+
+            if (pyStatusEl) {
+                if (py.status === 'ready') {
+                    pyStatusEl.textContent = '✅ Ready';
+                    pyStatusEl.style.color = '#22c55e';
+                } else if (py.status === 'installing') {
+                    pyStatusEl.textContent = '⏳ Installing environment...';
+                    pyStatusEl.style.color = '#f59e0b';
+                } else {
+                    pyStatusEl.textContent = '❌ Error / Missing';
+                    pyStatusEl.style.color = '#ef4444';
+                }
+            }
+
+            if (tessStatusEl) {
+                const tessPresent = checks.find(c => c.name && c.name.toLowerCase().includes('tesseract'));
+                if (tessPresent && tessPresent.present) {
+                    tessStatusEl.textContent = '✅ Present';
+                    tessStatusEl.style.color = '#22c55e';
+                } else {
+                    tessStatusEl.textContent = '❌ Not Found (Screen/OCR features disabled)';
+                    tessStatusEl.style.color = '#ef4444';
+                }
+            }
+
+            // Toggle warning badge on sidebar
+            if (py.status !== 'ready' || missingRequired.length > 0) {
+                if (diagWarningBadge) diagWarningBadge.style.display = 'block';
+            } else {
+                if (diagWarningBadge) diagWarningBadge.style.display = 'none';
+            }
+
+            action.style.display = 'none';
+
+            if (py.status === 'installing') {
+                text.textContent = '⚙️  Setting up the Python environment (first run, one time)…';
+                banner.style.display = 'block';
+                return;
+            }
+            if (py.status === 'missing-python') {
+                text.innerHTML = '⚠️  Python 3.10+ is required for the AI agent. Install it from python.org, then click Retry.';
+                action.textContent = 'Retry setup';
+                action.style.display = 'inline-block';
+                banner.style.display = 'block';
+                return;
+            }
+            if (py.status === 'error') {
+                text.textContent = '⚠️  Python environment setup failed: ' + (py.message || 'unknown error');
+                action.textContent = 'Retry setup';
+                action.style.display = 'inline-block';
+                banner.style.display = 'block';
+                return;
+            }
+            if (missingRequired.length > 0) {
+                text.textContent = '⚠️  Missing required: ' + missingRequired.map(c => c.name).join(', ') +
+                    '. Some features will not work. ' + (missingRequired[0].installHint || '');
+                banner.style.display = 'block';
+                return;
+            }
+            if (missingOptional.length > 0) {
+                text.textContent = 'ℹ️  Optional tools not found: ' + missingOptional.map(c => c.name).join(', ') +
+                    '. Related features are disabled until installed.';
+                banner.style.display = 'block';
+                return;
+            }
+            banner.style.display = 'none';
+        }
+
+        async function initEnvStatus() {
+            try {
+                const banner = document.getElementById('env-banner');
+                const action = document.getElementById('env-banner-action');
+                const dismiss = document.getElementById('env-banner-dismiss');
+
+                if (dismiss) dismiss.onclick = () => { banner.style.display = 'none'; };
+                if (action) action.onclick = async () => {
+                    action.disabled = true;
+                    document.getElementById('env-banner-text').textContent = '⚙️  Setting up the Python environment…';
+                    try { await agentHub.setupPythonEnv(); } catch (e) { /* progress events update UI */ }
+                    action.disabled = false;
+                    const r = await agentHub.getEnvStatus();
+                    if (r && r.success) _renderEnvBanner(r);
+                };
+
+                if (agentHub.onPythonEnvProgress) {
+                    agentHub.onPythonEnvProgress((line) => {
+                        const t = document.getElementById('env-banner-text');
+                        if (t && /install|venv|pip|setting up/i.test(line)) {
+                            document.getElementById('env-banner').style.display = 'block';
+                            t.textContent = '⚙️  ' + line;
+                        }
+                    });
+                }
+                if (agentHub.onEnvStatus) {
+                    agentHub.onEnvStatus((report) => _renderEnvBanner(report));
+                }
+
+                if (agentHub.getEnvStatus) {
+                    const r = await agentHub.getEnvStatus();
+                    if (r && r.success) _renderEnvBanner(r);
+                }
+            } catch (e) {
+                console.warn('Env status init failed:', e);
+            }
         }
 
         function updateUI() {
-            // Update provider cards and tabs
-            Object.entries(settings.providers).forEach(([name, config]) => {
+            Object.entries((settings && settings.providers) || {}).forEach(([name, config]) => {
                 const tab = document.querySelector(`.tab[data-provider="${name}"]`);
                 const card = document.querySelector(`.provider-card[data-provider="${name}"]`);
                 const toggle = document.querySelector(`.toggle-switch[data-provider="${name}"]`);
@@ -1385,41 +2904,38 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
         }
 
         async function switchTab(tabName) {
-            // Handle settings tab
+            const clearCacheBtn = document.getElementById('header-clear-cache-btn');
             if (tabName === 'settings') {
+                if (clearCacheBtn) clearCacheBtn.style.display = 'none';
                 document.getElementById('browser-container').style.display = 'none';
                 document.getElementById('settings-panel').classList.add('active');
                 document.getElementById('browser-controls').classList.remove('active');
                 await agentHub.hideBrowser();
 
-                // Update tab active state
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
                 document.querySelector('.tab[data-tab="settings"]').classList.add('active');
                 currentTab = 'settings';
                 return;
             }
 
-            // Check if provider is enabled
             if (!settings.providers[tabName]?.enabled) {
                 showToast(`${tabName} is disabled. Enable it in Settings.`);
                 return;
             }
 
-            // Hide settings, show browser
+            if (clearCacheBtn) clearCacheBtn.style.display = 'flex';
+
             document.getElementById('settings-panel').classList.remove('active');
             document.getElementById('browser-container').style.display = 'block';
             document.getElementById('welcome-panel').style.display = 'none';
             document.getElementById('browser-controls').classList.add('active');
 
-            // Update tab active state
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelector(`.tab[data-provider="${tabName}"]`).classList.add('active');
 
-            // Show the provider
             await agentHub.showProvider(tabName);
             currentTab = tabName;
 
-            // Update status
             updateProviderStatus(tabName);
         }
 
@@ -1430,21 +2946,30 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
             const loginStatus = document.getElementById('login-status');
 
             if (result.loggedIn) {
-                statusDot.className = 'tab-status ready';
-                cardStatus.textContent = '✅ Logged in';
-                cardStatus.className = 'provider-card-status ready';
-                if (currentTab === provider) {
+                if (statusDot) statusDot.className = 'tab-status ready';
+                if (cardStatus) {
+                    cardStatus.textContent = 'Logged in';
+                    cardStatus.style.color = '#22c55e';
+                }
+                if (currentTab === provider && loginStatus) {
                     loginStatus.textContent = 'Logged in';
                     loginStatus.className = 'login-status logged-in';
                 }
             } else {
-                statusDot.className = 'tab-status loading';
-                cardStatus.textContent = 'Not logged in';
-                cardStatus.className = 'provider-card-status not-ready';
-                if (currentTab === provider) {
+                if (statusDot) statusDot.className = 'tab-status loading';
+                if (cardStatus) {
+                    cardStatus.textContent = 'Not logged in';
+                    cardStatus.style.color = '#f59e0b';
+                }
+                if (currentTab === provider && loginStatus) {
                     loginStatus.textContent = 'Not logged in';
                     loginStatus.className = 'login-status not-logged-in';
                 }
+            }
+
+            // Update general tab active count
+            if (document.getElementById('dash-active-count')) {
+                updateDashboardStats();
             }
         }
 
@@ -1496,6 +3021,75 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
                 toggle.classList.remove('active');
                 info.style.display = 'none';
             }
+            loadApiKeyState();
+        }
+
+        async function loadApiKeyState() {
+            try {
+                const result = await agentHub.getApiKey();
+                const display = document.getElementById('api-key-display');
+                const badge = document.getElementById('api-key-badge');
+                const genBtn = document.getElementById('gen-key-btn');
+                const revokeBtn = document.getElementById('revoke-key-btn');
+                const keyValue = document.getElementById('api-key-value');
+                const keyStats = document.getElementById('api-key-stats');
+
+                if (result.hasKey) {
+                    display.style.display = 'block';
+                    keyValue.textContent = result.key;
+                    badge.textContent = 'SECURED';
+                    badge.style.background = 'rgba(245,158,11,.1)';
+                    badge.style.color = '#f59e0b';
+                    badge.style.borderColor = 'rgba(245,158,11,.2)';
+                    genBtn.textContent = 'Regenerate';
+                    revokeBtn.style.display = 'inline-block';
+                    keyStats.textContent = 'Created: ' + new Date(result.createdAt).toLocaleDateString() +
+                        (result.lastUsed ? ' | Last used: ' + new Date(result.lastUsed).toLocaleString() : '') +
+                        ' | Uses: ' + (result.totalUses || 0);
+                } else {
+                    display.style.display = 'none';
+                    badge.textContent = 'OPEN';
+                    badge.style.background = 'rgba(34,197,94,.1)';
+                    badge.style.color = '#22c55e';
+                    badge.style.borderColor = 'rgba(34,197,94,.15)';
+                    genBtn.textContent = 'Generate Key';
+                    revokeBtn.style.display = 'none';
+                }
+            } catch (e) { console.error('API key load error:', e); }
+        }
+
+        async function genApiKey() {
+            if (!settings.restApiEnabled) {
+                showToast('REST API is OFF. Enable it first, then generate a key.');
+                return;
+            }
+            try {
+                const result = await agentHub.generateApiKey();
+                if (result.success) {
+                    showToast('API Key generated: ' + result.key);
+                    loadApiKeyState();
+                }
+            } catch (e) {
+                showToast('Failed to generate key');
+            }
+        }
+
+        async function revokeKey() {
+            try {
+                const result = await agentHub.revokeApiKey();
+                if (result.success) {
+                    showToast('API key revoked — API is now open access');
+                    loadApiKeyState();
+                }
+            } catch (e) {
+                showToast('Failed to revoke key');
+            }
+        }
+
+        async function copyApiKey() {
+            const key = document.getElementById('api-key-value').textContent;
+            await agentHub.copyToClipboard(key);
+            showToast('API key copied!');
         }
 
         function setCliInstalledUI() {
@@ -1512,6 +3106,18 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
             unBtn.style.display = 'inline-block';
             status.style.display = 'block';
             status.style.color = '#22c55e';
+
+            // Update new settings design components
+            const dashCli = document.getElementById('dash-cli-status');
+            if (dashCli) dashCli.textContent = 'Installed';
+            const diagCli = document.getElementById('diag-cli-status');
+            if (diagCli) { diagCli.textContent = 'Installed'; diagCli.style.color = '#22c55e'; }
+            const cliBadge = document.getElementById('cli-status-badge');
+            if (cliBadge) {
+                cliBadge.textContent = 'Installed';
+                cliBadge.style.background = 'rgba(34,197,94,0.1)';
+                cliBadge.style.color = '#22c55e';
+            }
         }
 
         function setCliUninstalledUI() {
@@ -1527,6 +3133,18 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
             fixBtn.style.display = 'none';
             unBtn.style.display = 'none';
             status.style.display = 'none';
+
+            // Update new settings design components
+            const dashCli = document.getElementById('dash-cli-status');
+            if (dashCli) dashCli.textContent = 'Not Installed';
+            const diagCli = document.getElementById('diag-cli-status');
+            if (diagCli) { diagCli.textContent = 'Not Installed'; diagCli.style.color = '#ef4444'; }
+            const cliBadge = document.getElementById('cli-status-badge');
+            if (cliBadge) {
+                cliBadge.textContent = 'Not Installed';
+                cliBadge.style.background = 'rgba(239, 68, 68, 0.1)';
+                cliBadge.style.color = '#ef4444';
+            }
         }
 
         async function checkCliState() {
@@ -1615,7 +3233,6 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
             const config = await agentHub.getMcpConfig();
             const configStr = JSON.stringify(config, null, 2);
             document.getElementById('mcp-config').textContent = configStr;
-            // Also update AI prompt config
             document.getElementById('ai-prompt-config').textContent = configStr;
         }
 
@@ -1660,7 +3277,6 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
             }, 2500);
         }
 
-        // Navigation controls
         function goBack() {
             // Will be handled by browser view
         }
@@ -1677,9 +3293,7 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
             }
         }
 
-        // Cookie Login Modal Functions
-
-        let cookieModalProvider = null; // Store provider when modal opens
+        let cookieModalProvider = null;
 
         function openCookieModal() {
             if (!currentTab || currentTab === 'settings') {
@@ -1687,31 +3301,45 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
                 return;
             }
 
-            // Store current provider
             cookieModalProvider = currentTab;
 
-            // Update modal title with current provider
             document.getElementById('cookie-modal-provider').textContent =
                 currentTab.charAt(0).toUpperCase() + currentTab.slice(1);
 
-            // Clear previous state
+            // Dynamically update the instruction link text and color
+            const displayNames = {
+                perplexity: 'perplexity.ai',
+                chatgpt: 'chatgpt.com',
+                claude: 'claude.ai',
+                gemini: 'gemini.google.com'
+            };
+            const brandColors = {
+                perplexity: '#20b2aa',
+                chatgpt: '#10a37f',
+                claude: '#cc785c',
+                gemini: '#4285f4'
+            };
+            const linkElem = document.getElementById('cookie-modal-link');
+            if (linkElem) {
+                linkElem.textContent = displayNames[currentTab] || 'provider website';
+                linkElem.style.color = brandColors[currentTab] || '#4285f4';
+            }
+
             document.getElementById('cookie-textarea').value = '';
             document.getElementById('cookie-status').className = 'cookie-status';
             document.getElementById('cookie-status').textContent = '';
             document.getElementById('cookie-login-btn').disabled = false;
             document.getElementById('cookie-login-btn').innerHTML = '🔓 Login with Cookies';
 
-            // IMPORTANT: Hide browser view so modal is visible
+            // Hide the native BrowserView.
             agentHub.hideBrowser();
 
-            // Show modal
             document.getElementById('cookie-modal-overlay').classList.add('active');
         }
 
         async function closeCookieModal() {
             document.getElementById('cookie-modal-overlay').classList.remove('active');
 
-            // Restore browser view if we had a provider open
             if (cookieModalProvider) {
                 await agentHub.showProvider(cookieModalProvider);
             }
@@ -1723,10 +3351,44 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
             }
         }
 
-        async function openGeminiInChrome(event) {
+        async function openProviderInChrome(event) {
             event.preventDefault();
-            await agentHub.openExternal('https://gemini.google.com/');
-            showToast('Opening Gemini in Chrome...');
+            if (!cookieModalProvider) return;
+            const urls = {
+                perplexity: 'https://www.perplexity.ai/',
+                chatgpt: 'https://chatgpt.com/',
+                claude: 'https://claude.ai/',
+                gemini: 'https://gemini.google.com/'
+            };
+            const targetUrl = urls[cookieModalProvider] || 'https://google.com/';
+            const name = cookieModalProvider.charAt(0).toUpperCase() + cookieModalProvider.slice(1);
+            await agentHub.openExternal(targetUrl);
+            showToast(`Opening ${name} in Chrome...`);
+        }
+
+        async function triggerClearCache() {
+            if (!currentTab || currentTab === 'settings') {
+                showToast('Please select a provider first');
+                return;
+            }
+
+            const name = currentTab.charAt(0).toUpperCase() + currentTab.slice(1);
+            if (!confirm(`Are you sure you want to clear all cookies, session storage, and cache for ${name}? This will sign you out completely.`)) {
+                return;
+            }
+
+            showToast(`Clearing cache for ${name}...`);
+            try {
+                const result = await agentHub.clearProviderCache(currentTab);
+                if (result.success) {
+                    showToast(`✅ ${result.message}`);
+                    await updateProviderStatus(currentTab);
+                } else {
+                    showToast(`❌ Failed to clear cache: ${result.error}`);
+                }
+            } catch (e) {
+                showToast(`❌ Error: ${e.message}`);
+            }
         }
 
         async function applyCookieLogin() {
@@ -1742,7 +3404,6 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
                 return;
             }
 
-            // Validate JSON format
             try {
                 const parsed = JSON.parse(cookiesJson);
                 if (!Array.isArray(parsed)) {
@@ -1757,7 +3418,6 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
                 return;
             }
 
-            // Disable button and show loading
             loginBtn.disabled = true;
             loginBtn.innerHTML = '⏳ Applying cookies...';
             statusDiv.className = 'cookie-status';
@@ -1770,7 +3430,6 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
                     statusDiv.className = 'cookie-status success';
                     statusDiv.textContent = `✅ ${result.message}`;
 
-                    // Close modal after success and update status
                     setTimeout(async () => {
                         closeCookieModal();
                         await updateProviderStatus(currentTab);
@@ -1790,7 +3449,656 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
             }
         }
 
-        init();
+        const BYOK_PROVIDERS = [
+            { id: 'chatgpt', name: 'OpenAI', placeholder: 'sk-...' },
+            { id: 'claude', name: 'Anthropic', placeholder: 'sk-ant-...' },
+            { id: 'gemini', name: 'Google AI', placeholder: 'AIza...' },
+            { id: 'perplexity', name: 'Perplexity', placeholder: 'pplx-...' },
+            { id: 'deepseek', name: 'DeepSeek', placeholder: 'sk-...' },
+            { id: 'groq', name: 'Groq', placeholder: 'gsk_...' },
+            { id: 'xai', name: 'xAI (Grok)', placeholder: 'xai-...' },
+            { id: 'openrouter', name: 'OpenRouter', placeholder: 'sk-or-...' },
+            { id: 'together', name: 'Together AI', placeholder: 'tg-...' },
+            { id: 'fireworks', name: 'Fireworks', placeholder: 'fw_...' },
+            { id: 'mistral', name: 'Mistral', placeholder: 'M...' },
+            { id: 'nvidia', name: 'NVIDIA NIM', placeholder: 'nvapi-...' },
+        ];
+
+        let byokApiModeEnabled = false;
+        let byokStatusData = null;
+
+        const byokTestResults = {};
+        let byokFormProvider = null;
+        let byokComboOpen = false;
+        let byokComboHighlight = -1;
+        let byokComboFiltered = [];
+
+        function byokOpenDropdown() {
+            byokComboOpen = true;
+            byokComboHighlight = -1;
+            byokFilterDropdown();
+            document.getElementById('byok-combo-list').style.display = 'block';
+            document.getElementById('byok-combo-input').style.borderColor = 'rgba(255,255,255,0.25)';
+        }
+
+        function byokCloseDropdown() {
+            byokComboOpen = false;
+            byokComboHighlight = -1;
+            document.getElementById('byok-combo-list').style.display = 'none';
+            document.getElementById('byok-combo-input').style.borderColor = 'rgba(255,255,255,0.1)';
+            document.getElementById('byok-combo-input').blur();
+        }
+
+        function byokFilterDropdown() {
+            const query = document.getElementById('byok-combo-input').value.toLowerCase().trim();
+            const list = document.getElementById('byok-combo-list');
+
+            byokComboFiltered = query
+                ? BYOK_PROVIDERS.filter(p => p.name.toLowerCase().includes(query) || p.id.toLowerCase().includes(query))
+                : [...BYOK_PROVIDERS];
+
+            if (byokComboFiltered.length === 0) {
+                list.innerHTML = '<div style="padding: 12px 16px; color: #555; font-size: 0.82rem; text-align: center;">No providers found</div>';
+                return;
+            }
+
+            byokComboHighlight = Math.min(byokComboHighlight, byokComboFiltered.length - 1);
+
+            list.innerHTML = byokComboFiltered.map((p, i) => {
+                const isHL = i === byokComboHighlight;
+                const isConfigured = byokStatusData && byokStatusData.providers && byokStatusData.providers[p.id] && byokStatusData.providers[p.id].configured;
+                const statusBadge = isConfigured
+                    ? `<span style="font-size: 0.62rem; color: #fff; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 2px 6px; font-weight: 600; display: flex; align-items: center; gap: 4px; line-height: 1;"><span style="display: inline-block; width: 4px; height: 4px; border-radius: 50%; background: #ffffff;"></span>Configured</span>`
+                    : '';
+                return `<div class="byok-combo-item" data-id="${p.id}" data-index="${i}"
+                    onmousedown="byokSelectFromDropdown('${p.id}')"
+                    onmouseenter="byokComboHighlight=${i};byokUpdateHighlight()"
+                    style="padding: 9px 14px; cursor: pointer; font-size: 0.82rem; color: ${isHL ? '#fff' : '#aaa'}; background: ${isHL ? 'rgba(255,255,255,0.04)' : 'transparent'}; transition: background 0.1s; display: flex; align-items: center; justify-content: space-between; border-radius: 6px; margin: 2px 4px;">
+                    <span style="font-weight: 500;">${p.name}</span>
+                    ${statusBadge}
+                </div>`;
+            }).join('');
+        }
+
+        function byokUpdateHighlight() {
+            const items = document.querySelectorAll('.byok-combo-item');
+            items.forEach((el, i) => {
+                if (i === byokComboHighlight) {
+                    el.style.background = 'rgba(255,255,255,0.04)';
+                    el.style.color = '#fff';
+                    el.scrollIntoView({ block: 'nearest' });
+                } else {
+                    el.style.background = 'transparent';
+                    el.style.color = '#aaa';
+                }
+            });
+        }
+
+        function byokSelectFromDropdown(providerId) {
+            const p = BYOK_PROVIDERS.find(x => x.id === providerId);
+            if (!p) return;
+            document.getElementById('byok-combo-input').value = p.name;
+            byokCloseDropdown();
+            byokOpenForm(providerId, 'add');
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const input = document.getElementById('byok-combo-input');
+            if (!input) return;
+
+            input.addEventListener('keydown', (e) => {
+                if (!byokComboOpen) {
+                    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') {
+                        byokOpenDropdown();
+                        e.preventDefault();
+                        return;
+                    }
+                    return;
+                }
+
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    byokComboHighlight = Math.min(byokComboHighlight + 1, byokComboFiltered.length - 1);
+                    byokUpdateHighlight();
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    byokComboHighlight = Math.max(byokComboHighlight - 1, 0);
+                    byokUpdateHighlight();
+                } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (byokComboHighlight >= 0 && byokComboHighlight < byokComboFiltered.length) {
+                        byokSelectFromDropdown(byokComboFiltered[byokComboHighlight].id);
+                    }
+                } else if (e.key === 'Escape') {
+                    byokCloseDropdown();
+                    input.blur();
+                }
+            });
+
+            document.addEventListener('mousedown', (e) => {
+                if (byokComboOpen && !document.getElementById('byok-combo').contains(e.target)) {
+                    byokCloseDropdown();
+                }
+            });
+        });
+
+        function byokOpenForm(providerId, mode) {
+            const p = BYOK_PROVIDERS.find(x => x.id === providerId);
+            if (!p) return;
+            byokFormProvider = providerId;
+
+            document.getElementById('byok-form').style.display = 'block';
+            document.getElementById('byok-form-name').textContent = p.name;
+            document.getElementById('byok-form-key').placeholder = p.placeholder;
+            document.getElementById('byok-form-key').value = '';
+            document.getElementById('byok-form-key').type = 'password';
+            document.getElementById('byok-form-status').textContent = '';
+            document.getElementById('byok-eye-btn').textContent = '👁';
+
+            const modelSection = document.getElementById('byok-model-section');
+            modelSection.style.display = 'none';
+
+            const badge = document.getElementById('byok-form-badge');
+            if (mode === 'edit') {
+                badge.textContent = 'EDIT';
+                badge.style.background = 'rgba(255,255,255,0.08)';
+                badge.style.color = '#ffffff';
+                document.getElementById('byok-form-save-btn').textContent = 'Update Key';
+                byokFetchAndShowModels(providerId, null);
+            } else {
+                badge.textContent = 'NEW';
+                badge.style.background = 'rgba(255,255,255,0.08)';
+                badge.style.color = '#ffffff';
+                document.getElementById('byok-form-save-btn').textContent = 'Save Key';
+            }
+
+            setTimeout(() => document.getElementById('byok-form-key').focus(), 100);
+        }
+
+        function byokCancelForm() {
+            document.getElementById('byok-form').style.display = 'none';
+            document.getElementById('byok-combo-input').value = '';
+            byokFormProvider = null;
+        }
+
+        function byokToggleKeyVis() {
+            const input = document.getElementById('byok-form-key');
+            const btn = document.getElementById('byok-eye-btn');
+            if (input.type === 'password') { input.type = 'text'; btn.textContent = '🙈'; }
+            else { input.type = 'password'; btn.textContent = '👁'; }
+        }
+
+        async function byokSaveFromForm() {
+            if (!byokFormProvider) return;
+            const key = document.getElementById('byok-form-key').value.trim();
+            const status = document.getElementById('byok-form-status');
+            if (!key) { status.textContent = '⚠️ Please enter an API key.'; status.style.color = '#f59e0b'; return; }
+
+            status.textContent = '⏳ Saving...'; status.style.color = '#f59e0b';
+            try {
+                const result = await agentHub.byokSaveKey(byokFormProvider, key);
+                if (result.success) {
+                    status.textContent = '✅ Saved! Select a model below or keep Auto.'; status.style.color = '#22c55e';
+                    await byokRefreshAll();
+                    byokFetchAndShowModels(byokFormProvider, key);
+                } else {
+                    status.textContent = '❌ ' + (result.error || 'Save failed'); status.style.color = '#ef4444';
+                }
+            } catch (e) {
+                status.textContent = '❌ ' + e.message; status.style.color = '#ef4444';
+            }
+        }
+
+        async function byokTestFromForm() {
+            if (!byokFormProvider) return;
+            const key = document.getElementById('byok-form-key').value.trim();
+            const status = document.getElementById('byok-form-status');
+            if (!key) { status.textContent = '⚠️ Enter key first.'; status.style.color = '#f59e0b'; return; }
+
+            status.textContent = '⏳ Testing...'; status.style.color = '#f59e0b';
+            try {
+                const result = await agentHub.byokTestKey(byokFormProvider, key);
+                if (result.success) {
+                    status.textContent = `✅ OK (${result.responseTimeMs}ms)`; status.style.color = '#22c55e';
+                } else {
+                    status.textContent = '❌ ' + (result.error || 'Failed'); status.style.color = '#ef4444';
+                }
+            } catch (e) {
+                status.textContent = '❌ ' + e.message; status.style.color = '#ef4444';
+            }
+        }
+
+        async function byokTestConfigured(providerId) {
+            const el = document.getElementById(`byok-cfg-status-${providerId}`);
+            if (el) { el.textContent = '⏳ Testing...'; el.style.color = '#f59e0b'; }
+            try {
+                const result = await agentHub.byokTestKey(providerId, '');
+                byokTestResults[providerId] = result.success
+                    ? { status: 'ok', time: new Date(), ms: result.responseTimeMs }
+                    : { status: 'error', time: new Date(), error: result.error };
+            } catch (e) {
+                byokTestResults[providerId] = { status: 'error', time: new Date(), error: e.message };
+            }
+            await byokRefreshAll();
+        }
+
+        async function byokDeleteKey(providerId) {
+            const p = BYOK_PROVIDERS.find(x => x.id === providerId);
+            if (!confirm(`Remove API key for ${p ? p.name : providerId}?\nReverts to browser session.`)) return;
+            try { await agentHub.byokRemoveKey(providerId); delete byokTestResults[providerId]; }
+            catch (e) { console.error('[BYOK] Delete failed:', e); }
+            await byokRefreshAll();
+        }
+
+        function byokTimeAgo(date) {
+            const s = Math.floor((Date.now() - date.getTime()) / 1000);
+            if (s < 5) return 'just now';
+            if (s < 60) return s + 's ago';
+            const m = Math.floor(s / 60);
+            if (m < 60) return m + ' min ago';
+            return Math.floor(m / 60) + 'h ago';
+        }
+
+        function byokRenderConfigured(configured) {
+            const section = document.getElementById('byok-configured-section');
+            const list = document.getElementById('byok-configured-list');
+            const empty = document.getElementById('byok-empty-state');
+
+            if (configured.length === 0) { section.style.display = 'none'; empty.style.display = 'block'; return; }
+            section.style.display = 'block'; empty.style.display = 'none';
+
+            list.innerHTML = configured.map(id => {
+                const p = BYOK_PROVIDERS.find(x => x.id === id) || { id, name: id };
+                const t = byokTestResults[id];
+                const ok = t && t.status === 'ok';
+                const err = t && t.status === 'error';
+                const dot = err ? '🔴' : '🟢';
+                const sub = t ? (ok ? `Tested ${byokTimeAgo(t.time)} • ${t.ms}ms` : t.error || 'Invalid key') : 'Not tested';
+                const subC = err ? '#ef4444' : '#666';
+
+                return `<div style="background: rgba(0,0,0,0.2); border: 1px solid ${err ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.05)'}; border-radius: 8px; overflow: hidden;">
+                    <div style="display: flex; align-items: center; gap: 10px; padding: 10px 14px;">
+                        <div style="flex: 1;">
+                            <div style="font-size: 0.85rem; font-weight: 600; color: #ddd;">${dot} ${p.name}</div>
+                            <div id="byok-cfg-status-${id}" style="font-size: 0.72rem; color: ${subC}; margin-top: 1px;">${sub}</div>
+                        </div>
+                        <div style="display: flex; gap: 6px; align-items: center;">
+                            <button onclick="byokEditFromList('${id}')" title="Edit Configuration" style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; color: #a1a1aa; cursor: pointer; transition: all 0.2s ease;" onmouseover="this.style.background='rgba(255, 255, 255, 0.08)'; this.style.borderColor='rgba(255, 255, 255, 0.2)'; this.style.color='#fff';" onmouseout="this.style.background='rgba(255, 255, 255, 0.03)'; this.style.borderColor='rgba(255, 255, 255, 0.08)'; this.style.color='#a1a1aa';">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                            </button>
+                            <button onclick="byokTestConfigured('${id}')" title="Test Connection" style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; color: #ffffff; cursor: pointer; transition: all 0.2s ease;" onmouseover="this.style.background='rgba(255, 255, 255, 0.08)'; this.style.borderColor='rgba(255, 255, 255, 0.2)';" onmouseout="this.style.background='rgba(255, 255, 255, 0.03)'; this.style.borderColor='rgba(255, 255, 255, 0.08)';">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12M9 3v12a4 4 0 0 0 6 0V3M5 21h14"></path></svg>
+                            </button>
+                            <button onclick="byokDeleteKey('${id}')" title="Delete Provider" style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.15); border-radius: 6px; color: #f87171; cursor: pointer; transition: all 0.2s ease;" onmouseover="this.style.background='rgba(239, 68, 68, 0.15)'; this.style.borderColor='rgba(239, 68, 68, 0.3)'; this.style.color='#fee2e2';" onmouseout="this.style.background='rgba(239, 68, 68, 0.05)'; this.style.borderColor='rgba(239, 68, 68, 0.15)'; this.style.color='#f87171';">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="byok-models-${id}" style="border-top: 1px solid rgba(255,255,255,0.04); padding: 6px 14px 8px;"></div>
+                </div>`;
+            }).join('');
+
+            for (const id of configured) {
+                byokLoadModelsList(id);
+            }
+        }
+
+        async function byokLoadModelsList(providerId) {
+            const container = document.getElementById(`byok-models-${providerId}`);
+            if (!container) return;
+
+            try {
+                const result = await agentHub.byokGetModels(providerId);
+                const models = (result && result.models) || [];
+
+                if (models.length === 0) {
+                    container.innerHTML = '<div style="font-size: 0.72rem; color: #555; padding: 2px 0; font-family: \'Consolas\',monospace;">Model: auto (default)</div>';
+                    return;
+                }
+
+                container.innerHTML = models.map(m => {
+                    const isOn = m.enabled !== false;
+                    const nameColor = isOn ? '#bbb' : '#555';
+                    const escapedId = m.id.replace(/'/g, "\\'");
+
+                    const trackBg = isOn ? '#22c55e' : '#444';
+                    const knobLeft = isOn ? '14px' : '2px';
+
+                    return `<div style="display: flex; align-items: center; gap: 8px; padding: 4px 0;">
+                        <div onclick="byokToggleModelEnabled('${providerId}','${escapedId}',${!isOn})"
+                            style="width: 30px; height: 16px; background: ${trackBg}; border-radius: 8px; cursor: pointer; position: relative; flex-shrink: 0; transition: background 0.2s;"
+                            title="${isOn ? 'Disable model' : 'Enable model'}">
+                            <div style="width: 12px; height: 12px; background: #fff; border-radius: 50%; position: absolute; top: 2px; left: ${knobLeft}; transition: left 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.3);"></div>
+                        </div>
+                        <span style="font-size: 0.72rem; color: ${nameColor}; font-family: 'Consolas','Monaco',monospace; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${m.id}</span>
+                        <button onclick="byokRemoveModelFromList('${providerId}','${escapedId}')"
+                            style="background: none; border: none; color: #555; cursor: pointer; font-size: 0.65rem; padding: 2px 4px;"
+                            onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#555'" title="Remove model">✕</button>
+                    </div>`;
+                }).join('');
+            } catch (e) {
+                container.innerHTML = '<div style="font-size: 0.72rem; color: #ef4444;">Failed to load models</div>';
+            }
+        }
+
+        async function byokToggleModelEnabled(providerId, modelId, enabled) {
+            try {
+                await agentHub.byokToggleModel(providerId, modelId, enabled);
+                byokLoadModelsList(providerId);
+            } catch (e) {
+                console.error('[BYOK] Toggle model failed:', e);
+            }
+        }
+
+        async function byokRemoveModelFromList(providerId, modelId) {
+            try {
+                await agentHub.byokRemoveModel(providerId, modelId);
+                byokLoadModelsList(providerId);
+            } catch (e) {
+                console.error('[BYOK] Remove model failed:', e);
+            }
+        }
+
+        function byokEditFromList(providerId) {
+            const p = BYOK_PROVIDERS.find(x => x.id === providerId);
+            if (!p) return;
+            document.getElementById('byok-combo-input').value = p.name;
+            byokOpenForm(providerId, 'edit');
+        }
+
+        async function byokToggleEnabled() {
+            const newState = !byokApiModeEnabled;
+            try {
+                const result = await agentHub.byokSetEnabled(newState);
+                if (result && result.success) {
+                    byokApiModeEnabled = result.enabled;
+                }
+            } catch (e) {
+                console.error('[BYOK] Toggle failed:', e);
+            }
+            byokUpdateModeUI();
+        }
+
+        function byokUpdateModeUI() {
+            const toggle = document.getElementById('byok-mode-toggle');
+            const label = document.getElementById('byok-mode-label');
+            const desc = document.getElementById('byok-mode-desc');
+            const body = document.getElementById('byok-panel-body');
+            const sidebarBadge = document.getElementById('sidebar-mode-badge');
+
+            if (byokApiModeEnabled) {
+                toggle.classList.add('active');
+                label.textContent = 'API Mode';
+                label.style.color = '#f59e0b';
+                desc.innerHTML = 'API Mode is <strong style="color:#22c55e;">ON</strong>. Configured API keys are used globally. Sessions bypassed.';
+                if (body) body.style.opacity = '1';
+                if (sidebarBadge) {
+                    sidebarBadge.textContent = 'BYOK';
+                    sidebarBadge.style.color = '#f59e0b';
+                }
+            } else {
+                toggle.classList.remove('active');
+                label.textContent = 'Session Mode';
+                label.style.color = '#555';
+                desc.innerHTML = 'API Mode is <strong style="color:#888;">OFF</strong>. Browser sessions are used for all providers.';
+                if (body) body.style.opacity = '0.45';
+                if (sidebarBadge) {
+                    sidebarBadge.textContent = 'Session';
+                    sidebarBadge.style.color = '#9ca3af';
+                }
+            }
+        }
+
+        async function byokRefreshAll() {
+            try {
+                const result = await agentHub.byokGetStatus();
+                if (!result || !result.success) return;
+                byokStatusData = result;
+
+                byokApiModeEnabled = !!result.enabled;
+                byokUpdateModeUI();
+
+                const configured = [];
+                for (const [id, info] of Object.entries(result.providers)) {
+                    if (info.configured) configured.push(id);
+                }
+                byokRenderConfigured(configured);
+
+                // Sync the General dashboard Active Providers count in real-time
+                updateDashboardStats();
+            } catch (e) {
+                console.error('[BYOK] Refresh failed:', e);
+            }
+        }
+
+        init().catch(e => console.error('[Proxima] init failed:', e));
+        byokRefreshAll();
+
+        let _byokModelList = [];
+        let _byokModelFiltered = [];
+        let _byokModelHL = -1;
+        let _byokModelDropOpen = false;
+        let _byokAddedModelIds = new Set();
+
+        async function byokFetchAndShowModels(provider, key) {
+            const section = document.getElementById('byok-model-section');
+            const input = document.getElementById('byok-model-input');
+            const mStatus = document.getElementById('byok-model-status');
+
+            section.style.display = 'block';
+            mStatus.textContent = '⏳ Fetching available models...';
+            mStatus.style.color = '#f59e0b';
+            input.disabled = true;
+            _byokModelList = [];
+
+            try {
+                const result = await agentHub.byokFetchModels(provider, key || '');
+                if (!result.success) {
+                    mStatus.textContent = '⚠️ ' + (result.error || 'Failed to fetch models');
+                    mStatus.style.color = '#ef4444';
+                    input.disabled = false;
+                    return;
+                }
+
+                // Sanitize model IDs.
+                _byokModelList = (result.models || []).filter(
+                    m => typeof m === 'string' && /^[\w.\/:@+-]{1,200}$/.test(m)
+                );
+
+                try {
+                    const modelsResult = await agentHub.byokGetModels(provider);
+                    _byokAddedModelIds = new Set((modelsResult?.models || []).map(m => m.id));
+                } catch (_) { _byokAddedModelIds = new Set(); }
+
+                input.value = '';
+                input.placeholder = 'Search & add models...';
+
+                input.disabled = false;
+                mStatus.textContent = `${_byokModelList.length} model${_byokModelList.length !== 1 ? 's' : ''} available`;
+                mStatus.style.color = '#22c55e';
+            } catch (e) {
+                mStatus.textContent = '❌ ' + e.message;
+                mStatus.style.color = '#ef4444';
+                input.disabled = false;
+            }
+        }
+
+        function byokModelOpenDropdown() {
+            _byokModelDropOpen = true;
+            _byokModelHL = -1;
+            const input = document.getElementById('byok-model-input');
+            input.style.borderColor = '#f59e0b';
+            byokModelFilterDropdown();
+            document.getElementById('byok-model-list').style.display = 'block';
+        }
+
+        function byokModelCloseDropdown() {
+            _byokModelDropOpen = false;
+            _byokModelHL = -1;
+            document.getElementById('byok-model-list').style.display = 'none';
+            document.getElementById('byok-model-input').style.borderColor = 'rgba(255,255,255,0.1)';
+            document.getElementById('byok-model-input').blur();
+        }
+
+        function byokModelFilterDropdown() {
+            const query = document.getElementById('byok-model-input').value.toLowerCase().trim();
+            const list = document.getElementById('byok-model-list');
+
+            _byokModelFiltered = query
+                ? _byokModelList.filter(m => m.toLowerCase().includes(query))
+                : [..._byokModelList];
+
+            let html = '';
+
+            if (_byokModelFiltered.length === 0 && query) {
+                html += '<div style="padding: 10px 14px; color: #555; font-size: 0.78rem; text-align: center;">No models match "' + query.replace(/</g, '&lt;') + '"</div>';
+            } else {
+                for (let i = 0; i < _byokModelFiltered.length; i++) {
+                    const m = _byokModelFiltered[i];
+                    const isHL = i === _byokModelHL;
+                    const isAdded = _byokAddedModelIds.has(m);
+                    const escaped = m.replace(/'/g, "\\'");
+
+                    const actionBtn = isAdded
+                        ? `<span onmousedown="event.stopPropagation();byokDropdownRemoveModel('${escaped}')" style="color: #22c55e; font-size: 0.68rem; font-weight: 600; cursor: pointer; padding: 2px 8px; border: 1px solid rgba(34,197,94,0.25); border-radius: 4px; background: rgba(34,197,94,0.1); white-space: nowrap;" onmouseenter="this.style.color='#ef4444';this.style.borderColor='rgba(239,68,68,0.3)';this.style.background='rgba(239,68,68,0.1)';this.textContent='✕ Remove'" onmouseleave="this.style.color='#22c55e';this.style.borderColor='rgba(34,197,94,0.25)';this.style.background='rgba(34,197,94,0.1)';this.textContent='✓ Added'">✓ Added</span>`
+                        : `<span onmousedown="event.stopPropagation();byokDropdownAddModel('${escaped}')" style="color: #60a5fa; font-size: 0.68rem; font-weight: 600; cursor: pointer; padding: 2px 8px; border: 1px solid rgba(96,165,250,0.25); border-radius: 4px; background: rgba(96,165,250,0.08); white-space: nowrap;" onmouseenter="this.style.background='rgba(96,165,250,0.18)'" onmouseleave="this.style.background='rgba(96,165,250,0.08)'">+ Add</span>`;
+
+                    html += `<div class="byok-model-item" data-value="${m}" data-index="${i}"
+                        onmouseenter="_byokModelHL=${i};byokModelUpdateHL()"
+                        style="display: flex; align-items: center; gap: 8px; padding: 7px 14px; font-size: 0.78rem; font-family: 'Consolas','Monaco',monospace; color: ${isHL ? '#fff' : (isAdded ? '#bbb' : '#aaa')}; background: ${isHL ? 'rgba(245,158,11,0.15)' : 'transparent'}; transition: background 0.1s;"
+                        ><span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${m}</span>${actionBtn}</div>`;
+                }
+            }
+
+            list.innerHTML = html;
+        }
+
+        async function byokDropdownAddModel(modelId) {
+            if (!byokFormProvider) return;
+            try {
+                await agentHub.byokAddModel(byokFormProvider, modelId);
+                _byokAddedModelIds.add(modelId);
+                byokModelFilterDropdown();
+                byokLoadModelsList(byokFormProvider);
+                const mStatus = document.getElementById('byok-model-status');
+                if (mStatus) { mStatus.textContent = `✅ Added: ${modelId}`; mStatus.style.color = '#22c55e'; }
+            } catch (e) {
+                console.error('[BYOK] Add model failed:', e);
+            }
+        }
+
+        async function byokDropdownRemoveModel(modelId) {
+            if (!byokFormProvider) return;
+            try {
+                await agentHub.byokRemoveModel(byokFormProvider, modelId);
+                _byokAddedModelIds.delete(modelId);
+                byokModelFilterDropdown();
+                byokLoadModelsList(byokFormProvider);
+                const mStatus = document.getElementById('byok-model-status');
+                if (mStatus) { mStatus.textContent = `Removed: ${modelId}`; mStatus.style.color = '#888'; }
+            } catch (e) {
+                console.error('[BYOK] Remove model failed:', e);
+            }
+        }
+
+        function byokModelUpdateHL() {
+            const items = document.querySelectorAll('#byok-model-list .byok-model-item[data-index]');
+            items.forEach((el, i) => {
+                if (i === _byokModelHL) {
+                    el.style.background = 'rgba(245,158,11,0.15)';
+                    el.style.color = '#fff';
+                    el.scrollIntoView({ block: 'nearest' });
+                } else {
+                    el.style.background = 'transparent';
+                    el.style.color = '#aaa';
+                }
+            });
+        }
+
+        async function byokModelSelectItem(modelId) {
+            const input = document.getElementById('byok-model-input');
+            const mStatus = document.getElementById('byok-model-status');
+            input.value = '';
+            input.placeholder = '⚡ Auto (use default)';
+            byokModelCloseDropdown();
+
+            if (!byokFormProvider) return;
+
+            if (!modelId) {
+                mStatus.textContent = '⚡ Auto mode (using default)';
+                mStatus.style.color = '#22c55e';
+                return;
+            }
+
+            try {
+                const result = await agentHub.byokAddModel(byokFormProvider, modelId);
+                if (result && result.added) {
+                    mStatus.textContent = `✅ Added: ${modelId}`;
+                } else {
+                    mStatus.textContent = `ℹ️ Already added: ${modelId}`;
+                }
+                mStatus.style.color = '#22c55e';
+
+                byokLoadModelsList(byokFormProvider);
+            } catch (e) {
+                mStatus.textContent = '❌ ' + e.message;
+                mStatus.style.color = '#ef4444';
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const mInput = document.getElementById('byok-model-input');
+            if (!mInput) return;
+
+            mInput.addEventListener('keydown', (e) => {
+                if (!_byokModelDropOpen) {
+                    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { byokModelOpenDropdown(); e.preventDefault(); return; }
+                    return;
+                }
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    _byokModelHL = Math.min(_byokModelHL + 1, _byokModelFiltered.length - 1);
+                    byokModelUpdateHL();
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    _byokModelHL = Math.max(_byokModelHL - 1, -1);
+                    byokModelUpdateHL();
+                } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (_byokModelHL >= 0 && _byokModelHL < _byokModelFiltered.length) {
+                        byokModelSelectItem(_byokModelFiltered[_byokModelHL]);
+                    } else {
+                        byokModelSelectItem('');
+                    }
+                } else if (e.key === 'Escape') {
+                    byokModelCloseDropdown();
+                    mInput.blur();
+                }
+            });
+
+            document.addEventListener('mousedown', (e) => {
+                if (_byokModelDropOpen && !document.getElementById('byok-model-combo').contains(e.target)) {
+                    byokModelCloseDropdown();
+                }
+            });
+        });
+
+        async function byokRefreshModels() {
+            if (!byokFormProvider) return;
+            const key = document.getElementById('byok-form-key').value.trim();
+            await byokFetchAndShowModels(byokFormProvider, key || null);
+        }
+
+        async function byokLoadModelLabel(providerId) {
+            const el = document.getElementById(`byok-cfg-model-${providerId}`);
+            if (!el) return;
+            try {
+                const result = await agentHub.byokGetModel(providerId);
+                el.textContent = result?.model ? `Model: ${result.model}` : 'Model: auto';
+            } catch {
+                el.textContent = '';
+            }
+        }
     </script>
 </body>
 

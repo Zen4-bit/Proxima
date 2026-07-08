@@ -1,0 +1,11 @@
+COMMON MISTAKES:
+❌ Using complex grep() or find_files() for editing/refactoring tasks
+✅ Use file operations only for listing, check existence, and small metadata reads
+
+TYPICAL PATTERNS:
+- List: files = os.listdir('.')
+- Directory creation: os.makedirs('new_dir', exist_ok=True)
+- Path validation: exists = os.path.exists('file.txt')
+
+VERIFICATION HINTS:
+- Confirm via os.path.exists() that files/folders are created/modified correctly.

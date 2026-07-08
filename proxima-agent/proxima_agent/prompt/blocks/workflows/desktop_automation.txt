@@ -1,0 +1,7 @@
+DESKTOP AUTOMATION WORKFLOW:
+1. Connect to the target application — d.connect('App Name').
+2. List and identify UI elements — d.elements().
+3. Interact with one element at a time — d.write_text, d.click, d.click_menu.
+4. Verify each action's result before proceeding — d.screenshot().
+5. Report completion with visual evidence.
+ONE ACTION PER EXECUTE for UI tasks. Verify between steps.

@@ -1,0 +1,7 @@
+SHELL
+Purpose: Execute terminal commands.
+When to use: Compiling files, running scripts/tests, installing dependencies.
+When not to use: Standard file/directory management (use file) or file editing (use coding).
+Import: from proxima_agent.tools.code_env import shell
+API:
+  shell(command)                → str (returns command output stdout+stderr)

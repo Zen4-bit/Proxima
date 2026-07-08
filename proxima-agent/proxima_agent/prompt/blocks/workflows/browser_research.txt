@@ -1,0 +1,7 @@
+BROWSER RESEARCH WORKFLOW:
+1. Navigate to the target URL or search page.
+2. Verify the page loaded — check content or elements.
+3. Extract the needed information (read_content, extract_records).
+4. If multi-page, navigate to next page and repeat.
+5. Compile results and report to user with evidence.
+ONE ACTION PER EXECUTE: navigate OR fill OR click. Verify between steps.

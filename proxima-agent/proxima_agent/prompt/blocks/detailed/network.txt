@@ -1,0 +1,10 @@
+COMMON MISTAKES:
+❌ Using urllib for visual, JS-heavy web pages (e.g. social feeds, login pages)
+✅ Use browser tool ChromeBrowser for JS-heavy or interactive web pages
+
+TYPICAL PATTERNS:
+- Fetch JSON API: resp = urllib.request.urlopen(req) -> json.loads(resp.read().decode())
+- Download payload: urllib.request.urlretrieve(url, 'file.zip')
+
+VERIFICATION HINTS:
+- Confirm response status codes and verify downloaded files exist and have non-zero size.

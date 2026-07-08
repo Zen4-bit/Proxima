@@ -1,0 +1,8 @@
+BUG FIX WORKFLOW:
+1. Read relevant source files to understand the area.
+2. Reproduce the issue — confirm the bug exists with evidence.
+3. Identify root cause — trace the logic, don't guess.
+4. Edit minimally — fix only what's broken, don't refactor.
+5. Syntax check the modified file.
+6. Run tests if available (pytest, npm test, etc.).
+7. Verify the fix — re-run the reproduction and confirm resolution.
