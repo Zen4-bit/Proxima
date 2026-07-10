@@ -164,7 +164,7 @@
     },
     "dependencies": {
         "@modelcontextprotocol/sdk": "^1.25.3",
-        "better-sqlite3": "^12.10.0",
+        "better-sqlite3": "^12.11.1",
         "electron-updater": "^6.8.9",
         "onnxruntime-node": "^1.26.0",
         "ws": "^8.20.0",
