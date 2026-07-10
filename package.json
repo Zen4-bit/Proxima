@@ -174,7 +174,7 @@
         "acorn": "^8.16.0",
         "acorn-loose": "^8.5.2",
         "concurrently": "^9.2.1",
-        "electron": "^33.4.11",
+        "electron": "^43.1.0",
         "electron-builder": "^25.1.8",
         "http-server": "^14.1.1"
     }
