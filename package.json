@@ -168,7 +168,7 @@
         "electron-updater": "^6.8.9",
         "onnxruntime-node": "^1.26.0",
         "ws": "^8.20.0",
-        "zod": "^4.3.6"
+        "zod": "^4.4.3"
     },
     "devDependencies": {
         "acorn": "^8.16.0",
