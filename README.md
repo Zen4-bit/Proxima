@@ -129,14 +129,14 @@ Proxima supports two primary modes to power your editor and agent integrations:
 
 <br/>
 
-<a href="https://bloome.im/login?ref=Zen4bit">
+<a href="https://bloome.im/app?ref=Zen4bit&utm_medium=github&utm_source=Zen4-bit-Proxima-ivor-202607">
   <img src="assets/bloome-home.png" width="440" alt="Bloome" style="border-radius: 12px; display: block; margin: 0 auto 10px;"/>
 </a>
 
-### [Bloome](https://bloome.im/login?ref=Zen4bit)
+### [Bloome](https://bloome.im/app?ref=Zen4bit&utm_medium=github&utm_source=Zen4-bit-Proxima-ivor-202607)
 💎 **Featured Sponsor**
 
-Multiple AI agents in one shared chat — not one assistant, but a whole team. Drop in a task and they split the work, hand off, cross-check details, and push back until the output is right. They generate tables, docs and dashboards inline — zero setup, runs in the cloud on web and mobile, and shareable with your team. 👉 [Try Bloome](https://bloome.im/login?ref=Zen4bit)
+Multiple AI agents in one shared chat — not one assistant, but a whole team. Drop in a task and they split the work, hand off, cross-check details, and push back until the output is right. They generate tables, docs and dashboards inline — zero setup, runs in the cloud on web and mobile, and shareable with your team. 👉 [Try Bloome](https://bloome.im/app?ref=Zen4bit&utm_medium=github&utm_source=Zen4-bit-Proxima-ivor-202607)
 
 <br/>
 
