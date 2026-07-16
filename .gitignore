@@ -56,7 +56,6 @@ src/enabled-providers.json
 *.session
 cookies-backup/
 Proxima/
-New folder/
 byok.json
 settings.json
 api-key.json
