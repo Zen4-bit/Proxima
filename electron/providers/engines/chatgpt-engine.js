@@ -442,6 +442,14 @@
             };
         }
 
+        // Honour an explicit engine override (e.g. `-m chatgpt:gpt-5-5-thinking`),
+        // falling back to the account default when none is supplied.
+        var requestedModel = 'auto';
+        if (typeof engine === 'string' && engine.trim() && engine.trim() !== 'auto') {
+            requestedModel = engine.trim();
+            console.log('[Proxima ChatGPT] Requested model:', requestedModel);
+        }
+
         var payload = {
             action: 'next',
             messages: [{
@@ -450,7 +458,7 @@
                 content: messageContent,
                 metadata: messageMetadata
             }],
-            model: 'auto',
+            model: requestedModel,
             parent_message_id: _parentMessageId || crypto.randomUUID(),
             timezone_offset_min: new Date().getTimezoneOffset(),
             history_and_training_disabled: false,
