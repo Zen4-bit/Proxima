@@ -4,6 +4,8 @@
 
 # Proxima
 
+[![MCP Toplist](https://mcptoplist.com/badge/glama%2FZen4-bit%2FProxima.svg)](https://mcptoplist.com/server/glama%2FZen4-bit%2FProxima)
+
 ### All your AI models, working under one roof.
 
 **Run frontier LLMs directly inside Cursor, VS Code, Windsurf, or Claude Desktop using free browser login sessions or local offline providers. Ships with a self-healing Python agent, multi-agent delegation, and cross-session memory.**
