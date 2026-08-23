@@ -152,7 +152,8 @@ ipcMain.handle('open-in-system-browser', (event, provider) => {
         perplexity: 'https://www.perplexity.ai/',
         chatgpt: 'https://chat.openai.com/',
         claude: 'https://claude.ai/',
-        gemini: 'https://gemini.google.com/'
+        gemini: 'https://gemini.google.com/',
+        kimi: 'https://www.kimi.com/'
     };
     if (urls[provider]) {
         shell.openExternal(urls[provider]);

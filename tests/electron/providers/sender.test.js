@@ -92,3 +92,14 @@ test('sendMessageToProvider: a failing send does not wedge the queue for the nex
     const r = await sender.sendMessageToProvider('gemini', 'b');
     assert.deepEqual(r, { response: 'recovered' });
 });
+
+test('sendMessageToProvider: defaults think=true and forwards the think flag to sendViaAPI', async () => {
+    let captured;
+    sendImpl = async (...args) => { captured = args; return 'ok'; };
+    await sender.sendMessageToProvider('chatgpt', 'hi');
+    assert.equal(captured[6], true, 'think must default to true');
+
+    captured = null;
+    await sender.sendMessageToProvider('chatgpt', 'hi', null, null, null, false);
+    assert.equal(captured[6], false, 'explicit think=false must be forwarded');
+});

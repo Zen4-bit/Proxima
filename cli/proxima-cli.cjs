@@ -119,7 +119,7 @@ function startSpinner(text) {
 
 const FALLBACK_INFO = {
     mode: 'session',
-    providers: ['chatgpt', 'claude', 'gemini', 'perplexity'],
+    providers: ['chatgpt', 'claude', 'gemini', 'perplexity', 'kimi'],
     models: {},
     firstProvider: 'claude'
 };

@@ -6,11 +6,11 @@ import assert from 'node:assert';
 import { register } from '../../src/mcp/tools-chat.js';
 import { registerModule, textOf } from '../fixtures/mcp-harness.js';
 
-test('tools-chat: registers exactly the 8 documented chat tools with schemas', () => {
+test('tools-chat: registers exactly the 9 documented chat tools with schemas', () => {
     const { tools } = registerModule(register);
     assert.deepEqual(
         [...tools.keys()].sort(),
-        ['ask_all_ais', 'ask_chatgpt', 'ask_claude', 'ask_gemini', 'ask_model', 'new_conversation', 'smart_query'].sort()
+        ['ask_all_ais', 'ask_chatgpt', 'ask_claude', 'ask_gemini', 'ask_kimi', 'ask_model', 'new_conversation', 'smart_query'].sort()
             .concat('ask_perplexity').sort(),
     );
     // Every tool exposes a non-empty description and an inputSchema object.
@@ -41,6 +41,24 @@ test('ask_claude: a smartChat failure is returned as an isError toolError', asyn
     const res = await h.tools.get('ask_claude').handler({ message: 'hi' });
     assert.equal(res.isError, true);
     assert.match(textOf(res), /provider down/);
+});
+
+test('ask_chatgpt: defaults to think mode (think=true) and honors an explicit think=false', async () => {
+    const h = registerModule(register);
+    await h.tools.get('ask_chatgpt').handler({ message: 'hello' });
+    assert.equal(h.smartChatCalls[0].provider, 'chatgpt');
+    assert.deepEqual(h.smartChatCalls[0].opts, { filePath: null, think: true });
+
+    await h.tools.get('ask_chatgpt').handler({ message: 'hello', think: false });
+    assert.equal(h.smartChatCalls[1].opts.think, false);
+});
+
+test('ask_model: forwards think default true and honors an explicit think=false', async () => {
+    const h = registerModule(register);
+    await h.tools.get('ask_model').handler({ provider: 'chatgpt', message: 'hi' });
+    assert.equal(h.smartChatCalls[0].opts.think, true);
+    await h.tools.get('ask_model').handler({ provider: 'chatgpt', message: 'hi', think: false });
+    assert.equal(h.smartChatCalls[1].opts.think, false);
 });
 
 test('ask_model: normalizes provider case and forwards the model override as engine', async () => {

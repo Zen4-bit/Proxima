@@ -46,7 +46,7 @@ export function getEnabledProviders(dirname) {
         console.error('[MCP] Error reading enabled providers:', e);
     }
 
-    return new Set(['chatgpt', 'claude', 'gemini', 'perplexity']);
+    return new Set(['chatgpt', 'claude', 'gemini', 'perplexity', 'kimi']);
 }
 
 

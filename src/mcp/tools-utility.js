@@ -33,7 +33,7 @@ export function register(server, deps) {
         inputSchema: {
             filePath: z.string().describe('Absolute path to the file or directory to analyze'),
             question: z.string().optional().describe('Specific question about the file/codebase'),
-            provider: z.string().optional().describe('Which AI to use (chatgpt, claude, gemini, perplexity, or any configured BYOK provider). Default: claude'),
+            provider: z.string().optional().describe('Which AI to use (chatgpt, claude, gemini, perplexity, kimi, or any configured BYOK provider). Default: claude'),
             grep: z.string().optional().describe('Optional regex pattern to search within the file/codebase before analysis'),
             symbols: z.string().optional().describe('Comma-separated function/class names to extract from file. E.g. "smartChat,toolResponse,guardrails". Auto-resolves dependencies.'),
         },
@@ -127,7 +127,7 @@ export function register(server, deps) {
         inputSchema: {
             filePath: z.string().describe('Absolute path to the code file to review'),
             focus: z.string().optional().describe('What to focus on (bugs, performance, security, style)'),
-            provider: z.string().optional().describe('Which AI to use (chatgpt, claude, gemini, perplexity, or any configured BYOK provider). Default: claude'),
+            provider: z.string().optional().describe('Which AI to use (chatgpt, claude, gemini, perplexity, kimi, or any configured BYOK provider). Default: claude'),
         },
         annotations: Object.freeze({ readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true }),
     }, async ({ filePath, focus, provider: pn }) => {

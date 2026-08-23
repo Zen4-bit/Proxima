@@ -57,8 +57,9 @@ const perplexity = new AIProvider('perplexity', ipcClient, isEnabled);
 const chatgpt = new AIProvider('chatgpt', ipcClient, isEnabled);
 const claude = new AIProvider('claude', ipcClient, isEnabled);
 const gemini = new AIProvider('gemini', ipcClient, isEnabled);
+const kimi = new AIProvider('kimi', ipcClient, isEnabled);
 
-const allProviders = { perplexity, chatgpt, claude, gemini };
+const allProviders = { perplexity, chatgpt, claude, gemini, kimi };
 
 
 (function _initByokProviders() {
@@ -165,10 +166,10 @@ function pickBestProvider(taskType) {
     }
 
     const priorities = {
-        coding: ['claude', 'chatgpt', 'gemini', 'perplexity'],
-        research: ['perplexity', 'gemini', 'chatgpt', 'claude'],
-        general: ['claude', 'chatgpt', 'gemini', 'perplexity'],
-        review: ['claude', 'chatgpt', 'gemini', 'perplexity'],
+        coding: ['claude', 'chatgpt', 'gemini', 'perplexity', 'kimi'],
+        research: ['perplexity', 'gemini', 'chatgpt', 'claude', 'kimi'],
+        general: ['claude', 'chatgpt', 'gemini', 'perplexity', 'kimi'],
+        review: ['claude', 'chatgpt', 'gemini', 'perplexity', 'kimi'],
     };
     const order = priorities[taskType] || priorities.general;
     for (const name of order) {
@@ -265,8 +266,8 @@ server.resource(
     }
 );
 
-// The 4 session tool names that map 1:1 to a BYOK provider.
-const SESSION_TOOL_MAP = { chatgpt: 'ask_chatgpt', claude: 'ask_claude', gemini: 'ask_gemini', perplexity: 'ask_perplexity' };
+// The 5 session tool names that map 1:1 to a BYOK provider.
+const SESSION_TOOL_MAP = { chatgpt: 'ask_chatgpt', claude: 'ask_claude', gemini: 'ask_gemini', perplexity: 'ask_perplexity', kimi: 'ask_kimi' };
 
 server.resource(
     'models', 'proxima://models',
@@ -302,7 +303,7 @@ server.resource(
                 model: `${name} (web session)`,
                 tool: SESSION_TOOL_MAP[name] || `ask_model('${name}', message)`,
             }));
-            hint = 'Session mode. Use ask_chatgpt, ask_claude, ask_gemini, ask_perplexity for browser-based providers.';
+            hint = 'Session mode. Use ask_chatgpt, ask_claude, ask_gemini, ask_perplexity, ask_kimi for browser-based providers.';
         }
 
         return {

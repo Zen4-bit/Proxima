@@ -244,6 +244,21 @@ test('AIProvider.chat: cache key includes filePath (same text + different file â
     assert.equal(sendMessageCalls, 2, 'a different attached file must not reuse the cached answer');
 });
 
+test('AIProvider.chat: forwards think=true by default and includes think in the cache key', async () => {
+    const sends = [];
+    const ipc = mockIpc(async (action, provider, data) => {
+        if (action === 'initProvider') return {};
+        if (action === 'sendMessage') { sends.push({ ...data }); return { response: 'r' }; }
+        return {};
+    });
+    const p = new AIProvider('claude', ipc, () => true);
+    await p.chat('q');
+    await p.chat('q', true, null, null, false);
+    assert.equal(sends.length, 2, 'toggling think must not reuse the cached answer');
+    assert.equal(sends[0].think, true, 'think must default to true');
+    assert.equal(sends[1].think, false, 'explicit think=false must be forwarded');
+});
+
 test('AIProvider.chat: gateway {success:false,error:"rate limit"} throws a RateLimitError', async () => {
     const ipc = mockIpc(async (action) => (action === 'initProvider' ? {} : { success: false, error: 'rate limit exceeded' }));
     const p = new AIProvider('claude', ipc, () => true);

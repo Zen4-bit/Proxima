@@ -74,7 +74,7 @@ function getChatJS() {
         } catch (e) {
             console.warn('[Widget] Could not fetch models, using defaults:', e.message);
             _gatewayMode = 'session';
-            _enabledProviders = ['chatgpt', 'claude', 'gemini', 'perplexity'];
+            _enabledProviders = ['chatgpt', 'claude', 'gemini', 'perplexity', 'kimi'];
         }
         populateDropdown();
         populateBattle();

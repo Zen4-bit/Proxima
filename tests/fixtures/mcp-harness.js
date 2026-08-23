@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { toolResponse, toolError } from '../../src/mcp/helpers.js';
 
 export function makeHarness(overrides = {}) {
-    const enabled = new Set(overrides.enabled || ['chatgpt', 'claude', 'gemini', 'perplexity']);
+    const enabled = new Set(overrides.enabled || ['chatgpt', 'claude', 'gemini', 'perplexity', 'kimi']);
     const smartChatCalls = [];
     const ipcCalls = [];
     const tools = new Map();

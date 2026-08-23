@@ -154,7 +154,7 @@ function closeWebSocket() {
     }
 }
 
-async function queryProvider(provider, message, filePath = null, engine = null, conversationId = null, modelId = null) {
+async function queryProvider(provider, message, filePath = null, engine = null, conversationId = null, modelId = null, think = true) {
     const byokKey = byok.keys.isEnabled() ? byok.keys.getKey(provider) : null;
     if (byokKey) {
         const messages = [{ role: 'user', content: message }];
@@ -167,7 +167,7 @@ async function queryProvider(provider, message, filePath = null, engine = null, 
     const sendResult = await handleMCPRequest({
         action: 'sendMessage',
         provider,
-        data: { message, filePath, engine, conversationId }
+        data: { message, filePath, engine, conversationId, think }
     });
     
     if (!sendResult.success) {
@@ -199,7 +199,7 @@ function pickBestProvider(preferred) {
         if (found) return found;
         return null;
     }
-    const priorityList = ['claude', 'chatgpt', 'gemini', 'perplexity', 'deepseek', 'groq', 'xai', 'openrouter', 'together', 'fireworks', 'mistral', 'nvidia'];
+    const priorityList = ['claude', 'chatgpt', 'gemini', 'perplexity', 'kimi', 'deepseek', 'groq', 'xai', 'openrouter', 'together', 'fireworks', 'mistral', 'nvidia'];
     const priority = priorityList.find(p => enabled.includes(p));
     if (priority) return priority;
     return enabled.length > 0 ? enabled[0] : null;
@@ -265,9 +265,10 @@ async function handleWSMessage(ws, clientId, msg) {
             sendJSON(ws, { type: 'status', id: requestId, status: 'processing', model: provider, timestamp: new Date().toISOString() });
 
             const conversationId = msg.conversationId || msg.conversation_id || msg.sessionId || msg.session_id || null;
+            const think = msg.think !== false;
             const startTime = Date.now();
             try {
-                const content = await queryProvider(provider, message, filePath, engine, conversationId, byokModelId);
+                const content = await queryProvider(provider, message, filePath, engine, conversationId, byokModelId, think);
                 const responseTimeMs = Date.now() - startTime;
 
                 sendJSON(ws, {
@@ -546,7 +547,7 @@ async function handleWSMessage(ws, clientId, msg) {
         case 'reset': {
             const requested = msg.model || null;
             if (!requested) {
-                sendJSON(ws, { type: 'error', id: requestId, error: 'A "model" (provider) is required to reset: chatgpt, claude, gemini, or perplexity.', timestamp: new Date().toISOString() });
+                sendJSON(ws, { type: 'error', id: requestId, error: 'A "model" (provider) is required to reset: chatgpt, claude, gemini, perplexity, or kimi.', timestamp: new Date().toISOString() });
                 break;
             }
             const target = pickBestProvider(requested);

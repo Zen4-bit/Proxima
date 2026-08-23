@@ -21,10 +21,10 @@ test('retry delays are internally consistent (base <= max)', () => {
     assert.ok(DEFAULTS.MAX_RETRIES >= 0);
 });
 
-test('PROVIDER_ORDER lists the four session providers', () => {
+test('PROVIDER_ORDER lists the session providers', () => {
     assert.deepEqual(
         [...DEFAULTS.PROVIDER_ORDER].sort(),
-        ['chatgpt', 'claude', 'gemini', 'perplexity'],
+        ['chatgpt', 'claude', 'gemini', 'kimi', 'perplexity'],
     );
 });
 

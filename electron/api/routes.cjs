@@ -15,9 +15,11 @@ function createRouteHandler(deps) {
         byok,
     } = deps;
 
-    return async function handleRoute(method, pathname, body, res) {
+    return async function handleRoute(method, pathname, body, res, headers, searchParams) {
         const handleMCPRequest = getHandler();
-        const conversationId = (body && (body.conversationId || body.conversation_id || body.sessionId || body.session_id)) || null;
+        const conversationId = (body && (body.conversationId || body.conversation_id || body.sessionId || body.session_id))
+            || (headers && (headers['x-proxima-conversation'] || headers['X-Proxima-Conversation']))
+            || null;
 
         if (method === 'POST' && pathname === `${API_PREFIX}/chat/completions`) {
             const fn = (body.function || '').toLowerCase().trim();
@@ -253,10 +255,17 @@ function createRouteHandler(deps) {
                             else sendJSON(res, 200, formatChatResponse(result, provider));
                         }
                     } else {
-                        const toolPrompt = buildToolCallingPrompt(body);
-                        if (!toolPrompt) return sendError(res, 400, 'No message provided');
+                        // Kimi's engine needs the raw messages array (it reads the
+                        // system prompt to detect a NEW chat and only forwards the
+                        // latest user turn on follow-ups). Flattening to a string
+                        // via buildToolCallingPrompt would lose the system prompt
+                        // and make the engine reuse a stale/too-long chat_id.
+                        const inputForEngine = provider === 'kimi'
+                            ? (Array.isArray(body.messages) ? body.messages : message)
+                            : buildToolCallingPrompt(body);
+                        if (!inputForEngine) return sendError(res, 400, 'No message provided');
                         if (TOOL_DEBUG) console.log('[TOOL-CALL/Legacy] Provider:', provider, '| Tools:', body.tools.length);
-                        const result = await queryProvider(provider, toolPrompt, filePath, gemini, null, conversationId, body._byokKey, null, resolved.byokModelId);
+                        const result = await queryProvider(provider, inputForEngine, filePath, gemini, null, conversationId, body._byokKey, null, resolved.byokModelId);
                         if (TOOL_DEBUG) console.log('[TOOL-CALL/Legacy] Response text (first 300):', JSON.stringify(result.text?.slice(0, 300)));
                         const parsed = parseToolCallResponse(result.text);
                         if (TOOL_DEBUG) console.log('[TOOL-CALL/Legacy] Parsed:', parsed.isToolCall, '| toolCalls:', parsed.toolCalls?.length || 0);
@@ -283,7 +292,12 @@ function createRouteHandler(deps) {
                 if (resolved.mode === 'single') {
                     const provider = resolved.providers[0];
                     const isByokActive = !!(body._byokKey || (byok.keys.isEnabled() ? byok.keys.getKey(provider) : null));
-                    const inputMessage = isByokActive ? (body.messages || message) : message;
+                    // Kimi's engine needs the full messages array so it can send the
+                    // system prompt + context once at chat start and only the new
+                    // user turn afterwards (parent_id chain carries the rest).
+                    const inputMessage = isByokActive
+                        ? (body.messages || message)
+                        : (provider === 'kimi' && Array.isArray(body.messages) ? body.messages : message);
 
                     let onChunk = null;
                     let streamedAny = false;
@@ -373,7 +387,7 @@ function createRouteHandler(deps) {
                         aliases: Object.entries(MODEL_ALIASES).filter(([_, v]) => v === p).map(([k]) => k).filter(k => k !== p),
                     });
                 }
-                ['chatgpt', 'claude', 'gemini', 'perplexity'].filter(p => !enabled.includes(p)).forEach(p =>
+                ['chatgpt', 'claude', 'gemini', 'perplexity', 'kimi'].filter(p => !enabled.includes(p)).forEach(p =>
                     models.push({ id: p, object: 'model', owned_by: 'proxima', status: 'disabled' })
                 );
             }
@@ -395,7 +409,7 @@ function createRouteHandler(deps) {
                     function: null,
                     name: 'chat',
                     description: 'Default chat completion. Omit the "function" field to chat with a model.',
-                    fields: { model: 'auto|claude|chatgpt|gemini|perplexity|all (or array of models)', message: 'string (or use messages[])', stream: 'boolean (optional)', filePath: 'local file path for multimodal/Gemini routing (optional)' }
+                    fields: { model: 'auto|claude|chatgpt|gemini|perplexity|kimi|all (or array of models)', message: 'string (or use messages[])', stream: 'boolean (optional)', filePath: 'local file path for multimodal/Gemini routing (optional)' }
                 },
                 {
                     function: 'search',
@@ -472,7 +486,7 @@ function createRouteHandler(deps) {
         if (method === 'POST' && pathname === `${API_PREFIX}/conversations/new`) {
             const requested = (body && (body.provider || body.model)) || null;
             if (!requested) {
-                return sendError(res, 400, 'A "provider" (or "model") is required: chatgpt, claude, gemini, or perplexity.');
+                return sendError(res, 400, 'A "provider" (or "model") is required: chatgpt, claude, gemini, perplexity, or kimi.');
             }
             const target = pickBestProvider(requested);
             if (!target) {
@@ -480,6 +494,20 @@ function createRouteHandler(deps) {
             }
             try { const r = await handleMCPRequest({ action: 'newConversation', provider: target, data: {} }); return sendJSON(res, 200, { success: true, provider: target, result: r }); }
             catch (e) { return sendError(res, 500, e.message); }
+        }
+
+        if (method === 'GET' && pathname === `${API_PREFIX}/kimi/session`) {
+            // Session-status endpoint for the opencode plugin. The plugin polls this
+            // before each request; when resetCount changes, it knows Kimi rolled to
+            // a NEW chat_id and must re-send the system prompt + handoff summary.
+            const cid = (searchParams && (searchParams.get('conversationId') || searchParams.get('conversation_id') || searchParams.get('sessionId')))
+                || (headers && headers['x-proxima-conversation'])
+                || null;
+            try {
+                const r = await handleMCPRequest({ action: 'getKimiSessionStatus', provider: 'kimi', data: { conversationId: cid } });
+                if (!r || r.success === false) return sendJSON(res, 200, { success: false, resetCount: 0, chatId: null, parentId: null, error: (r && r.error) || 'unavailable' });
+                return sendJSON(res, 200, { success: true, resetCount: r.resetCount || 0, chatId: r.chatId || null, parentId: r.parentId || null });
+            } catch (e) { return sendJSON(res, 200, { success: false, resetCount: 0, chatId: null, parentId: null, error: e.message }); }
         }
 
         if (method === 'GET' && (pathname === `${API_PREFIX}/openapi.json` || pathname === '/openapi.json')) {

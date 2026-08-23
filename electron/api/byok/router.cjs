@@ -16,6 +16,7 @@ const CALLERS = Object.freeze({
     claude:     anthropic,
     gemini:     google,
     perplexity: perplexity,
+    kimi:       compatible,
     deepseek:   compatible,
     groq:       compatible,
     xai:        compatible,

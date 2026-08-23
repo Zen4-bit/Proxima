@@ -25,6 +25,12 @@ const PROVIDER_PROFILES = {
         weaknesses: ['code-gen', 'creative'],
         speedTier: 3,
         qualityTier: 2,
+    },
+    kimi: {
+        strengths: ['long-context', 'code-gen', 'reasoning', 'general', 'writing', 'translation'],
+        weaknesses: ['web-search', 'current-events'],
+        speedTier: 2,
+        qualityTier: 2,
     }
 };
 

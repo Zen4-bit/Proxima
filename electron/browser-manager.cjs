@@ -32,6 +32,11 @@ class BrowserManager {
                 url: 'https://gemini.google.com/app',
                 partition: 'persist:gemini',
                 color: '#4285f4'
+            },
+            kimi: {
+                url: 'https://www.kimi.com/',
+                partition: 'persist:kimi',
+                color: '#6b4fbb'
             }
         };
 
@@ -398,7 +403,7 @@ class BrowserManager {
         };
 
         view.webContents.on('will-navigate', (event, url) => {
-            if (isAuthUrl(url)) {
+            if (isAuthUrl(url) && provider !== 'kimi') {
                 console.log(`[${provider}] Intercepting navigation to auth URL:`, url.substring(0, 80));
                 event.preventDefault();
                 this.openAuthPopup(provider, url);
@@ -406,7 +411,7 @@ class BrowserManager {
         });
 
         view.webContents.on('will-redirect', (event, url) => {
-            if (isAuthUrl(url)) {
+            if (isAuthUrl(url) && provider !== 'kimi') {
                 console.log(`[${provider}] Intercepting redirect to auth URL:`, url.substring(0, 80));
                 event.preventDefault();
                 this.openAuthPopup(provider, url);
@@ -433,6 +438,26 @@ class BrowserManager {
 
         view.webContents.setWindowOpenHandler(({ url, frameName, features }) => {
             console.log(`[${provider}] Popup requested:`, url.substring(0, 80));
+
+            // Kimi's login is an in-page modal; its Google OAuth must stay in the
+            // same Chromium session (not be routed through the Firefox-UA auth
+            // window), otherwise the OAuth callback breaks. Allow all popups for
+            // Kimi with the normal Chromium UA/session.
+            if (provider === 'kimi') {
+                return {
+                    action: 'allow',
+                    overrideBrowserWindowOptions: {
+                        width: 600,
+                        height: 700,
+                        webPreferences: {
+                            session: ses,
+                            sandbox: true,
+                            contextIsolation: true,
+                            nodeIntegration: false,
+                        }
+                    }
+                };
+            }
 
             const lowerUrl = url.toLowerCase();
             const isAuthPopup =
@@ -608,7 +633,8 @@ class BrowserManager {
                 perplexity: 'perplexity.ai',
                 chatgpt: 'chatgpt.com',
                 claude: 'claude.ai',
-                gemini: 'gemini.google.com'
+                gemini: 'gemini.google.com',
+                kimi: 'kimi.com'
             };
 
             const domain = providerDomains[provider];
@@ -799,6 +825,38 @@ class BrowserManager {
                             const hasSignIn = !!document.querySelector('a[href*="ServiceLogin"]') ||
                                             !!document.querySelector('a[data-action-id="sign-in"]');
                             return hasInput && !hasSignIn;
+                        })()
+                    `);
+                case 'kimi':
+                    // kimi.com renders a chat editor even when logged out, so DOM
+                    // checks are unreliable. Kimi's web session is backed by a JWT
+                    // in localStorage plus an HttpOnly cookie. Login = a valid
+                    // access token is present in storage AND the subscription
+                    // endpoint answers 2xx when called with that token.
+                    return await webContents.executeJavaScript(`
+                        (async function() {
+                            function isJwt(v) {
+                                return typeof v === 'string' && /^eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$/.test(v.trim());
+                            }
+                            var token = null;
+                            try {
+                                var at = localStorage.getItem('access_token');
+                                if (isJwt(at)) token = at.trim();
+                            } catch (e) { }
+                            try {
+                                var deviceId = localStorage.getItem('proxima_kimi_device_id') || '7' + String(Math.floor(Math.random() * 9e17)).padStart(18, '0');
+                                var sessionId = localStorage.getItem('proxima_kimi_session_id') || '17' + String(Math.floor(Math.random() * 9e17)).padStart(17, '0');
+                                var headers = { 'Content-Type': 'application/json', 'Connect-Protocol-Version': '1', 'Origin': 'https://www.kimi.com', 'X-Msh-Platform': 'web', 'X-Msh-Device-Id': deviceId, 'X-Msh-Session-Id': sessionId };
+                                if (token) headers['Authorization'] = 'Bearer ' + token;
+                                var res = await fetch('/apiv2/kimi.gateway.order.v1.SubscriptionService/GetSubscription', {
+                                    method: 'POST', credentials: 'include', headers: headers, body: '{}'
+                                });
+                                if (res.status === 401 || res.status === 403) return false;
+                                if (res.ok) return true;
+                                return false;
+                            } catch (e) {
+                                return !!token;
+                            }
                         })()
                     `);
                 default:
