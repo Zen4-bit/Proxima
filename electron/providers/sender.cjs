@@ -8,16 +8,16 @@ function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 // Chain sends to the same provider sequentially to prevent BrowserView execution collisions.
 const _sendQueues = {};
 
-function sendMessageToProvider(provider, message, attachments = null, onChunk = null, conversationId = null) {
+function sendMessageToProvider(provider, message, attachments = null, onChunk = null, conversationId = null, think = true) {
     const baseProvider = (provider || '').split(':')[0];
-    const run = () => _sendMessageToProviderImpl(provider, message, attachments, onChunk, conversationId);
+    const run = () => _sendMessageToProviderImpl(provider, message, attachments, onChunk, conversationId, think);
     const prior = _sendQueues[baseProvider] || Promise.resolve();
     const next = prior.then(run, run);
     _sendQueues[baseProvider] = next.then(() => { }, () => { });
     return next;
 }
 
-async function _sendMessageToProviderImpl(provider, message, attachments = null, onChunk = null, conversationId = null) {
+async function _sendMessageToProviderImpl(provider, message, attachments = null, onChunk = null, conversationId = null, think = true) {
     const baseProvider = provider.split(':')[0];
     let webContents = browserManager.getWebContents(baseProvider);
     if (!webContents) {
@@ -42,7 +42,7 @@ async function _sendMessageToProviderImpl(provider, message, attachments = null,
     for (let attempt = 1; attempt <= MAX_TRANSIENT_RETRIES; attempt++) {
         try {
             console.log(`[${provider}] API attempt ${attempt}/${MAX_TRANSIENT_RETRIES}...`);
-            const apiResponse = await providerAPI.sendViaAPI(provider, webContents, message, attachments, onChunk, conversationId);
+            const apiResponse = await providerAPI.sendViaAPI(provider, webContents, message, attachments, onChunk, conversationId, think);
 
             if (apiResponse && apiResponse.length > 0) {
                 console.log(`[${provider}] [OK] API response captured (${apiResponse.length} chars) on attempt ${attempt}`);

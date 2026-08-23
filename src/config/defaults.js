@@ -22,7 +22,7 @@ export const DEFAULTS = {
     RPM_WINDOW_MS: 60000,
 
 
-    PROVIDER_ORDER: ['chatgpt', 'claude', 'perplexity', 'gemini'],
+    PROVIDER_ORDER: ['chatgpt', 'claude', 'perplexity', 'gemini', 'kimi'],
     PROVIDER_HEALTH_CHECK_INTERVAL_MS: 60000,
 
     ROUTER_SCORE_THRESHOLD: 15,
@@ -45,6 +45,7 @@ export const DEFAULTS = {
         claude: 800000,
         gemini: 1500000,
         perplexity: 1000000,
+        kimi: 900000,
     },
 
 
@@ -58,4 +59,5 @@ export const PROVIDER_INFO = {
     claude: { name: 'Claude', url: 'https://claude.ai/' },
     gemini: { name: 'Gemini', url: 'https://gemini.google.com/app' },
     perplexity: { name: 'Perplexity', url: 'https://www.perplexity.ai/' },
+    kimi: { name: 'Kimi', url: 'https://www.kimi.com/' },
 };

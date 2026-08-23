@@ -283,13 +283,14 @@ export class AIProvider {
     }
 
 
-    async _doChat(message, filePath = null, engine = null) {
+    async _doChat(message, filePath = null, engine = null, think = true) {
         await this.ensureInitialized();
 
         console.error(`[${this.name}] Sending message...`);
         const sendResult = await this.ipc.send('sendMessage', this.name, {
             message, filePath, engine,
             conversationId: 'mcp-session',
+            think,
         });
 
         if (sendResult.response && sendResult.response.length > 0) {
@@ -306,9 +307,9 @@ export class AIProvider {
         });
     }
 
-    async chat(message, useCache = true, filePath = null, engine = null) {
+    async chat(message, useCache = true, filePath = null, engine = null, think = true) {
 
-        const cacheKey = `${message}\u0000${filePath || ''}\u0000${engine || ''}`;
+        const cacheKey = `${message}\u0000${filePath || ''}\u0000${engine || ''}\u0000${think ? 'think' : 'nothink'}`;
 
 
         if (useCache && this.cache.has(cacheKey)) {
@@ -327,7 +328,7 @@ export class AIProvider {
 
         const responsePromise = this._queue.then(async () => {
             console.error(`[${this.name}] Processing request (${position} of ${this._queueLength})...`);
-            const response = await this._doChat(message, filePath, engine);
+            const response = await this._doChat(message, filePath, engine, think);
             this.cache.set(cacheKey, { response, time: Date.now() });
             this._queueLength--;
             return response;

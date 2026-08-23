@@ -28,6 +28,11 @@ const PROVIDER_ROLES = {
         strengths: ['analysis', 'multimodal', 'research', 'code-gen', 'data'],
         weight: 7,
     },
+    kimi: {
+        role: 'Scribe',
+        strengths: ['long-context', 'writing', 'translation', 'general', 'synthesis'],
+        weight: 6,
+    },
 };
 
 const TASK_PATTERNS = [
@@ -135,6 +140,10 @@ class TaskOrchestrator {
 
             if (available.includes('gemini') && !assignments.find(a => a.provider === 'gemini')) {
                 assignments.push({ provider: 'gemini', role: 'analyst', assignment: 'analyze' });
+            }
+
+            if (available.includes('kimi') && !assignments.find(a => a.provider === 'kimi')) {
+                assignments.push({ provider: 'kimi', role: 'scribe', assignment: 'synthesize' });
             }
 
 

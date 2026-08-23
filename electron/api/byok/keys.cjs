@@ -11,7 +11,7 @@ const ENC_VERSION = 1;
 let _storeCache = null;
 
 const KNOWN_PROVIDERS = Object.freeze([
-    'chatgpt', 'claude', 'gemini', 'perplexity',
+    'chatgpt', 'claude', 'gemini', 'perplexity', 'kimi',
     'deepseek', 'groq', 'xai', 'openrouter', 'together', 'fireworks', 'mistral', 'nvidia',
 ]);
 

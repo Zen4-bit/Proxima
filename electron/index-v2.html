@@ -154,6 +154,10 @@
             background: linear-gradient(135deg, #4285f4, #8ab4f8);
         }
 
+        .tab-icon.kimi {
+            background: linear-gradient(135deg, #6b4fbb, #a78bfa);
+        }
+
         .tab-icon.settings {
             background: transparent;
             border: none;
@@ -1328,6 +1332,11 @@
             <span class="tab-name">Gemini</span>
             <div class="tab-status offline" id="status-dot-gemini"></div>
         </div>
+        <div class="tab" data-provider="kimi" onclick="switchTab('kimi')">
+            <img src="../assets/kimi.png" class="tab-icon-img" alt="Kimi">
+            <span class="tab-name">Kimi</span>
+            <div class="tab-status offline" id="status-dot-kimi"></div>
+        </div>
         <div class="tab-spacer"></div>
         <div class="tab" id="header-clear-cache-btn" onclick="triggerClearCache()" title="Clear cache and session data for this provider"
             style="display: none;">
@@ -1361,7 +1370,7 @@
                 <h1 class="welcome-title">Proxima</h1>
                 <p class="welcome-subtitle">
                     Free Multi-AI MCP Server<br>
-                    <span class="welcome-sub-light">No API keys required. Connect ChatGPT, Claude, Gemini & Perplexity
+                    <span class="welcome-sub-light">No API keys required. Connect ChatGPT, Claude, Gemini, Perplexity & Kimi
                         locally.</span>
                 </p>
                 <div class="welcome-divider"></div>
@@ -1502,7 +1511,7 @@
                             </div>
                             <div class="arch-item">
                                 <div class="arch-label">Active Providers</div>
-                                <div class="arch-value" id="dash-active-count">0 / 4</div>
+                                <div class="arch-value" id="dash-active-count">0 / 5</div>
                             </div>
                         </div>
                     </div>
@@ -1664,6 +1673,28 @@
                                     <div>Status: <span id="card-status-gemini"
                                             style="font-weight: 600; color: #f59e0b;">Checking...</span></div>
                                     <div>Latency: <span id="card-latency-gemini" style="color: #888;">--ms</span></div>
+                                    <div>Model: <span style="color: #888;">Auto</span></div>
+                                    <div>Account: <span style="color: #888;">Session</span></div>
+                                </div>
+                            </div>
+
+                            <!-- Kimi -->
+                            <div class="provider-card enabled" data-provider="kimi"
+                                style="flex-direction: column; align-items: stretch; gap: 14px; padding: 18px; border: 1px solid rgba(255,255,255,0.05); background: rgba(255,255,255,0.01); box-shadow: none;">
+                                <div style="display: flex; align-items: center; justify-content: space-between;">
+                                    <div style="display: flex; align-items: center; gap: 12px;">
+                                        <img src="../assets/kimi.png"
+                                            style="width: 28px; height: 28px; object-fit: contain;">
+                                        <span style="font-weight: 700; font-size: 0.95rem; color: #fff;">Kimi</span>
+                                    </div>
+                                    <div class="toggle-switch active" data-provider="kimi"
+                                        onclick="toggleProvider(this)"></div>
+                                </div>
+                                <div
+                                    style="border-top: 1px solid rgba(255,255,255,0.04); padding-top: 12px; display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 6px; font-size: 0.72rem; color: #666;">
+                                    <div>Status: <span id="card-status-kimi"
+                                            style="font-weight: 600; color: #f59e0b;">Checking...</span></div>
+                                    <div>Latency: <span id="card-latency-kimi" style="color: #888;">--ms</span></div>
                                     <div>Model: <span style="color: #888;">Auto</span></div>
                                     <div>Account: <span style="color: #888;">Session</span></div>
                                 </div>
@@ -2456,7 +2487,7 @@ Confirm when done</pre>
                         </div>
                         <div style="font-size: 0.78rem; color: #9ca3af; line-height: 1.4;">
                             <div style="color: #fff; font-weight: 700; margin-bottom: 2px;">Platform Stats:</div>
-                            4 Providers • MCP Enabled • REST Server
+                            5 Providers • MCP Enabled • REST Server
                         </div>
                     </div>
 
@@ -2570,7 +2601,8 @@ Confirm when done</pre>
                     Object.values(settings.providers || {}).forEach(p => {
                         if (p && p.enabled) activeCount++;
                     });
-                    document.getElementById('dash-active-count').textContent = `${activeCount} / 4`;
+                    const totalProviders = Object.keys(settings.providers || {}).length;
+                    document.getElementById('dash-active-count').textContent = `${activeCount} / ${totalProviders}`;
                 }
 
                 // Update Sidebar Footer Status Card top-row dynamically
@@ -2582,7 +2614,8 @@ Confirm when done</pre>
                     if (isByok) {
                         sbText.textContent = `${activeCount} Active`;
                     } else {
-                        sbText.textContent = `${activeCount} / 4`;
+                        const totalProviders = Object.keys(settings.providers || {}).length;
+                        sbText.textContent = `${activeCount} / ${totalProviders}`;
                     }
 
                     if (activeCount > 0) {
@@ -3311,13 +3344,15 @@ Confirm when done</pre>
                 perplexity: 'perplexity.ai',
                 chatgpt: 'chatgpt.com',
                 claude: 'claude.ai',
-                gemini: 'gemini.google.com'
+                gemini: 'gemini.google.com',
+                kimi: 'kimi.com'
             };
             const brandColors = {
                 perplexity: '#20b2aa',
                 chatgpt: '#10a37f',
                 claude: '#cc785c',
-                gemini: '#4285f4'
+                gemini: '#4285f4',
+                kimi: '#6b4fbb'
             };
             const linkElem = document.getElementById('cookie-modal-link');
             if (linkElem) {
@@ -3358,7 +3393,8 @@ Confirm when done</pre>
                 perplexity: 'https://www.perplexity.ai/',
                 chatgpt: 'https://chatgpt.com/',
                 claude: 'https://claude.ai/',
-                gemini: 'https://gemini.google.com/'
+                gemini: 'https://gemini.google.com/',
+                kimi: 'https://www.kimi.com/'
             };
             const targetUrl = urls[cookieModalProvider] || 'https://google.com/';
             const name = cookieModalProvider.charAt(0).toUpperCase() + cookieModalProvider.slice(1);

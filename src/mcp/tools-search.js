@@ -37,7 +37,7 @@ export function register(server, deps) {
             timeframe: z.string().optional().describe('For news: timeframe like "today", "this week", "2024"'),
             year: z.string().optional().describe('For stats: specific year'),
             files: z.array(z.string()).optional().describe('Optional: file paths for context. Supports line ranges like "path/file.js:10-50"'),
-            provider: z.string().optional().describe('AI provider: chatgpt, claude, gemini, perplexity, or any configured BYOK provider. Default: auto-select'),
+            provider: z.string().optional().describe('AI provider: chatgpt, claude, gemini, perplexity, kimi, or any configured BYOK provider. Default: auto-select'),
         },
         annotations: READ_OPEN,
     }, async ({ query, type, language, timeframe, year, files, provider: pn }) => {
@@ -68,7 +68,7 @@ export function register(server, deps) {
             code: z.string().optional().describe('Optional: existing code to analyze and apply design improvements on'),
             files: z.array(z.string()).optional().describe('Optional: file paths of existing code to improve with better UI/UX. Supports line ranges like "path/file.js:10-50"'),
             style: z.string().optional().describe('Design style preference: modern, minimal, glassmorphism, dark, corporate, playful, etc.'),
-            provider: z.string().optional().describe('AI provider: chatgpt, claude, gemini, perplexity, or any configured BYOK provider. Default: auto-select best for coding'),
+            provider: z.string().optional().describe('AI provider: chatgpt, claude, gemini, perplexity, kimi, or any configured BYOK provider. Default: auto-select best for coding'),
         },
         annotations: READ_OPEN,
     }, async ({ description, code, files, style, provider: pn }) => {

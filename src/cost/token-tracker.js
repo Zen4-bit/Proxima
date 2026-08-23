@@ -14,6 +14,7 @@ const MODEL_PRICING = {
   'claude':      { input: 4.00,   output: 20.00 },
   'gemini':      { input: 2.50,   output: 10.00 },
   'perplexity':  { input: 5.00,   output: 20.00 },
+  'kimi':        { input: 3.00,   output: 16.00 },
   'default':     { input: 5.00,   output: 20.00 },
 };
 
@@ -26,6 +27,7 @@ function _pricingKey(model) {
   if (m.includes('claude') || m.includes('sonnet') || m.includes('opus') || m.includes('haiku')) return 'claude';
   if (m.includes('gemini') || m.includes('bison') || m.includes('palm')) return 'gemini';
   if (m.includes('sonar') || m.includes('perplexity') || m.includes('pplx')) return 'perplexity';
+  if (m.includes('kimi') || m.includes('moonshot')) return 'kimi';
   return 'default';
 }
 

@@ -197,6 +197,139 @@
 
     var _cachedScripts = null;
     var _cachedDpl = null;
+    var _cachedModels = null;
+    var _cachedModelsAt = 0;
+
+    // Mirrors the web app's Think-toggle logic: thinking_effort is only sent for models
+    // that report configurableThinkingEffort, and only with a value present in their
+    // thinkingEfforts list. Otherwise the field is omitted entirely.
+    async function _getModelConfig(modelSlug) {
+        try {
+            if (!_cachedModels || Date.now() - _cachedModelsAt > 300000) {
+                var mres = await fetch('/backend-api/models', { credentials: 'include' });
+                if (mres.ok) {
+                    _cachedModels = (await mres.json()).models || [];
+                    _cachedModelsAt = Date.now();
+                }
+            }
+            if (!_cachedModels) return null;
+            for (var i = 0; i < _cachedModels.length; i++) {
+                if (_cachedModels[i].slug === modelSlug) return _cachedModels[i];
+            }
+            return null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function _resolveThinkingEffort(modelConfig, think) {
+        if (!think || !modelConfig || !modelConfig.configurableThinkingEffort) return undefined;
+        var efforts = (modelConfig.thinkingEfforts || []).map(function (e) { return e.thinking_effort; }).filter(Boolean);
+        if (!efforts.length) return undefined;
+        if (efforts.indexOf('xhigh') !== -1) return 'xhigh';
+        if (efforts.indexOf('standard') !== -1) return 'standard';
+        return efforts[efforts.length - 1];
+    }
+
+    // Drives the actual composer "Think"/"Reason" toggle button in the page (the same button
+    // a user clicks on chatgpt.com), so the web app's own UI logic produces the backend payload.
+    // We only ever turn it ON; if it is already ON we never click (so it can never toggle OFF).
+    function _findThinkToggle() {
+        var selectors = [
+            '[data-testid="composer-intelligence-button"]',
+            '[data-testid="composer-intelligence-pro-thinking-effort-trigger"]',
+            'button[aria-label*="Think" i]',
+            'button[aria-label*="Reason" i]',
+            'button[data-testid*="think" i]',
+            'button[data-testid*="reason" i]'
+        ];
+        for (var i = 0; i < selectors.length; i++) {
+            var el = document.querySelector(selectors[i]);
+            if (el) return el;
+        }
+        var pills = document.querySelectorAll('button.__composer-pill');
+        for (var k = 0; k < pills.length; k++) {
+            var ptext = (pills[k].innerText || '').trim();
+            if (/^(Think|Reason|Deep Think)$/i.test(ptext)) return pills[k];
+        }
+        var buttons = document.querySelectorAll('button');
+        for (var j = 0; j < buttons.length; j++) {
+            var txt = (buttons[j].innerText || '').trim();
+            if (/^(Think|Reason|Deep Think)$/i.test(txt)) return buttons[j];
+        }
+        return null;
+    }
+
+    function _isToggleOn(btn) {
+        if (!btn) return false;
+        var ap = btn.getAttribute('aria-pressed');
+        if (ap === 'true') return true;
+        if (ap === 'false') return false;
+        var ds = btn.getAttribute('data-state');
+        if (ds === 'on') return true;
+        if (ds === 'off') return false;
+        var ariaChecked = btn.getAttribute('aria-checked');
+        if (ariaChecked === 'true') return true;
+        if (ariaChecked === 'false') return false;
+        var cls = (btn.className || '').toLowerCase();
+        if (cls.indexOf('active') !== -1 || cls.indexOf('selected') !== -1 || cls.indexOf('on') !== -1) return true;
+        return false;
+    }
+
+    function _clickButton(btn) {
+        var rect = btn.getBoundingClientRect();
+        var opts = {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            clientX: rect.left + (rect.width / 2),
+            clientY: rect.top + (rect.height / 2)
+        };
+        try { btn.dispatchEvent(new MouseEvent('pointerdown', Object.assign({}, opts, { pointerId: 1, isPrimary: true, button: 0 }))); } catch (e) { }
+        try { btn.dispatchEvent(new MouseEvent('mousedown', opts)); } catch (e) { }
+        try { btn.dispatchEvent(new MouseEvent('mouseup', opts)); } catch (e) { }
+        try { btn.dispatchEvent(new MouseEvent('click', opts)); } catch (e) { }
+        try { btn.click(); } catch (e) { }
+    }
+
+    function _ensureThinkToggleOn() {
+        return new Promise(function (resolve) {
+            try {
+                var btn = _findThinkToggle();
+                if (!btn) {
+                    console.log('[Proxima ChatGPT] Think toggle button not found in DOM');
+                    resolve({ found: false, on: false });
+                    return;
+                }
+                if (_isToggleOn(btn)) {
+                    console.log('[Proxima ChatGPT] Think toggle already ON — leaving it alone (never toggling OFF)');
+                    resolve({ found: true, on: true });
+                    return;
+                }
+                _clickButton(btn);
+                console.log('[Proxima ChatGPT] Think toggle click dispatched (was off)');
+                var attempts = 0;
+                var iv = setInterval(function () {
+                    attempts++;
+                    var current = _findThinkToggle();
+                    if (current && _isToggleOn(current)) {
+                        clearInterval(iv);
+                        console.log('[Proxima ChatGPT] Think toggle confirmed ON');
+                        resolve({ found: true, on: true });
+                        return;
+                    }
+                    if (attempts >= 12) {
+                        clearInterval(iv);
+                        console.log('[Proxima ChatGPT] Think toggle did NOT turn ON after click (still off)');
+                        resolve({ found: true, on: false });
+                    }
+                }, 200);
+            } catch (e) {
+                console.error('[Proxima ChatGPT] _ensureThinkToggleOn error:', e.message);
+                resolve({ found: false, on: false, error: e.message });
+            }
+        });
+    }
 
     async function _getScriptsAndDpl() {
         if (_cachedScripts) return { scripts: _cachedScripts, dpl: _cachedDpl };
@@ -371,8 +504,10 @@
         return fileId;
     }
 
-    async function send(message, engine, attachments, sessionId) {
+    async function send(message, engine, attachments, sessionId, options) {
         activateSession(sessionId);
+
+        var think = !(options && options.think === false);
 
         var token = await _getToken();
 
@@ -460,6 +595,31 @@
             force_rate_limit: false,
             websocket_request_id: crypto.randomUUID()
         };
+
+        var resolvedModel = (engine && engine !== 'auto') ? engine : 'auto';
+        payload.model = resolvedModel;
+
+        // "Think" mode = the composer's Think toggle (chatgpt.com). We drive the real UI
+        // button (never toggling it OFF) so the web app's own state reflects think mode,
+        // then mirror its backend behavior in our payload: thinking_effort is only sent
+        // when the selected model has configurableThinkingEffort and the value is in its
+        // thinkingEfforts list; otherwise the field is omitted (free accounts report
+        // configurableThinkingEffort:false, so nothing is sent — real think mode there
+        // means selecting a reasoning-variant model such as 'gpt-5-6-t-mini').
+        if (think) {
+            var toggle = await _ensureThinkToggleOn();
+            console.log('[Proxima ChatGPT] Think toggle ensure: found=' + toggle.found + ' on=' + toggle.on + (toggle.error ? ' error=' + toggle.error : ''));
+        }
+        var modelConfig = await _getModelConfig(resolvedModel);
+        var effort = _resolveThinkingEffort(modelConfig, think);
+        if (effort) {
+            payload.thinking_effort = effort;
+            console.log('[Proxima ChatGPT] Thinking mode ON (thinking_effort=' + effort + ')');
+        } else if (think && modelConfig && !modelConfig.configurableThinkingEffort) {
+            console.log('[Proxima ChatGPT] Thinking mode ON but not configurable for model ' + resolvedModel + ' — field omitted');
+        } else {
+            console.log('[Proxima ChatGPT] Thinking mode OFF');
+        }
 
         if (_conversationId) {
             payload.conversation_id = _conversationId;

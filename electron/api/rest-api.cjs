@@ -29,6 +29,7 @@ const MODEL_ALIASES = {
     'gemini': 'gemini', 'gemini-pro': 'gemini', 'gemini-2': 'gemini', 'gemini-2.5': 'gemini',
     'google': 'gemini', 'bard': 'gemini',
     'perplexity': 'perplexity', 'pplx': 'perplexity', 'sonar': 'perplexity',
+    'kimi': 'kimi', 'moonshot': 'kimi', 'moonshotai': 'kimi',
     'auto': 'auto', 'all': 'all'
 };
 
@@ -342,7 +343,7 @@ function pickBestProvider(preferred) {
         return enabled.includes(base) ? base : null;
     }
 
-    const priorityList = ['claude', 'chatgpt', 'gemini', 'perplexity', 'deepseek', 'groq', 'xai', 'openrouter', 'together', 'fireworks', 'mistral', 'nvidia'];
+    const priorityList = ['claude', 'chatgpt', 'gemini', 'perplexity', 'kimi', 'deepseek', 'groq', 'xai', 'openrouter', 'together', 'fireworks', 'mistral', 'nvidia'];
     const priority = priorityList.filter(p => enabled.includes(p));
     if (priority.length === 0) {
         return enabled.length > 0 ? enabled[0] : null;
@@ -566,7 +567,7 @@ function startRestAPI() {
         }
 
         const url = new URL(req.url, `http://localhost:${REST_PORT}`);
-        const publicPaths = ['/', '/docs', '/cli', '/ws', '/websocket', '/openapi.json', '/v1/openapi.json', '/api-key', '/v1/byok/models', '/v1/models', '/v1/stats', '/v1/functions'];
+        const publicPaths = ['/', '/docs', '/cli', '/ws', '/websocket', '/openapi.json', '/v1/openapi.json', '/api-key', '/v1/byok/models', '/v1/models', '/v1/stats', '/v1/functions', '/v1/kimi/session'];
         if (!publicPaths.includes(url.pathname) && !validateApiKey(req)) {
             return sendError(res, 401, 'Invalid or missing API key', 'authentication_error');
         }
@@ -574,7 +575,7 @@ function startRestAPI() {
             const body = req.method === 'POST' ? await parseBody(req) : {};
             const providerKey = (req.headers['x-provider-key'] || '').trim();
             if (providerKey) body._byokKey = providerKey;
-            await handleRoute(req.method, url.pathname, body, res);
+            await handleRoute(req.method, url.pathname, body, res, req.headers, url.searchParams);
         } catch (err) { console.error('[API] Error:', err.message); if (!res.headersSent) sendError(res, err.statusCode || 500, err.message); }
     });
 

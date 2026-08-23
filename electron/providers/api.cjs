@@ -15,7 +15,8 @@ function _loadScript(provider) {
         chatgpt: 'chatgpt-engine.js',
         claude: 'claude-engine.js',
         gemini: 'gemini-engine.js',
-        perplexity: 'perplexity-engine.js'
+        perplexity: 'perplexity-engine.js',
+        kimi: 'kimi-engine.js'
     };
 
     const filename = scriptMap[provider];
@@ -66,7 +67,8 @@ async function isAPIReady(provider, webContents) {
         chatgpt: 'typeof window.__proximaChatGPT !== "undefined"',
         claude: 'typeof window.__proximaClaude !== "undefined"',
         gemini: 'typeof window.__proximaGemini !== "undefined"',
-        perplexity: 'typeof window.__proximaPerplexity !== "undefined"'
+        perplexity: 'typeof window.__proximaPerplexity !== "undefined"',
+        kimi: 'typeof window.__proximaKimi !== "undefined"'
     };
 
     const check = checkMap[provider];
@@ -122,7 +124,7 @@ async function ensureAPI(provider, webContents) {
     return await injectAPI(provider, webContents);
 }
 
-async function sendViaAPI(provider, webContents, message, attachments = null, onChunk = null, conversationId = null) {
+async function sendViaAPI(provider, webContents, message, attachments = null, onChunk = null, conversationId = null, think = true) {
     let baseProvider = provider;
     let engine = 'auto';
     if (provider.indexOf(':') !== -1) {
@@ -141,7 +143,8 @@ async function sendViaAPI(provider, webContents, message, attachments = null, on
         chatgpt: '__proximaChatGPT',
         claude: '__proximaClaude',
         gemini: '__proximaGemini',
-        perplexity: '__proximaPerplexity'
+        perplexity: '__proximaPerplexity',
+        kimi: '__proximaKimi'
     };
 
     const apiObj = sendMap[baseProvider];
@@ -154,7 +157,10 @@ async function sendViaAPI(provider, webContents, message, attachments = null, on
         const startTime = Date.now();
 
         let executeStr;
-        if (baseProvider === 'gemini' || baseProvider === 'chatgpt' || baseProvider === 'perplexity' || baseProvider === 'claude') {
+        if (baseProvider === 'chatgpt') {
+            const escapedAttachments = attachments ? JSON.stringify(attachments) : 'null';
+            executeStr = `window.${apiObj}.send(${escapedMessage}, ${JSON.stringify(engine)}, ${escapedAttachments}, ${JSON.stringify(conversationId)}, ${JSON.stringify({ think: think !== false })})`;
+        } else if (baseProvider === 'gemini' || baseProvider === 'perplexity' || baseProvider === 'claude' || baseProvider === 'kimi') {
             const escapedAttachments = attachments ? JSON.stringify(attachments) : 'null';
             executeStr = `window.${apiObj}.send(${escapedMessage}, ${JSON.stringify(engine)}, ${escapedAttachments}, ${JSON.stringify(conversationId)})`;
         } else {
@@ -236,10 +242,11 @@ async function resetConversation(provider, webContentsGetter) {
         chatgpt: '__proximaChatGPT',
         claude: '__proximaClaude',
         gemini: '__proximaGemini',
-        perplexity: '__proximaPerplexity'
+        perplexity: '__proximaPerplexity',
+        kimi: '__proximaKimi'
     };
 
-    const providers = provider ? [provider] : ['chatgpt', 'claude', 'gemini', 'perplexity'];
+    const providers = provider ? [provider] : ['chatgpt', 'claude', 'gemini', 'perplexity', 'kimi'];
 
     for (const p of providers) {
         const apiObj = resetMap[p];

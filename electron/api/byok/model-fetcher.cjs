@@ -25,6 +25,10 @@ const MODELS_CONFIG = Object.freeze({
             'sonar-deep-research', 'r1-1776',
         ],
     },
+    kimi: {
+        url: 'https://api.moonshot.cn/v1/models',
+        auth: 'bearer',
+    },
     deepseek: {
         url: 'https://api.deepseek.com/v1/models',
         auth: 'bearer',

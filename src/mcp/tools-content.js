@@ -24,7 +24,7 @@ export function register(server, deps) {
             input: z.string().describe('Main input — URL, topic, text, or task description'),
             detail: z.string().optional().describe('Extra context — focus area, writing style, data type to extract, specific question'),
             body: z.string().optional().describe('Content body — text to improve, or content to analyze/extract from'),
-            provider: z.string().optional().describe('AI provider: chatgpt, claude, gemini, perplexity, or any configured BYOK provider. Default: auto-select'),
+            provider: z.string().optional().describe('AI provider: chatgpt, claude, gemini, perplexity, kimi, or any configured BYOK provider. Default: auto-select'),
         },
         annotations: GEN,
     }, async ({ action, input, detail, body, provider: pn }) => {
@@ -51,7 +51,7 @@ export function register(server, deps) {
             item1: z.string().describe('First item to compare'),
             item2: z.string().describe('Second item to compare'),
             context: z.string().optional().describe('Context for comparison'),
-            provider: z.string().optional().describe('AI provider: chatgpt, claude, gemini, perplexity, or any configured BYOK provider. Default: auto-select'),
+            provider: z.string().optional().describe('AI provider: chatgpt, claude, gemini, perplexity, kimi, or any configured BYOK provider. Default: auto-select'),
         },
         annotations: GEN,
     }, async ({ item1, item2, context, provider: pn }) => {

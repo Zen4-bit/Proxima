@@ -47,9 +47,9 @@ function write(name, obj) {
 }
 
 
-test('getEnabledProviders: returns the 4 core providers by default when no config exists', () => {
+test('getEnabledProviders: returns the 5 core providers by default when no config exists', () => {
     const set = getEnabledProviders();
-    assert.deepEqual([...set].sort(), ['chatgpt', 'claude', 'gemini', 'perplexity']);
+    assert.deepEqual([...set].sort(), ['chatgpt', 'claude', 'gemini', 'kimi', 'perplexity']);
 });
 
 test('getEnabledProviders: session mode reads enabled-providers.json', () => {

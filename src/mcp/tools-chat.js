@@ -46,19 +46,20 @@ export function register(server, deps) {
 
     server.registerTool('ask_chatgpt', {
         title: 'Ask ChatGPT',
-        description: 'Send a message to ChatGPT specifically. Use ask_model for any other/BYOK provider, smart_query to auto-pick the best provider, or ask_all_ais to query several at once.',
+        description: 'Send a message to ChatGPT specifically (defaults to Thinking/think mode, like the "Think" toggle on chatgpt.com). Use ask_model for any other/BYOK provider, smart_query to auto-pick the best provider, or ask_all_ais to query several at once.',
         inputSchema: {
             message: z.string().describe('Message to send to ChatGPT'),
             files: z.array(z.string()).optional().describe(FILES_DESC),
+            think: z.boolean().optional().describe('Enable ChatGPT think mode (deep reasoning). Default: true. Set to false for instant/low-effort mode.'),
         },
         annotations: CHAT,
-    }, async ({ message, files }) => {
+    }, async ({ message, files, think }) => {
         const disabled = checkDisabled('chatgpt');
         if (disabled) return disabled;
         try {
             const { textFiles, uploadFilePath } = getFilesSetup(files);
             const fullMessage = buildMessageWithFiles(message, textFiles);
-            return toolResponse(await smartChat(fullMessage, 'chatgpt', { filePath: uploadFilePath }));
+            return toolResponse(await smartChat(fullMessage, 'chatgpt', { filePath: uploadFilePath, think: think !== false }));
         } catch (err) {
             return toolError(err);
         }
@@ -124,18 +125,39 @@ export function register(server, deps) {
         }
     });
 
-    const enabledList = [...getEnabledProviders()].join(', ') || 'gemini, chatgpt, claude, perplexity';
+    server.registerTool('ask_kimi', {
+        title: 'Ask Kimi',
+        description: 'Send a message to Kimi specifically (Moonshot AI — strong at long-context). Use ask_model for other/BYOK providers, smart_query to auto-pick, or ask_all_ais for several at once.',
+        inputSchema: {
+            message: z.string().describe('Message to send to Kimi'),
+            files: z.array(z.string()).optional().describe(FILES_DESC),
+        },
+        annotations: CHAT,
+    }, async ({ message, files }) => {
+        const disabled = checkDisabled('kimi');
+        if (disabled) return disabled;
+        try {
+            const { textFiles, uploadFilePath } = getFilesSetup(files);
+            const fullMessage = buildMessageWithFiles(message, textFiles);
+            return toolResponse(await smartChat(fullMessage, 'kimi', { filePath: uploadFilePath }));
+        } catch (err) {
+            return toolError(err);
+        }
+    });
+
+    const enabledList = [...getEnabledProviders()].join(', ') || 'gemini, chatgpt, claude, perplexity, kimi';
     server.registerTool('ask_model', {
         title: 'Ask Any Model',
-        description: 'Universal chat: send a message to ANY enabled provider by name (the 4 session providers OR any configured BYOK provider). Use this when you need a provider other than the four dedicated ask_* tools.',
+        description: 'Universal chat: send a message to ANY enabled provider by name (the session providers OR any configured BYOK provider). Use this when you need a provider other than the dedicated ask_* tools.',
         inputSchema: {
             provider: z.string().describe(`Provider name. Currently available: ${enabledList}`),
             message: z.string().describe('Message to send'),
             model: z.string().optional().describe('Specific model ID override (uses provider default if omitted)'),
             files: z.array(z.string()).optional().describe('Optional: file paths to include as context. Supports line ranges like "path/file.js:10-50".'),
+            think: z.boolean().optional().describe('Enable think/deep-reasoning mode (ChatGPT and compatible providers). Default: true.'),
         },
         annotations: CHAT,
-    }, async ({ provider, message, model, files }) => {
+    }, async ({ provider, message, model, files, think }) => {
         const providerName = provider.toLowerCase().trim();
         const disabled = checkDisabled(providerName);
         if (disabled) return disabled;
@@ -146,6 +168,7 @@ export function register(server, deps) {
             return toolResponse(await smartChat(fullMessage, providerName, {
                 filePath: uploadFilePath,
                 engine: model || null,
+                think: think !== false,
             }));
         } catch (err) {
             return toolError(err);
@@ -253,7 +276,7 @@ export function register(server, deps) {
         title: 'New Conversation (reset)',
         description: 'Reset conversation memory/context for a provider (or all enabled providers if none named). Use when you want a fresh thread with no prior context.',
         inputSchema: {
-            provider: z.string().optional().describe('Which provider to reset: chatgpt, claude, gemini, or perplexity. If omitted, resets all enabled providers.'),
+            provider: z.string().optional().describe('Which provider to reset: chatgpt, claude, gemini, perplexity, or kimi. If omitted, resets all enabled providers.'),
         },
         annotations: Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true }),
     }, async ({ provider }) => {
@@ -268,7 +291,7 @@ export function register(server, deps) {
                 return toolResponse({ success: true, provider: name, message: `Started new ${name} conversation` });
             }
             const reset = [];
-            for (const p of ['perplexity', 'chatgpt', 'claude', 'gemini']) {
+            for (const p of ['perplexity', 'chatgpt', 'claude', 'gemini', 'kimi']) {
                 if (enabled.has(p)) {
                     await allProviders[p].newConversation();
                     reset.push(p);

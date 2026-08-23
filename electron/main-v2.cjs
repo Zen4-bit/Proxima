@@ -49,6 +49,7 @@ const PROVIDER_PARTITIONS = [
     'persist:chatgpt',
     'persist:claude',
     'persist:gemini',
+    'persist:kimi',
 ];
 
 async function clearProviderCachesOnStartup() {
@@ -99,7 +100,8 @@ const defaultSettings = {
         perplexity: { enabled: true, loggedIn: false },
         chatgpt: { enabled: true, loggedIn: false },
         claude: { enabled: true, loggedIn: false },
-        gemini: { enabled: true, loggedIn: false }
+        gemini: { enabled: true, loggedIn: false },
+        kimi: { enabled: true, loggedIn: false }
     },
     ipcPort: 19222,
     theme: 'dark',
@@ -521,11 +523,28 @@ async function handleMCPRequest(request) {
                 return { success: true, provider, loggedIn };
             }
 
+            case 'getKimiSessionStatus': {
+                const conversationId = data && (data.conversationId || data.conversation_id || data.sessionId || data.session_id);
+                const wc = browserManager.getWebContents('kimi');
+                if (!wc) return { success: false, error: 'Kimi not initialized' };
+                try {
+                    const status = await wc.executeJavaScript(
+                        `(window.__proximaKimi && window.__proximaKimi.getSessionStatus)
+                            ? window.__proximaKimi.getSessionStatus(${JSON.stringify(conversationId || null)})
+                            : { resetCount: 0, chatId: null, parentId: null }`
+                    );
+                    return { success: true, ...status };
+                } catch (err) {
+                    return { success: false, error: err.message };
+                }
+            }
+
             case 'sendMessage': {
                 const baseProviderName = provider.split(':')[0];
                 const engineOverride = data.gemini || data.engine || null;
                 const targetProvider = engineOverride ? `${provider}:${engineOverride}` : provider;
                 const conversationId = data.conversationId || data.conversation_id || data.sessionId || data.session_id || null;
+                const thinkMode = data.think !== false;
 
                 const byokKey = byok.keys.isEnabled() ? byok.keys.getKey(baseProviderName) : null;
                 if (byokKey) {
@@ -565,7 +584,8 @@ async function handleMCPRequest(request) {
                                 fileSize: uploadResult.fileSize
                             } : null,
                             data.onChunk,
-                            conversationId
+                            conversationId,
+                            thinkMode
                         );
                         if (!result.response && result.error) {
                             return { success: false, provider, error: result.error, fileUploaded: uploadResult };
@@ -576,14 +596,14 @@ async function handleMCPRequest(request) {
                         return { success: true, provider, response: result.response, fileUploaded: uploadResult };
                     } catch (fileErr) {
                         console.error('[MCP] File upload failed:', fileErr.message);
-                        const result = await sendMessageToProvider(targetProvider, data.message, null, data.onChunk, conversationId);
+                        const result = await sendMessageToProvider(targetProvider, data.message, null, data.onChunk, conversationId, thinkMode);
                         if (!result.response || result.response.length === 0) {
                             return { success: false, provider, error: result.error || `${provider} returned empty response`, fileError: fileErr.message };
                         }
                         return { success: true, provider, response: result.response, fileError: fileErr.message };
                     }
                 } else {
-                    const result = await sendMessageToProvider(targetProvider, data.message, null, data.onChunk, conversationId);
+                    const result = await sendMessageToProvider(targetProvider, data.message, null, data.onChunk, conversationId, thinkMode);
                     if (!result.response && result.error) {
                         return { success: false, provider, error: result.error };
                     }
@@ -617,6 +637,7 @@ async function handleMCPRequest(request) {
 
                     const targetProviderWithFile = data.engine ? `${provider}:${data.engine}` : provider;
                     const conversationIdWithFile = data.conversationId || data.conversation_id || data.sessionId || data.session_id || null;
+                    const thinkModeWithFile = data.think !== false;
                     const msgResult = await sendMessageToProvider(
                         targetProviderWithFile,
                         data.message,
@@ -627,7 +648,8 @@ async function handleMCPRequest(request) {
                             fileSize: fileResult.fileSize
                         } : null,
                         null,
-                        conversationIdWithFile
+                        conversationIdWithFile,
+                        thinkModeWithFile
                     );
                     const finalResponse = (msgResult && msgResult.response) || '';
                     return {
@@ -924,7 +946,29 @@ async function uploadFileToProvider(provider, filePath) {
         }
     }
 
-    throw new Error(`File upload is not supported for ${provider} (API mode). Only Gemini, ChatGPT, Perplexity, and Claude support file attachments.`);
+    if (provider.startsWith('kimi')) {
+        console.log(`[Kimi API] Direct upload of ${fileName} via Web API...`);
+        try {
+            await providerAPI.ensureAPI(provider, webContents);
+            const token = await webContents.executeJavaScript(
+                `window.__proximaKimi.uploadFileToKimi(${JSON.stringify(fileBase64)}, ${JSON.stringify(fileName)}, ${JSON.stringify(fileMimeType)})`
+            );
+            return {
+                success: true,
+                fileName,
+                mimeType: fileMimeType,
+                imageToken: token,
+                fileAttached: true,
+                fileSize: fileStats.size,
+                method: 'kimi-api'
+            };
+        } catch (apiUploadErr) {
+            console.error(`[Kimi API] Direct upload failed:`, apiUploadErr.message);
+            throw apiUploadErr;
+        }
+    }
+
+    throw new Error(`File upload is not supported for ${provider} (API mode). Only Gemini, ChatGPT, Perplexity, Claude, and Kimi support file attachments.`);
 }
 
 function getMimeType(filePath) {
@@ -995,7 +1039,7 @@ app.on('activate', () => {
 });
 
 app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
-    const trustedDomains = ['perplexity.ai', 'openai.com', 'chatgpt.com', 'claude.ai', 'anthropic.com', 'gemini.google.com', 'accounts.google.com'];
+    const trustedDomains = ['perplexity.ai', 'openai.com', 'chatgpt.com', 'claude.ai', 'anthropic.com', 'gemini.google.com', 'accounts.google.com', 'kimi.com', 'moonshot.cn'];
     let host;
     try {
         host = new URL(url).hostname.toLowerCase();

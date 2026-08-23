@@ -20,7 +20,7 @@ export function register(server, deps) {
     });
 
 
-    const PROVIDER_DESC = 'AI provider: chatgpt, claude, gemini, perplexity, or any configured BYOK provider. Default: auto-select best for coding.';
+    const PROVIDER_DESC = 'AI provider: chatgpt, claude, gemini, perplexity, kimi, or any configured BYOK provider. Default: auto-select best for coding.';
 
     server.registerTool('verify_code', {
         title: 'Verify Code',
@@ -186,7 +186,7 @@ export function register(server, deps) {
         inputSchema: {
             error: z.string().describe('Error message or stack trace to explain'),
             context: z.string().optional().describe('What you were doing when the error occurred'),
-            provider: z.string().optional().describe('AI provider: chatgpt, claude, gemini, perplexity, or any configured BYOK provider. Default: auto-select.'),
+            provider: z.string().optional().describe('AI provider: chatgpt, claude, gemini, perplexity, kimi, or any configured BYOK provider. Default: auto-select.'),
         },
         annotations: ANALYSIS,
     }, async ({ error, context: ctx, provider: pn }) =>
