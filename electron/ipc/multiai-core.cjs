@@ -76,8 +76,10 @@ function defaultAgentName(provider, model, effort) {
 
 // Accepts the legacy participants list (provider strings) or an agents list;
 // returns normalized agents. Ids are stable slugs so personas/sessions can
-// key on them across saves.
-function normalizeAgents(chat) {
+// key on them across saves. Agents switched off in the roster
+// (`enabled: false`) are left out unless `includeDisabled` is set: they take
+// no turns, get no mentions and aren't listed to the others.
+function normalizeAgents(chat, { includeDisabled = false } = {}) {
     const src = Array.isArray(chat.agents) && chat.agents.length ? chat.agents : (chat.participants || []);
     const out = [];
     const seen = new Set();
@@ -86,13 +88,14 @@ function normalizeAgents(chat) {
         if (typeof raw === 'string') {
             const base = raw.split(':')[0];
             const engine = raw.includes(':') ? raw : ((chat.engines && chat.engines[base]) || '');
-            a = { id: base, name: PROVIDER_LABELS[base] || base, route: 'auto', provider: base, model: engine && engine !== base ? engine : '', effort: '' };
+            a = { id: base, name: PROVIDER_LABELS[base] || base, route: 'auto', provider: base, model: engine && engine !== base ? engine : '', effort: '', enabled: true };
         } else if (raw && typeof raw === 'object') {
+            if (raw.enabled === false && !includeDisabled) continue;
             const provider = String(raw.provider || 'chatgpt').split(':')[0];
             a = {
                 id: raw.id || '', name: raw.name || '', route: ROUTES.includes(raw.route) ? raw.route : 'auto',
                 provider, model: raw.model || '', effort: EFFORTS.includes(raw.effort) ? raw.effort : '',
-                persona: raw.persona || '', personaKey: raw.personaKey || '',
+                persona: raw.persona || '', personaKey: raw.personaKey || '', enabled: raw.enabled !== false,
             };
             if (CLI_PROVIDERS[provider]) a.route = 'cli';
             if (!a.name) a.name = defaultAgentName(provider, a.model, a.effort);

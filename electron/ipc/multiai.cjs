@@ -1023,7 +1023,7 @@ function registerMultiAiHandlers(deps) {
             if (body.contextWindow != null) fields.contextWindow = Math.max(0, parseInt(body.contextWindow, 10) || 0);
             if (body.autoSummaryEvery != null) fields.autoSummaryEvery = Math.max(0, parseInt(body.autoSummaryEvery, 10) || 0);
             if (body.engines && typeof body.engines === 'object') fields.engines = body.engines;
-            if (Array.isArray(body.agents) && body.agents.length) fields.agents = core.normalizeAgents({ agents: body.agents }).map(a => ({ id: a.id, name: a.name, route: a.route, provider: a.provider, model: a.model, effort: a.effort, persona: a.persona || '' }));
+            if (Array.isArray(body.agents) && body.agents.length) fields.agents = core.normalizeAgents({ agents: body.agents }, { includeDisabled: true }).map(a => ({ id: a.id, name: a.name, route: a.route, provider: a.provider, model: a.model, effort: a.effort, persona: a.persona || '', enabled: a.enabled !== false }));
             if (body.topic) fields.topic = String(body.topic);
             const created = store.createChat(fields);
             if (body.topic) {

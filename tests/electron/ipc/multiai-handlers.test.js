@@ -518,6 +518,25 @@ test('agents: on the auto route a browser-only model (Gemini engine) is not sent
     byokState.enabled = false;
 });
 
+test('agents: a roster agent switched off takes no turn, is not listed to the others, and is hidden from REST/MCP readers', async () => {
+    providerCalls.length = 0; byokCalls.length = 0;
+    const chat = newChat({ participants: [], agents: [
+        { name: 'Bull', provider: 'chatgpt' }, { name: 'Bear', provider: 'chatgpt', enabled: false }, { name: 'Ref', provider: 'claude' },
+    ], stopWhenAllAgree: false });
+    userMsg(chat.id, '@bear you first');
+    await invoke('multiai-run-round', { chatId: chat.id, rounds: 1 });
+    assert.deepEqual(providerCalls.map(c => c.provider), ['chatgpt', 'claude'], 'only enabled agents took turns; the @bear mention was ignored');
+    assert.ok(!providerCalls[0].message.includes('Bear'), 'the disabled agent is not introduced as a participant');
+    const calls = [];
+    const helpers = { sendJSON: (r, code, data) => calls.push({ code, data }), sendError: (r, code, msg) => calls.push({ code, error: msg }) };
+    await routeExtensions[0]('GET', new URL(`http://127.0.0.1:3210/v1/multiai/chats/${chat.id}`), {}, {}, helpers);
+    assert.deepEqual(calls.pop().data.chat.agents.map(a => a.id), ['bull', 'ref'], 'REST/MCP readers see the active roster');
+    await routeExtensions[0]('POST', new URL('http://127.0.0.1:3210/v1/multiai/chats'), { agents: [{ provider: 'chatgpt', name: 'On' }, { provider: 'claude', name: 'Off', enabled: false }] }, {}, helpers);
+    const created = calls.pop().data.chat;
+    assert.deepEqual(created.agents.map(a => a.id), ['on'], 'a disabled agent can be created via REST and stays off');
+    assert.equal(store.getChat(created.id).agents.length, 2, 'but it is kept in the stored roster');
+});
+
 test('agents: with API mode off in Settings, auto agents fall back to the browser tab; model becomes the Gemini engine', async () => {
     providerCalls.length = 0; byokCalls.length = 0;
     byokState.enabled = false;

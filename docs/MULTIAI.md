@@ -51,9 +51,26 @@ Route-specific behaviour:
 - **Labels.** Known providers keep their codes; other agents get initials of
   their name (`Opus · high` → `OH`).
 
+**Roster and library.** The Agents block is a roster: one row per agent with a
+checkbox. Ticked agents take turns in this chat; unticked ones are benched —
+still configured, but they take no turns, get no mentions and aren't introduced
+to the others (`enabled: false` on the stored agent; `normalizeAgents` drops
+them). Agents are defined once — *+ Add agent* offers quick presets, the
+library, and *Custom…* for the full editor — and live in a library
+(`uiPrefs.agentLibrary`, keyed by `uid`). Every new chat starts with the whole
+library switched on; editing a library agent (✎) applies to every chat that
+carries it; ✕ on a row removes the agent from that chat only, ✕ in the library
+list removes it for good (chats keep a chat-local copy). Agents that arrive
+without a `uid` — legacy `participants`, chats created over REST/MCP — are
+chat-local.
+
 Legacy chats (a `participants` list) are migrated to one browser-tab agent per
 provider the first time they are opened; the `participants` field is kept in
-sync for older readers.
+sync (enabled agents only) for older readers.
+
+The app opens on the Multi-AI tab by default (Settings → General → *Open on
+start* picks another tab). Provider views start off-screen and only cover the
+window when their tab is selected.
 
 ## How a turn is built
 
@@ -153,7 +170,7 @@ Same server as the rest of the gateway (Settings → API; default
 | Method | Path | Body / query | Result |
 |---|---|---|---|
 | GET | `/v1/multiai/chats` | | `{chats:[{id,title,mode,agents:[name],participants,messageCount,cycle,updatedAt}]}` |
-| POST | `/v1/multiai/chats` | `{title?, agents?, participants?, mode?, discussMode?, contextMode?, brevity?, topic?, who?}` | `{chat}` (201); `topic` is recorded as the first message. `agents: [{name?, provider, route?, model?, effort?, persona?}]`; `participants` is the legacy one-agent-per-provider shorthand |
+| POST | `/v1/multiai/chats` | `{title?, agents?, participants?, mode?, discussMode?, contextMode?, brevity?, topic?, who?}` | `{chat}` (201); `topic` is recorded as the first message. `agents: [{name?, provider, route?, model?, effort?, persona?, enabled?}]`; `participants` is the legacy one-agent-per-provider shorthand |
 | GET | `/v1/multiai/chats/:id` | `?since=<messageId>&last=<n>` | `{chat}` with `agents` (resolved `route` per agent), `messages` (each has a `label` like `0103CG`, plus `agentId`, `route`, `model` on agent turns) and `running` |
 | POST | `/v1/multiai/chats/:id/messages` | `{who, text, provider?, role?}` | `{message}` (201). Appends a turn; nothing is sent to providers. `role: "user"` starts a new cycle. |
 | POST | `/v1/multiai/chats/:id/run` | `{text?, who?, rounds?, wait?}` | `{started:true}` (202) or, with `wait:true`, `{messages}` once the rounds finish |

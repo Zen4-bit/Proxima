@@ -239,7 +239,6 @@ function createWindow() {
 
         await sleep(1000);
 
-        const bounds = { x: 0, y: 170, width: 1200, height: 680 };
         const offScreenBounds = { x: -10000, y: 0, width: 1200, height: 680 };
 
         for (let i = 0; i < enabledProviders.length; i++) {
@@ -247,16 +246,18 @@ function createWindow() {
             try {
                 console.log(`[Agent Hub] Initializing ${provider}...`);
 
+                // The renderer may already have shown this provider (its
+                // start tab); leave that view alone. New views start
+                // off-screen: the renderer decides what is visible — it may be
+                // on the Multi-AI tab or Settings, which no provider view
+                // should cover. Switching to a provider tab calls
+                // show-provider, which sets real bounds.
+                const existed = browserManager.views && browserManager.views.has(provider);
                 const view = browserManager.createView(provider);
 
-                if (view) {
+                if (view && !existed) {
                     mainWindow.addBrowserView(view);
-
-                    if (i === 0) {
-                        view.setBounds(bounds);
-                    } else {
-                        view.setBounds(offScreenBounds);
-                    }
+                    view.setBounds(offScreenBounds);
                 }
 
                 await sleep(1500);

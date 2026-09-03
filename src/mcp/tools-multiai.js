@@ -91,6 +91,7 @@ export function register(server, deps) {
                 model: z.string().optional().describe('API model id, CLI alias (opus/sonnet/gpt-5.5) or Gemini engine (3.1-pro); blank = Settings default'),
                 effort: z.enum(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']).optional().describe('Reasoning effort — API and CLI routes only'),
                 persona: z.string().optional().describe('Persona / system instructions for this agent'),
+                enabled: z.boolean().optional().describe('false = on the roster but benched (takes no turns until the user ticks it)'),
             })).optional().describe('The agents that take turns, in order'),
             discussMode: z.enum(['discuss', 'debate']).optional(),
             contextMode: z.enum(['bounded', 'delta', 'full']).optional(),

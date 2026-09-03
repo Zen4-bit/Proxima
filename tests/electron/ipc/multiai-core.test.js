@@ -311,3 +311,11 @@ test('buildClassicPromptWithMeta with agents: names the seat, lists the others b
     assert.ok(d.prompt.includes('buy more'), 'Bull\'s newer turn is shown to Bear');
     assert.ok(!d.prompt.includes('] Bear: sell'), 'Bear\'s own turn is not echoed back');
 });
+
+test('normalizeAgents: agents switched off in the roster are left out (unless includeDisabled)', () => {
+    const chat = { agents: [{ name: 'Bull', provider: 'chatgpt' }, { name: 'Bear', provider: 'chatgpt', enabled: false }, { name: 'Ref', provider: 'claude', enabled: true }] };
+    assert.deepEqual(core.normalizeAgents(chat).map(a => a.id), ['bull', 'ref']);
+    assert.deepEqual(core.normalizeAgents(chat, { includeDisabled: true }).map(a => [a.id, a.enabled]), [['bull', true], ['bear', false], ['ref', true]]);
+    assert.equal(core.normalizeAgents({ agents: [{ provider: 'chatgpt', enabled: false }] }).length, 0, 'all off → nobody takes turns');
+    assert.equal(core.findAgent(core.normalizeAgents(chat), 'bear'), null, 'a disabled agent cannot be mentioned');
+});

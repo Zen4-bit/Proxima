@@ -1459,7 +1459,7 @@
                         <div id="multiai-classic-controls">
                             <div style="display: flex; flex-wrap: wrap; gap: 18px; margin-bottom: 10px;">
                                 <div style="flex-basis: 100%;">
-                                    <div style="font-size: 0.7rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px;" title="Each agent = name + route + provider + model + effort + persona. Add the same provider more than once with different models or efforts. Route 'auto' follows the app's Settings: API mode on with a key → the provider's API using the model chosen there (or this agent's); otherwise the browser tab. Claude Code / Codex agents run locally on your subscriptions.">Agents</div>
+                                    <div style="font-size: 0.7rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px;" title="Your roster. Tick an agent to have it take turns in this chat; untick to bench it (it stays configured). Each agent = name + route + provider + model + effort + persona; add the same provider more than once with different models or efforts. Agents live in a library, so every new chat starts with all of them. Route 'auto' follows the app's Settings: API mode on with a key → the provider's API; otherwise the browser tab. Claude Code / Codex agents run locally on your subscriptions.">Agents</div>
                                     <div id="multiai-participants"></div>
                                     <div id="multiai-persona-assign" style="display: none;"></div>
                                 </div>
@@ -1605,6 +1605,12 @@
                         <button onclick="multiaiCloseHelp()" style="background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 1rem; padding: 2px 6px;">✕</button>
                     </div>
                     <div style="overflow-y: auto; padding: 18px 22px; font-size: 0.83rem; line-height: 1.6; color: #d1d5db;">
+                        <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: 0.8px;">Agents</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">An agent is a seat</b> — name + provider + route + model + effort + persona. Add the same provider more than once with different models or efforts (“Opus · max” and “Sonnet · low”, or “GPT high” and “GPT low”) to run a single-provider panel. Names become ids for @mentions and HANDOFFs (<code>@opus-max</code>).</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Roster and library</b> — define your agents once (<b style="color:#fff;">+ Add agent</b>: quick presets, or Custom… for the full editor). They go into a library, and every new chat starts with all of them. In a chat, the checkbox next to each agent decides who takes turns <i>this</i> time — untick to bench an agent without losing its setup; benched agents get no turns, no mentions and aren't introduced to the others. ✎ edits an agent (for a library agent the edit applies everywhere it is used); ✕ removes it from this chat only — the library's own ✕ in the Add menu removes it for good.</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Routes</b> — <b style="color:#fff;">auto</b> follows the app's general Settings: API mode on with a key for that provider → its API, using the model chosen in Settings unless the agent names one; otherwise the logged-in browser tab. <b style="color:#fff;">browser</b> always uses the tab (model ignored except Gemini's engine; effort ignored). <b style="color:#fff;">api</b> asks for the API and falls back to the tab, with a ⚠, if Settings doesn't allow it. <b style="color:#fff;">Claude Code</b> and <b style="color:#fff;">Codex</b> agents run the installed CLI locally on your subscription — one-shot, no tools, in an empty scratch folder — with the model alias and effort you pick. Keys and API mode are only ever set in Settings; ↻ re-reads them.</p>
+                        <p style="margin: 0 0 14px 0;"><b style="color:#fff;">Route differences</b> — API and CLI turns are one-shot, so Delta context becomes Bounded for them (browser agents keep Delta). Stop kills CLI processes and aborts browser turns; an API call already in flight finishes and is discarded. Codex must support the chosen model on your account (gpt-5.5 does; gpt-5 does not on ChatGPT plans).</p>
+
                         <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: 0.8px;">Classic mode</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Discuss vs. Debate</b> — Discuss has participants build on each other's points toward a shared answer. Debate assigns opposing sides and has them argue; with more than two participants each takes a distinct stance.</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Rounds</b> — how many times each participant speaks in turn. One round is usually enough for a quick comparison; use 2-4 for a discussion that needs to actually converge or a debate that needs rebuttals. More rounds costs more time and, if you're on metered API keys, more money.</p>
@@ -1612,7 +1618,7 @@
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Context</b> — what each participant is sent every turn. <b style="color:#fff;">Bounded</b> (default): the pinned State summary, a condensed digest of older messages, and the last N messages verbatim (Context window) — self-contained and stays small. <b style="color:#fff;">Delta</b>: only the messages since that AI's last turn; its own provider-side thread remembers the rest, and a rolling summary (refreshed every “Auto-summary every” messages, via the Judge provider) rides along as the topic block — the cheapest per turn; a fresh or rotated thread gets one full catch-up so nothing is lost. <b style="color:#fff;">Full</b>: the entire transcript every turn, the way the original ProximaChatApp worked — simplest, but it grows without limit and long chats will hit provider limits (that is what caused the HTTP 500s and timeouts late in long sessions).</p>
                         <p style="margin: 0 0 10px 0;">Each chat gets its own provider-side thread per AI (rotated every 12 turns, or 40 in Delta mode), so chats never bleed into each other or into the MCP tools.</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Stop token / PASS</b> — participants are asked to begin a reply with the stop token (default <code>DONE</code>) when they think the group has converged, and to reply <code>PASS</code> when they have nothing new. With “Stop early when all agree” on, a round where everyone says the token or passes ends the run — no more rounds of “Agreed, nothing further”. Passes are shown dimmed and are not fed to the other AIs; neither are errors.</p>
-                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Directed turns</b> — mention participants in your message to set this Send's order: <code>@claude kick off, others review</code> makes Claude speak first; <code>only @gemini and @chatgpt</code> restricts the round to those two. Names: @chatgpt, @claude, @gemini, @perplexity.</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Directed turns</b> — mention participants in your message to set this Send's order: <code>@claude kick off, others review</code> makes Claude speak first; <code>only @gemini and @chatgpt</code> restricts the round to those two. Use an agent's id (<code>@opus-max</code>), its name without spaces, or the provider when only one agent uses it.</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Independent first round</b> — round 1 of each Send runs everyone in parallel, blind to each other's replies (positions are committed before anyone reads the others); later rounds are round-robin as usual. In Debate with three or more participants, stances are assigned (for / against / critical evaluator / third option) rather than left to chance.</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Charter mode</b> — turns the coworking charter's discipline into engine rules: participants must tag claims <code>VERIFIED [who/how/path]</code>, <code>UNVERIFIED</code> or <code>ASSUMED [basis]</code> (agreement never upgrades a claim); plain agreement counts as PASS; every message ends with <code>HANDOFF → &lt;participant&gt;: …</code>, <code>OPEN → …</code> or <code>COMPLETE → …</code>; a HANDOFF pulls the named participant forward (next in this round, or first in the next); and one participant per round holds a rotating red-team seat (marked in the feed) whose job is the strongest objection to the emerging consensus.</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Judge</b> — after a discussion, ask one provider to read the transcript and give a verdict. Judge scope: the whole chat, everything since your last message, or only the last round.</p>
@@ -1748,6 +1754,18 @@
                             <div class="arch-item">
                                 <div class="arch-label">Active Providers</div>
                                 <div class="arch-value" id="dash-active-count">0 / 4</div>
+                            </div>
+                            <div class="arch-item">
+                                <div class="arch-label">Open on start</div>
+                                <select id="default-tab-select" onchange="setDefaultTab(this.value)" title="Which tab the app opens on"
+                                    style="background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 4px 6px; font-size: 0.8rem; width: 100%; box-sizing: border-box; margin-top: 2px;">
+                                    <option value="multiai">Multi-AI Chat</option>
+                                    <option value="perplexity">Perplexity</option>
+                                    <option value="chatgpt">ChatGPT</option>
+                                    <option value="claude">Claude</option>
+                                    <option value="gemini">Gemini</option>
+                                    <option value="settings">Settings</option>
+                                </select>
                             </div>
                         </div>
                     </div>
@@ -2903,6 +2921,12 @@ Confirm when done</pre>
             }
         }
 
+        async function setDefaultTab(tab) {
+            settings.defaultTab = tab;
+            await agentHub.saveSettings(settings);
+            showToast(`Proxima will open on ${tab === 'multiai' ? 'Multi-AI Chat' : tab === 'settings' ? 'Settings' : tab} next time.`);
+        }
+
         async function setAuthMode(mode) {
             const isByok = (mode === 'byok');
             settings.byokModeEnabled = isByok;
@@ -2959,9 +2983,13 @@ Confirm when done</pre>
             loadRestApiState();
 
             if (agentHub.onActiveProvider) {
+                // Main announces its default provider once the browser views
+                // are up (can be minutes after launch). Only follow it if the
+                // user hasn't landed anywhere yet — never yank them out of the
+                // Multi-AI tab or Settings. Views start off-screen, so nothing
+                // needs hiding here.
                 agentHub.onActiveProvider((provider) => {
-                    console.log('Auto-switching to:', provider);
-                    switchTab(provider);
+                    if (!currentTab) { console.log('Auto-switching to:', provider); switchTab(provider); }
                 });
             }
 
@@ -2985,16 +3013,19 @@ Confirm when done</pre>
 
 
 
+            // Open on the tab chosen in Settings → General (default: Multi-AI
+            // Chat). A provider tab that is disabled falls back to Multi-AI.
             const firstEnabled = Object.entries(settings.providers)
                 .find(([_, config]) => config.enabled)?.[0];
-
-            if (firstEnabled) {
-                setTimeout(() => {
-                    if (!currentTab) {
-                        switchTab(firstEnabled);
-                    }
-                }, 2000);
-            }
+            const wanted = settings.defaultTab || 'multiai';
+            const startTab = (wanted === 'multiai' || wanted === 'settings') ? wanted
+                : (settings.providers[wanted]?.enabled ? wanted : 'multiai');
+            const startSel = document.getElementById('default-tab-select');
+            if (startSel) startSel.value = wanted;
+            // multiai-renderer.js is the last script on the page; wait for it.
+            const openStartTab = () => { if (!currentTab) switchTab(startTab); };
+            if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', openStartTab);
+            else openStartTab();
 
             initEnvStatus();
 
