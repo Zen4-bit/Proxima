@@ -137,23 +137,42 @@ function registerMultiAiHandlers(deps) {
 
     function sessionState(chat, base) {
         const all = chat.providerSessions || {};
-        return all[base] || { gen: 1, turns: 0 };
+        return all[base] || { gen: 1, turns: 0, lastId: null };
+    }
+
+    function contextModeOf(chat) {
+        return core.CONTEXT_MODES.includes(chat.contextMode) ? chat.contextMode : core.DEFAULTS.contextMode;
+    }
+
+    function resetEveryFor(chat) {
+        return contextModeOf(chat) === 'delta' ? core.DEFAULTS.providerResetEveryDelta : core.DEFAULTS.providerResetEvery;
     }
 
     function sessionIdFor(chat, st) {
         return `${core.sessionFor(chat.id)}:${st.gen}`;
     }
 
+    // The thread state a turn will use: rotates to a fresh generation when the
+    // turn bound is hit. Delta mode needs to know this BEFORE building the
+    // prompt (a fresh thread gets a full catch-up instead of a delta).
+    function nextSessionState(chat, base) {
+        const st = sessionState(chat, base);
+        if (st.turns >= resetEveryFor(chat)) return { gen: st.gen + 1, turns: 0, lastId: null, rotated: true };
+        return Object.assign({}, st, { rotated: false });
+    }
+
     // Sends one turn on the chat's thread for that provider, then advances the
-    // turn counter (rotating the thread when it hits the bound).
-    async function sendOnChatThread(chat, provider, prompt) {
+    // turn counter. `st` comes from nextSessionState(); `lastId` (delta mode)
+    // is the anchor to remember on success — the last message this provider
+    // has now seen. A cancelled call leaves the anchor alone so the next turn
+    // re-sends what the provider may or may not have read.
+    async function sendOnChatThread(chat, provider, prompt, st, lastId) {
         const base = String(provider).split(':')[0];
-        let st = sessionState(chat, base);
-        if (st.turns >= core.DEFAULTS.providerResetEvery) st = { gen: st.gen + 1, turns: 0 };
+        if (!st) st = nextSessionState(chat, base);
         const sessionId = sessionIdFor(chat, st);
         const result = await raceProvider(chat.id, sender.sendMessageToProvider(providerString(chat, provider), prompt, null, null, sessionId));
         if (result.ok || result.cancelled) {
-            const next = { gen: st.gen, turns: st.turns + 1 };
+            const next = { gen: st.gen, turns: st.turns + 1, lastId: result.ok ? (lastId !== undefined ? lastId : (st.lastId || null)) : (st.lastId || null) };
             chat.providerSessions = Object.assign({}, chat.providerSessions || {}, { [base]: next });
             store.updateChat(chat.id, (c) => { c.providerSessions = Object.assign({}, c.providerSessions || {}, { [base]: next }); });
         }
@@ -238,7 +257,9 @@ function registerMultiAiHandlers(deps) {
         const cycle = chat.cycle || 1;
         emit('multiai-thinking', { chatId, provider: base });
         const { brief, latest } = core.briefAndLatest(chat.messages, chat.topic);
-        const prompt = core.buildClassicPrompt({
+        const st = nextSessionState(chat, base);
+        const cmode = contextModeOf(chat);
+        const built = core.buildClassicPromptWithMeta({
             chatTitle: chat.title,
             topic: brief,
             latestUserMessage: latest,
@@ -251,8 +272,11 @@ function registerMultiAiHandlers(deps) {
             contextOpts: contextOpts(chat),
             stopToken: chat.stopToken || core.DEFAULTS.stopToken,
             independent: opts.independent ? { cycle } : null,
+            contextMode: cmode,
+            // A fresh/rotated thread has no memory: force the catch-up prompt.
+            delta: { sinceId: (st.rotated || st.turns === 0) ? null : st.lastId, provider: base },
         });
-        const raced = await sendOnChatThread(chat, provider, prompt);
+        const raced = await sendOnChatThread(chat, provider, built.prompt, st, cmode === 'delta' ? built.meta.lastId : null);
         const label = core.providerLabel(base);
         if (raced.cancelled) {
             record(chatId, { who: `${label} (stopped)`, text: 'Stopped before this reply arrived.', provider: base, role: 'error', cycle, round });
@@ -269,6 +293,29 @@ function registerMultiAiHandlers(deps) {
         }
         record(chatId, { who: label, text, provider: base, role: 'assistant', cycle, round });
         return { ok: true };
+    }
+
+    // Rolling summary (delta mode's "Topic block"): once more than
+    // autoSummaryEvery readable messages have accumulated since the last
+    // pinned summary, ask the judge provider (or the first participant) for a
+    // fresh one. Runs between rounds so it never interrupts a turn.
+    async function maybeAutoSummary(chatId, participants) {
+        const chat = store.getChat(chatId);
+        if (!chat) return;
+        const every = parseInt(chat.autoSummaryEvery, 10) || 0;
+        if (every <= 0) return;
+        if (core.messagesSinceSummary(chat.messages).length < every) return;
+        const provider = chat.judgeProvider || participants[0];
+        if (!provider) return;
+        const base = String(provider).split(':')[0];
+        emit('multiai-thinking', { chatId, provider: base });
+        const { brief } = core.briefAndLatest(chat.messages, chat.topic);
+        try {
+            const result = await sendAux(chat, provider, core.buildSummaryPrompt({ topic: brief, messages: chat.messages }));
+            record(chatId, { who: `State summary · ${core.providerLabel(base)} (auto)`, text: result.response, provider: base, role: 'summary', cycle: chat.cycle || 1, round: 0 });
+        } catch (e) {
+            note(chatId, `Auto-summary failed: ${e.message}`);
+        }
     }
 
     // Runs `rounds` rounds on a chat using its stored settings. `latestText`
@@ -320,6 +367,7 @@ function registerMultiAiHandlers(deps) {
                     note(chatId, `Everyone passed in round ${r} — nothing new to add.`);
                     break;
                 }
+                if (!sig.cancelled) await maybeAutoSummary(chatId, order);
             }
             if (sig.cancelled) note(chatId, 'Run stopped.');
         } finally {

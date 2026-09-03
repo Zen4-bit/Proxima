@@ -12,7 +12,19 @@ Code: `electron/ipc/multiai-core.cjs` (pure logic, unit-tested),
 
 ## How a turn is built
 
-Every participant receives a self-sufficient prompt, not the whole history:
+The **Context** option (per chat) picks one of three strategies:
+
+- **Bounded** (default) — a self-sufficient prompt, not the whole history (see below).
+- **Delta** — only the messages since that provider's last turn; its own
+  provider-side thread remembers the rest, and a rolling State summary rides
+  along as the topic block (refreshed every *Auto-summary every* messages via
+  the Judge provider). A fresh or rotated thread gets one full catch-up prompt
+  (the bounded one), so nothing is lost. Cheapest per turn.
+- **Full** — the entire transcript every turn (the original ProximaChatApp
+  behaviour). Simplest, unbounded, and the cause of the late-session HTTP 500s
+  and timeouts in long chats.
+
+In bounded mode every participant receives:
 
 1. the brief (first human message) and the latest human instruction,
 2. the pinned **State summary**, if one exists (everything before it is dropped),
@@ -25,8 +37,8 @@ Every participant receives a self-sufficient prompt, not the whole history:
 Errors, stop notices, passes and system notes are never fed back to participants.
 
 Each chat has its own provider-side thread per provider
-(`multiai:<chatId>:<generation>`), rotated every 12 turns so provider threads
-stay bounded; judge/summary/title calls use a fresh one-off thread. Chats never
+(`multiai:<chatId>:<generation>`), rotated every 12 turns (40 in Delta mode) so
+provider threads stay bounded; judge/summary/title calls use a fresh one-off thread. Chats never
 bleed into each other or into the MCP tools' `mcp-session` thread.
 
 ## Classic mode

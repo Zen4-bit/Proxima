@@ -56,6 +56,8 @@ function multiaiDefaultChat() {
         pendingContextRefs: [], // message ids queued via "Add as context", folded into the next outgoing prompt then cleared.
         agentConfig: { provider: '', root: '', maxTurns: 6 }, // Orchestrated "Agent (file tools)" strategy settings.
         engines: {},            // provider -> engine string (e.g. gemini -> 'gemini:3.1-pro'); only Gemini honours it today.
+        contextMode: 'bounded', // 'bounded' (digest + window) | 'full' (entire transcript every turn) | 'delta' (only what's new; provider thread remembers)
+        autoSummaryEvery: 0,    // delta mode: refresh the rolling summary after this many new messages (0 = manual)
         contextWindow: 10,      // recent messages each participant sees verbatim; older ones are condensed (see multiai-core).
         stopToken: 'DONE',      // convergence token; a round where everyone says it (or passes) ends the run early.
         stopWhenAllAgree: true,
@@ -706,6 +708,8 @@ function multiaiRenderOptionsSummary(chat) {
         const n = (chat.participants || []).length;
         const rounds = chat.rounds || 1;
         const extras = [];
+        if (chat.contextMode === 'full') extras.push('full transcript');
+        else if (chat.contextMode === 'delta') extras.push(`delta${parseInt(chat.autoSummaryEvery, 10) > 0 ? ' + rolling summary' : ''}`);
         if (chat.independentFirstRound) extras.push('blind R1');
         if (chat.stopWhenAllAgree !== false) extras.push(`stop on ${chat.stopToken || 'DONE'}`);
         if (chat.engines && chat.engines.gemini && chat.engines.gemini !== 'gemini') extras.push(chat.engines.gemini);
@@ -748,6 +752,10 @@ function multiaiRenderChat() {
     document.getElementById('multiai-strategy').value = chat.strategy || 'crew';
     const judgeScopeEl = document.getElementById('multiai-judge-scope');
     if (judgeScopeEl) judgeScopeEl.value = (chat.judgeScope === 'last') ? 'round' : (chat.judgeScope || 'all');
+    const cm = document.getElementById('multiai-context-mode');
+    if (cm) cm.value = chat.contextMode || 'bounded';
+    const ase = document.getElementById('multiai-auto-summary');
+    if (ase) ase.value = chat.autoSummaryEvery != null ? chat.autoSummaryEvery : 0;
     const cw = document.getElementById('multiai-context-window');
     if (cw) cw.value = chat.contextWindow != null ? chat.contextWindow : 10;
     const st = document.getElementById('multiai-stop-token');
@@ -1208,6 +1216,19 @@ function multiaiReadClassicFields(chat) {
     chat.discussMode = document.getElementById('multiai-discuss-mode').value;
     chat.rounds = parseInt(document.getElementById('multiai-rounds').value, 10) || 1;
     chat.brevity = document.getElementById('multiai-brevity').value;
+    const cm = document.getElementById('multiai-context-mode');
+    if (cm) {
+        const prev = chat.contextMode || 'bounded';
+        chat.contextMode = ['bounded', 'full', 'delta'].includes(cm.value) ? cm.value : 'bounded';
+        // Delta leans on a rolling summary; give it a sensible default the first time it's picked.
+        if (chat.contextMode === 'delta' && prev !== 'delta' && !(parseInt(chat.autoSummaryEvery, 10) > 0)) {
+            chat.autoSummaryEvery = 12;
+            const ase = document.getElementById('multiai-auto-summary');
+            if (ase) ase.value = 12;
+        }
+    }
+    const ase = document.getElementById('multiai-auto-summary');
+    if (ase) chat.autoSummaryEvery = Math.max(0, parseInt(ase.value, 10) || 0);
     const cw = document.getElementById('multiai-context-window');
     if (cw) chat.contextWindow = Math.max(0, parseInt(cw.value, 10) || 0);
     const st = document.getElementById('multiai-stop-token');

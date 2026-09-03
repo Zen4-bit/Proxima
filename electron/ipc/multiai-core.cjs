@@ -17,8 +17,18 @@ const DEFAULTS = Object.freeze({
     digestUserChars: 1500,      // the human's own messages are kept longer (they're instructions)
     digestMaxChars: 30000,      // total budget for the condensed block
     stopToken: 'DONE',
-    providerResetEvery: 12,     // start a fresh provider-side thread after this many turns
+    providerResetEvery: 12,     // start a fresh provider-side thread after this many turns (bounded/full)
+    providerResetEveryDelta: 40, // delta mode leans on the provider thread's memory, so rotate far less often
+    contextMode: 'bounded',     // 'bounded' | 'full' | 'delta'
+    autoSummaryEvery: 0,        // in delta mode: refresh the rolling summary after this many new messages (0 = manual)
 });
+
+// What each participant is sent every turn:
+//   bounded — pinned summary + condensed digest of older messages + last N verbatim (self-sufficient, bounded size)
+//   full    — the entire readable transcript every turn (self-sufficient; grows without limit — the old PCA behaviour)
+//   delta   — only the messages since this provider's last turn, relying on the provider-side thread to remember the
+//             rest; a rolling summary rides in the Topic block, and the first turn on a fresh thread sends a full catch-up
+const CONTEXT_MODES = ['bounded', 'full', 'delta'];
 
 const KNOWN_PROVIDERS = ['chatgpt', 'claude', 'gemini', 'perplexity'];
 
@@ -337,6 +347,46 @@ function buildContext(messages, opts) {
     };
 }
 
+// 'full' mode: everything readable, verbatim. Same shape as buildContext()
+// so callers can treat them alike.
+function buildFullContext(messages) {
+    const all = readable(messages);
+    return {
+        text: all.length ? `Conversation so far (complete):\n${all.map(m => `[${refLabel(m)}] ${whoOf(m)}: ${m.text.trim()}${m.attachmentsText ? '\n' + m.attachmentsText.trim() : ''}`).join('\n\n')}` : '(no messages yet)',
+        summary: null, digestCount: 0, recentCount: all.length, dropped: 0,
+    };
+}
+
+// 'delta' mode: only what this provider hasn't seen. `sinceId` is the id of
+// the last message that was in a prompt to this provider; its own replies are
+// skipped (they're already in its thread as its answers). Returns catchUp=true
+// when there's no usable anchor, in which case the caller sends the bounded
+// context instead so a fresh provider thread starts with the whole picture.
+function buildDeltaContext(messages, { sinceId, provider, contextOpts }) {
+    const all = readable(messages);
+    const idx = sinceId ? all.findIndex(m => m.id === sinceId) : -1;
+    if (idx === -1) {
+        const ctx = buildContext(messages, contextOpts);
+        return Object.assign(ctx, { catchUp: true, lastId: all.length ? all[all.length - 1].id : null });
+    }
+    const base = String(provider || '').split(':')[0];
+    const fresh = all.slice(idx + 1).filter(m => !(m.role === 'assistant' && String(m.provider || '').split(':')[0] === base));
+    let summaryMsg = null;
+    for (let i = all.length - 1; i >= 0; i--) if (all[i].role === 'summary') { summaryMsg = all[i]; break; }
+    const parts = [];
+    if (summaryMsg) parts.push(`Rolling state summary (as of ${refLabel(summaryMsg)}):\n${summaryMsg.text.trim()}`);
+    parts.push(fresh.length
+        ? `New messages since your last turn:\n${fresh.map(m => `[${refLabel(m)}] ${whoOf(m)}: ${m.text.trim()}${m.attachmentsText ? '\n' + m.attachmentsText.trim() : ''}`).join('\n\n')}`
+        : 'No new messages from others since your last turn.');
+    return { text: parts.join('\n\n'), summary: summaryMsg, digestCount: 0, recentCount: fresh.length, dropped: 0, catchUp: false, lastId: all.length ? all[all.length - 1].id : null };
+}
+
+function buildContextByMode(messages, { mode, contextOpts, delta }) {
+    if (mode === 'full') return Object.assign(buildFullContext(messages), { catchUp: false, lastId: null });
+    if (mode === 'delta') return buildDeltaContext(messages, Object.assign({ contextOpts }, delta || {}));
+    return Object.assign(buildContext(messages, contextOpts), { catchUp: false, lastId: null });
+}
+
 // Full transcript, used only for one-off readers (judge, summarizer, export).
 function renderFullTranscript(messages) {
     return readable(messages).map(m => `[${refLabel(m)}] ${whoOf(m)}: ${m.text.trim()}${m.attachmentsText ? '\n' + m.attachmentsText.trim() : ''}`).join('\n\n') || '(no messages yet)';
@@ -365,15 +415,22 @@ function stanceFor(mode, index, count) {
     return STANCES[index % STANCES.length];
 }
 
-function buildClassicPrompt({ chatTitle, topic, latestUserMessage, mode, brevity, persona, participants, provider, messages, contextOpts, stopToken, independent }) {
+function buildClassicPrompt(args) {
+    return buildClassicPromptWithMeta(args).prompt;
+}
+
+// Same, plus meta: which context mode was used, whether a delta turn fell back
+// to a full catch-up, and the id of the last message included (the delta
+// anchor to store for this provider).
+function buildClassicPromptWithMeta({ chatTitle, topic, latestUserMessage, mode, brevity, persona, participants, provider, messages, contextOpts, stopToken, independent, contextMode, delta }) {
     const base = String(provider).split(':')[0];
     const idx = Math.max(0, participants.indexOf(provider), participants.indexOf(base));
     const others = participants.filter(p => p !== provider && p !== base).map(providerLabel);
     const side = stanceFor(mode, idx, participants.length);
     const personaBlock = persona ? `[Your assigned persona / instructions — stay in character]\n${persona}\n\n` : '';
-    const ctx = independent
-        ? buildContext(messages.filter(m => m.role !== 'assistant' || m.cycle !== independent.cycle), contextOpts)
-        : buildContext(messages, contextOpts);
+    const visible = independent ? messages.filter(m => m.role !== 'assistant' || m.cycle !== independent.cycle) : messages;
+    const cmode = CONTEXT_MODES.includes(contextMode) ? contextMode : DEFAULTS.contextMode;
+    const ctx = buildContextByMode(visible, { mode: cmode, contextOpts, delta: Object.assign({ provider: base }, delta || {}) });
     const token = stopToken || DEFAULTS.stopToken;
     const rules = [
         `Add your next contribution (${brevity || 'max 4 sentences'}). Be substantive and specific; build on or directly challenge points already made. Do not repeat yourself or restate what others said. Reply with only your message.`,
@@ -381,13 +438,24 @@ function buildClassicPrompt({ chatTitle, topic, latestUserMessage, mode, brevity
         `If you believe the group has fully converged and no further discussion is needed, begin your reply with the single word ${token} followed by your final position.`,
     ];
     if (independent) rules.push('This is an independent first round: you have NOT been shown the other participants\' replies to the latest message. Commit to your own position; do not guess at theirs.');
-    return `${personaBlock}You are ${providerLabel(provider)}, one participant in a multi-AI conversation` +
+    if (cmode === 'delta' && !ctx.catchUp) rules.push('You are continuing an ongoing thread: earlier messages are already in this conversation above — only the new ones are shown here.');
+    const prompt = `${personaBlock}You are ${providerLabel(provider)}, one participant in a multi-AI conversation` +
         `${others.length ? ` with ${others.join(', ')}` : ''}${chatTitle ? ` titled "${chatTitle}"` : ''}.\n` +
         `Topic / brief: ${topic || '(see conversation)'}\n` +
         `${latestUserMessage && latestUserMessage !== topic ? `Latest instruction from the human: ${latestUserMessage}\n` : ''}` +
         `${side ? side + '\n' : ''}\n` +
         `${ctx.text}\n\n` +
         rules.join('\n');
+    return { prompt, meta: { contextMode: cmode, catchUp: !!ctx.catchUp, lastId: ctx.lastId || null } };
+}
+
+// Messages (readable) since the last pinned summary — the trigger for the
+// rolling auto-summary in delta mode.
+function messagesSinceSummary(messages) {
+    const all = readable(messages);
+    let i = all.length - 1;
+    while (i >= 0 && all[i].role !== 'summary') i--;
+    return all.slice(i + 1);
 }
 
 function buildJudgePrompt({ topic, messages }) {
@@ -495,8 +563,9 @@ module.exports = {
     DEFAULTS, KNOWN_PROVIDERS, PROVIDER_LABELS, PROVIDER_CODES,
     providerLabel, providerCode, genMsgId, genChatId, refLabel,
     emptyStore, normalizeStore, findChatIn, mergeStores, createStore,
-    READABLE_ROLES, readable, buildContext, renderFullTranscript, briefAndLatest, stanceFor,
-    buildClassicPrompt, buildJudgePrompt, buildSummaryPrompt, buildTitlePrompt,
+    CONTEXT_MODES, READABLE_ROLES, readable, buildContext, buildFullContext, buildDeltaContext, buildContextByMode,
+    renderFullTranscript, briefAndLatest, messagesSinceSummary, stanceFor,
+    buildClassicPrompt, buildClassicPromptWithMeta, buildJudgePrompt, buildSummaryPrompt, buildTitlePrompt,
     localTitle, cleanTitle, parseMentions, isPass, startsWithToken, roundOutcome,
     sessionFor, auxSessionFor, parseToolCall, parseWorkflowLine,
 };

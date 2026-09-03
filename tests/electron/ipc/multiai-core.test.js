@@ -201,3 +201,35 @@ test('refLabel & provider codes cover external agents', () => {
     assert.equal(core.refLabel({ cycle: 2, round: 1, role: 'assistant', provider: 'codex' }), '0201CX');
     assert.equal(core.refLabel({ cycle: 1, round: 0, role: 'summary' }), '0100SM');
 });
+
+test('context modes: full sends everything; delta sends only unseen messages from others, with a rolling summary', () => {
+    const messages = [
+        msg({ id: 'u1', role: 'user', who: 'You', text: 'THE BRIEF', round: 0 }),
+        msg({ id: 'a1', provider: 'chatgpt', who: 'chatgpt', text: 'CHATGPT ONE' }),
+        msg({ id: 'b1', provider: 'claude', who: 'claude', text: 'CLAUDE ONE' }),
+        msg({ id: 's1', role: 'summary', text: 'SUMMARY: agreed on X' }),
+        msg({ id: 'a2', provider: 'chatgpt', who: 'chatgpt', text: 'CHATGPT TWO' }),
+        msg({ id: 'b2', provider: 'claude', who: 'claude', text: 'CLAUDE TWO' }),
+    ];
+    const full = core.buildContextByMode(messages, { mode: 'full' });
+    assert.ok(full.text.includes('CHATGPT ONE') && full.text.includes('CLAUDE TWO') && full.text.includes('complete'));
+
+    // claude last saw up to a1: it should get s1, a2 (not its own b1/b2), plus the summary block
+    const delta = core.buildContextByMode(messages, { mode: 'delta', delta: { sinceId: 'a1', provider: 'claude' } });
+    assert.equal(delta.catchUp, false);
+    assert.ok(delta.text.includes('CHATGPT TWO'));
+    assert.ok(!delta.text.includes('CLAUDE TWO'), 'own replies are not re-sent');
+    assert.ok(!delta.text.includes('CHATGPT ONE'), 'already-seen messages are not re-sent');
+    assert.ok(delta.text.includes('Rolling state summary') && delta.text.includes('agreed on X'));
+    assert.equal(delta.lastId, 'b2');
+
+    // no anchor → catch-up with the bounded context
+    const catchUp = core.buildContextByMode(messages, { mode: 'delta', delta: { sinceId: null, provider: 'claude' } });
+    assert.equal(catchUp.catchUp, true);
+    assert.ok(catchUp.text.includes('State summary'));
+
+    const withMeta = core.buildClassicPromptWithMeta({ topic: 'T', mode: 'discuss', participants: ['chatgpt', 'claude'], provider: 'claude', messages, contextMode: 'delta', delta: { sinceId: 'a1' } });
+    assert.equal(withMeta.meta.contextMode, 'delta');
+    assert.ok(withMeta.prompt.includes('continuing an ongoing thread'));
+    assert.equal(core.messagesSinceSummary(messages).length, 2);
+});

@@ -1,6 +1,6 @@
 {
     "name": "proxima",
-    "version": "5.0.0",
+    "version": "5.1.0",
     "description": "Proxima - Local MCP Server (requires localhost network access for AI coding tools)",
     "license": "SEE LICENSE IN LICENSE",
     "author": "Zen4-bit",
@@ -188,6 +188,6 @@
     },
     "proximaFork": {
         "of": "Zen4-bit/Proxima",
-        "note": "Fork with the native Multi-AI Chat tab. Auto-update from upstream is disabled unless settings.autoUpdate is true."
+        "note": "Fork with the native Multi-AI Chat tab (5.1.x = fork releases). Auto-update from upstream is disabled unless settings.autoUpdate is true."
     }
 }

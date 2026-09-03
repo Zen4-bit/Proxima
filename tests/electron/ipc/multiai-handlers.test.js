@@ -297,3 +297,56 @@ test('delete-chat removes it; snapshot save afterwards does not resurrect it', a
     await invoke('multiai-save', snapshot);
     assert.equal(store.getChat(chat.id), null, 'tombstone keeps a stale snapshot from resurrecting the chat');
 });
+
+test('delta mode: first turn is a full catch-up, later turns carry only unseen messages; rotation re-sends a catch-up', async () => {
+    providerCalls.length = 0;
+    let k = 0;
+    replyFn = async (p) => `${p} reply ${++k}`;
+    const chat = newChat({ contextMode: 'delta', stopWhenAllAgree: false });
+    userMsg(chat.id, 'Delta brief');
+    await invoke('multiai-run-round', { chatId: chat.id, rounds: 2 });
+    const cg = providerCalls.filter(c => c.provider === 'chatgpt');
+    assert.equal(cg.length, 2);
+    assert.ok(cg[0].message.includes('Recent messages (verbatim)'), 'first turn on a fresh thread is a catch-up');
+    assert.ok(cg[1].message.includes('New messages since your last turn'));
+    assert.ok(cg[1].message.includes('claude reply 2'), 'sees the other participant\'s round-1 reply');
+    assert.ok(!cg[1].message.includes('chatgpt reply 1'), 'does not get its own reply back');
+    assert.ok(!cg[1].message.includes('Delta brief\n') || !cg[1].message.includes('Recent messages'), 'no full transcript on a delta turn');
+    const st = store.getChat(chat.id).providerSessions.chatgpt;
+    assert.ok(st.lastId, 'anchor stored');
+
+    // force a rotation: pretend the thread hit its bound
+    store.updateChat(chat.id, (c) => { c.providerSessions.chatgpt.turns = core.DEFAULTS.providerResetEveryDelta; });
+    providerCalls.length = 0;
+    await invoke('multiai-run-round', { chatId: chat.id, rounds: 1 });
+    const rot = providerCalls.find(c => c.provider === 'chatgpt');
+    assert.ok(rot.conversationId.endsWith(':2'), 'new provider thread');
+    assert.ok(rot.message.includes('Recent messages (verbatim)'), 'catch-up after rotation');
+});
+
+test('full mode: the entire transcript is sent every turn', async () => {
+    providerCalls.length = 0;
+    replyFn = async (p) => `${p} full reply`;
+    const chat = newChat({ contextMode: 'full', stopWhenAllAgree: false, contextWindow: 1 });
+    userMsg(chat.id, 'Full brief');
+    for (let i = 0; i < 6; i++) store.appendMessage(chat.id, { who: 'claude', provider: 'claude', role: 'assistant', text: `OLD MESSAGE ${i}`, cycle: 1, round: 1 });
+    await invoke('multiai-run-round', { chatId: chat.id, rounds: 1 });
+    const p = providerCalls[0].message;
+    assert.ok(p.includes('Conversation so far (complete)'));
+    for (let i = 0; i < 6; i++) assert.ok(p.includes(`OLD MESSAGE ${i}`), 'nothing condensed in full mode');
+});
+
+test('delta mode: rolling auto-summary is refreshed after enough new messages', async () => {
+    providerCalls.length = 0;
+    replyFn = async (p, prompt) => prompt.includes('note-taker') ? 'AUTO SUMMARY TEXT' : `${p} chat`;
+    const chat = newChat({ contextMode: 'delta', autoSummaryEvery: 3, stopWhenAllAgree: false, judgeProvider: 'gemini' });
+    userMsg(chat.id, 'brief');
+    await invoke('multiai-run-round', { chatId: chat.id, rounds: 2 });
+    const msgs = messagesOf(chat.id);
+    const summaries = msgs.filter(m => m.role === 'summary');
+    assert.ok(summaries.length >= 1, 'a summary was pinned automatically');
+    assert.ok(summaries[0].who.includes('auto'));
+    assert.ok(providerCalls.some(c => c.provider === 'gemini' && c.conversationId.includes(':aux:')), 'summary used the judge provider on an aux thread');
+    const lastTurn = providerCalls.filter(c => c.provider !== 'gemini').pop();
+    assert.ok(lastTurn.message.includes('AUTO SUMMARY TEXT'), 'later turns carry the rolling summary');
+});
