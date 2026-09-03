@@ -518,10 +518,34 @@ function startIPCServer() {
     bindIPCPort(0);
 }
 
+// Programmatic Multi-AI Chat API (set by initModules); the MCP server's
+// multiai_* tools reach it through the IPC actions below.
+let multiaiApi = null;
+
 async function handleMCPRequest(request) {
     const { action, provider, data } = request;
 
     try {
+        if (action && action.startsWith('multiai')) {
+            if (!multiaiApi) return { success: false, error: 'Multi-AI Chat is not initialised' };
+            const d = data || {};
+            try {
+                switch (action) {
+                    case 'multiaiRunning': return { success: true, running: multiaiApi.running() };
+                    case 'multiaiListChats': return { success: true, chats: multiaiApi.listChats() };
+                    case 'multiaiCreateChat': return { success: true, chat: multiaiApi.createChat(d) };
+                    case 'multiaiGetChat': return { success: true, chat: multiaiApi.getChat(d.chatId, { since: d.since, last: d.last }) };
+                    case 'multiaiAppend': return { success: true, message: multiaiApi.appendMessage(d.chatId, d) };
+                    case 'multiaiRun': return Object.assign({ success: true }, await multiaiApi.run(d.chatId, d));
+                    case 'multiaiWait': return Object.assign({ success: true }, await multiaiApi.waitForRun(d.chatId, { since: d.since, maxMs: d.maxMs }));
+                    case 'multiaiStop': return Object.assign({ success: true }, multiaiApi.stop(d.chatId));
+                    default: return { success: false, error: `Unknown action: ${action}` };
+                }
+            } catch (e) {
+                return { success: false, error: e.message, status: e.status || 500 };
+            }
+        }
+
         switch (action) {
             case 'ping':
                 return { success: true, message: 'pong' };
@@ -774,7 +798,7 @@ function initModules() {
     registerCoreHandlers(handlerDeps);
     registerSettingsHandlers(handlerDeps);
     registerCLIHandlers(handlerDeps);
-    registerMultiAiHandlers(handlerDeps);
+    multiaiApi = registerMultiAiHandlers(handlerDeps);
 }
 
 const { sendMessageToProvider } = providerSender;

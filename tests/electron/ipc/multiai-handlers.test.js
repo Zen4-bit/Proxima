@@ -387,3 +387,20 @@ test('a participant failing twice in a row is benched for the rest of the run', 
     const msgs = messagesOf(chat.id);
     assert.ok(msgs.some(m => m.role === 'system' && /ChatGPT failed twice in a row/.test(m.text)));
 });
+
+test('stop: aborts the in-flight provider call and skips queued ones', async () => {
+    providerCalls.length = 0;
+    fakeSender.abortActive = async (base, sessionId) => { fakeSender.aborted = (fakeSender.aborted || []).concat([`${base}|${sessionId}`]); return true; };
+    let release;
+    replyFn = () => new Promise(r => { release = r; });
+    const chat = newChat({ participants: ['chatgpt', 'claude'], stopWhenAllAgree: false });
+    userMsg(chat.id, 'abort me');
+    const running = invoke('multiai-run-round', { chatId: chat.id, rounds: 2 });
+    await delay(20);
+    await invoke('multiai-stop-run', { chatId: chat.id });
+    await running;
+    assert.deepEqual(fakeSender.aborted, [`chatgpt|multiai:${chat.id}:1`], 'exactly the active call was aborted, by its session id');
+    assert.equal(providerCalls.length, 1, 'no further participant was called after Stop');
+    release('late');
+    delete fakeSender.abortActive; delete fakeSender.aborted;
+});

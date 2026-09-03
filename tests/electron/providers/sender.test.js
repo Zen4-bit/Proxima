@@ -92,3 +92,38 @@ test('sendMessageToProvider: a failing send does not wedge the queue for the nex
     const r = await sender.sendMessageToProvider('gemini', 'b');
     assert.deepEqual(r, { response: 'recovered' });
 });
+
+test('sendMessageToProvider: options.shouldRun skips a queued send without touching the provider', async () => {
+    let calls = 0;
+    sendImpl = async () => { calls += 1; await delay(30); return 'ok'; };
+    const first = sender.sendMessageToProvider('gemini', 'one', null, null, 's1');
+    let cancelled = false;
+    const second = sender.sendMessageToProvider('gemini', 'two', null, null, 's2', { shouldRun: () => !cancelled });
+    cancelled = true;
+    await first;
+    await assert.rejects(second, /Cancelled by user/);
+    assert.equal(calls, 1, 'the cancelled send never reached the provider');
+});
+
+test('abortActive: aborts only the in-flight send with the matching conversation id', async () => {
+    const aborted = [];
+    providerAPI.abortActive = async (p) => { aborted.push(p); return true; };
+    let release;
+    sendImpl = () => new Promise((r) => { release = r; });
+    const p = sender.sendMessageToProvider('claude', 'slow', null, null, 'conv-A');
+    await delay(5);
+    assert.equal(await sender.abortActive('claude', 'conv-B'), false, 'a different conversation is left alone');
+    assert.equal(await sender.abortActive('claude', 'conv-A'), true);
+    assert.deepEqual(aborted, ['claude']);
+    release('done');
+    await p;
+    assert.equal(await sender.abortActive('claude', null), false, 'nothing active after completion');
+    delete providerAPI.abortActive;
+});
+
+test('sendMessageToProvider: "Cancelled by user" from the engine is terminal (not retried)', async () => {
+    let calls = 0;
+    sendImpl = async () => { calls += 1; throw new Error('Cancelled by user'); };
+    await assert.rejects(() => sender.sendMessageToProvider('chatgpt', 'hi'), /Cancelled by user/);
+    assert.equal(calls, 1);
+});

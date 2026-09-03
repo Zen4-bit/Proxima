@@ -72,8 +72,10 @@ Sends in the same chat include a condensed view of the prior conversation.
 ## Runs, persistence, safety
 
 - Runs belong to the chat, not the screen: switch chats freely; a running chat
-  shows ● in the list; one run per chat at a time; Stop abandons the in-flight
-  call (the browser request itself is not cancellable in the provider layer).
+  shows ● in the list; one run per chat at a time. Stop aborts the call in
+  flight inside the provider's BrowserView (`abort()` on each engine, wired
+  through `sender.abortActive`), skips queued turns, and — in Delta mode —
+  gives that provider a fresh thread on its next turn.
 - A participant that fails twice in a row is benched for the rest of that run
   (a system note says so). In Delta mode an error also starts a fresh provider
   thread with a full catch-up, because some engines wipe the thread on failure.
@@ -102,6 +104,7 @@ Same server as the rest of the gateway (Settings → API; default
 | GET | `/v1/multiai/chats/:id` | `?since=<messageId>` | `{chat}` with `messages` (each has a `label` like `0103CG`) and `running` |
 | POST | `/v1/multiai/chats/:id/messages` | `{who, text, provider?, role?}` | `{message}` (201). Appends a turn; nothing is sent to providers. `role: "user"` starts a new cycle. |
 | POST | `/v1/multiai/chats/:id/run` | `{text?, who?, rounds?, wait?}` | `{started:true}` (202) or, with `wait:true`, `{messages}` once the rounds finish |
+| POST | `/v1/multiai/chats/:id/wait` | `{since?, maxMs?}` | blocks until the run ends or `maxMs` (≤120 s); `{running, messages}` |
 | POST | `/v1/multiai/chats/:id/stop` | | `{stopped}` |
 | GET | `/v1/multiai/running` | | `{running:[chatId]}` |
 
@@ -117,3 +120,23 @@ curl -s -X POST http://127.0.0.1:3210/v1/multiai/chats/$CHAT/run \
 
 Provider codes in labels: `CG` ChatGPT, `CL` Claude, `GM` Gemini, `PX` Perplexity,
 `CX` Codex, `CC` Claude Code, `US` you, `JD` judge, `SM` summary, `SY` system.
+
+## MCP tools (Claude Desktop, Claude Code, Codex, any MCP client)
+
+The `proxima` MCP server (`src/mcp/index.js`, the one Claude Desktop already
+launches) registers seven `multiai_*` tools that reach the same API over the
+Agent Hub IPC bridge, so they work even with the REST API disabled:
+
+| Tool | What it does |
+|---|---|
+| `multiai_list_chats` | Chats with id, title, mode, participants, message count; ● when a run is in progress |
+| `multiai_read_chat {chatId, since?, last?}` | Transcript with reference labels and message ids |
+| `multiai_create_chat {title?, topic?, participants?, discussMode?, contextMode?}` | New chat, optionally with an opening message |
+| `multiai_post_message {chatId, who, text, role?}` | Append a turn under your own name (provider inferred: Codex → `codex`, Claude Code → `claude-code`); browser-AI names are never impersonated |
+| `multiai_run_round {chatId, text?, who?, rounds?, wait?}` | Optionally post, then run rounds; returns immediately unless `wait` |
+| `multiai_wait_for_run {chatId, since?, maxSeconds?}` | Block up to 120 s for the run, return new messages, say if still running |
+| `multiai_stop {chatId}` | Stop the run |
+
+Typical local-agent loop: `multiai_read_chat` → do the verifiable work →
+`multiai_post_message` with `VERIFIED [how/path]` → `multiai_run_round` →
+`multiai_wait_for_run` → repeat.

@@ -7,17 +7,51 @@ function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
 // Chain sends to the same provider sequentially to prevent BrowserView execution collisions.
 const _sendQueues = {};
+// The send currently executing per base provider: { conversationId }.
+const _active = {};
 
-function sendMessageToProvider(provider, message, attachments = null, onChunk = null, conversationId = null) {
+// options.shouldRun: called right before the queued send actually starts;
+// return false to skip it (rejects with 'Cancelled by user') — so a Stop
+// that lands while the call is still waiting in the queue never reaches the
+// provider at all.
+function sendMessageToProvider(provider, message, attachments = null, onChunk = null, conversationId = null, options = null) {
     const baseProvider = (provider || '').split(':')[0];
-    const run = () => _sendMessageToProviderImpl(provider, message, attachments, onChunk, conversationId);
+    const run = () => {
+        if (options && typeof options.shouldRun === 'function' && !options.shouldRun()) {
+            return Promise.reject(new Error('Cancelled by user'));
+        }
+        return _sendMessageToProviderImpl(provider, message, attachments, onChunk, conversationId);
+    };
     const prior = _sendQueues[baseProvider] || Promise.resolve();
     const next = prior.then(run, run);
     _sendQueues[baseProvider] = next.then(() => { }, () => { });
     return next;
 }
 
+// Abort the send in flight for a provider — only if it is the one identified
+// by `conversationId` (pass null to abort whatever is active). Queued sends
+// are untouched; use options.shouldRun for those.
+async function abortActive(provider, conversationId = null) {
+    const baseProvider = (provider || '').split(':')[0];
+    const active = _active[baseProvider];
+    if (!active) return false;
+    if (conversationId && active.conversationId !== conversationId) return false;
+    const webContents = browserManager && browserManager.getWebContents(baseProvider);
+    if (!webContents || !providerAPI.abortActive) return false;
+    return providerAPI.abortActive(baseProvider, webContents);
+}
+
 async function _sendMessageToProviderImpl(provider, message, attachments = null, onChunk = null, conversationId = null) {
+    const baseProvider = provider.split(':')[0];
+    _active[baseProvider] = { conversationId };
+    try {
+        return await _sendMessageToProviderImplInner(provider, message, attachments, onChunk, conversationId);
+    } finally {
+        if (_active[baseProvider] && _active[baseProvider].conversationId === conversationId) delete _active[baseProvider];
+    }
+}
+
+async function _sendMessageToProviderImplInner(provider, message, attachments = null, onChunk = null, conversationId = null) {
     const baseProvider = provider.split(':')[0];
     let webContents = browserManager.getWebContents(baseProvider);
     if (!webContents) {
@@ -66,4 +100,4 @@ async function _sendMessageToProviderImpl(provider, message, attachments = null,
     throw new Error(`API failed: ${lastError}`);
 }
 
-module.exports = { init, sendMessageToProvider };
+module.exports = { init, sendMessageToProvider, abortActive };

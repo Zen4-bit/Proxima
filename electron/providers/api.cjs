@@ -259,6 +259,28 @@ async function resetConversation(provider, webContentsGetter) {
     }
 }
 
+// Abort the send currently in flight in a provider's BrowserView (the
+// engines expose abort(); see sendCancellable in providers/engines/*.js).
+// The engine then rejects that send with 'Cancelled by user', which the
+// sender treats as terminal (no retry). Returns true if something was aborted.
+async function abortActive(provider, webContents) {
+    const abortMap = {
+        chatgpt: '__proximaChatGPT',
+        claude: '__proximaClaude',
+        gemini: '__proximaGemini',
+        perplexity: '__proximaPerplexity'
+    };
+    const base = String(provider || '').split(':')[0];
+    const apiObj = abortMap[base];
+    if (!apiObj || !webContents) return false;
+    try {
+        return !!(await webContents.executeJavaScript(`(window.${apiObj} && window.${apiObj}.abort) ? window.${apiObj}.abort() : false`));
+    } catch (e) {
+        console.error(`[ProviderAPI] abort failed for ${base}:`, e.message);
+        return false;
+    }
+}
+
 module.exports = {
     injectAPI,
     isAPIReady,
@@ -266,5 +288,6 @@ module.exports = {
     sendViaAPI,
     setupAutoInject,
     resetConversation,
+    abortActive,
     clearScriptCache
 };

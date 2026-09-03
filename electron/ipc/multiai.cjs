@@ -93,6 +93,27 @@ function registerMultiAiHandlers(deps) {
     // browser request itself isn't cancellable at the provider layer, so its
     // eventual result is discarded rather than shown.
     const runSignals = new Map(); // chatId -> { cancelled, resolve, promise }
+    const inFlight = new Map();   // chatId -> Set of "base|sessionId" for sends that have been queued/started
+
+    // Stop = resolve the signal (the run loop stops waiting immediately) AND
+    // abort the provider calls that were queued or in flight for this chat.
+    // Queued ones are skipped via shouldRun; the active one is aborted inside
+    // the BrowserView (engine abort()), so it stops occupying the provider's
+    // queue — previously it kept running for up to six minutes.
+    function stopChat(chatId) {
+        const sig = runSignals.get(chatId);
+        if (sig) { sig.cancelled = true; sig.resolve(); }
+        const set = inFlight.get(chatId);
+        if (set) {
+            for (const key of set) {
+                const [base, sessionId] = key.split('|');
+                if (typeof sender.abortActive === 'function') {
+                    sender.abortActive(base, sessionId).catch(() => { });
+                }
+            }
+        }
+        return !!sig;
+    }
 
     function startSignal(chatId) {
         if (runSignals.has(chatId)) throw new Error('A run is already in progress for this chat.');
@@ -170,10 +191,23 @@ function registerMultiAiHandlers(deps) {
         const base = String(provider).split(':')[0];
         if (!st) st = nextSessionState(chat, base);
         const sessionId = sessionIdFor(chat, st);
-        const result = await raceProvider(chat.id, sender.sendMessageToProvider(providerString(chat, provider), prompt, null, null, sessionId));
+        const key = `${base}|${sessionId}`;
+        if (!inFlight.has(chat.id)) inFlight.set(chat.id, new Set());
+        inFlight.get(chat.id).add(key);
+        const sig = runSignals.get(chat.id);
+        const options = { shouldRun: () => !(sig && sig.cancelled) };
+        let result;
+        try {
+            result = await raceProvider(chat.id, sender.sendMessageToProvider(providerString(chat, provider), prompt, null, null, sessionId, options));
+        } finally {
+            const set = inFlight.get(chat.id);
+            if (set) { set.delete(key); if (!set.size) inFlight.delete(chat.id); }
+        }
         let next = null;
-        if (result.ok || result.cancelled) {
-            next = { gen: st.gen, turns: st.turns + 1, lastId: result.ok ? (lastId !== undefined ? lastId : (st.lastId || null)) : (st.lastId || null) };
+        if (result.ok) {
+            next = { gen: st.gen, turns: st.turns + 1, lastId: lastId !== undefined ? lastId : (st.lastId || null) };
+        } else if (result.cancelled && contextModeOf(chat) !== 'delta') {
+            next = { gen: st.gen, turns: st.turns + 1, lastId: st.lastId || null };
         } else if (contextModeOf(chat) === 'delta') {
             // Delta mode leans on the provider thread's memory, and some engines
             // (Gemini) wipe the thread on any failure. We can't see that from
@@ -225,11 +259,7 @@ function registerMultiAiHandlers(deps) {
     ipcMain.handle('multiai-running', () => Array.from(runSignals.keys()));
 
     ipcMain.handle('multiai-stop-run', (event, { chatId }) => {
-        const sig = runSignals.get(chatId);
-        if (sig) {
-            sig.cancelled = true;
-            sig.resolve();
-        }
+        stopChat(chatId);
         return { success: true };
     });
 
@@ -786,112 +816,163 @@ function registerMultiAiHandlers(deps) {
         }
     });
 
+    // ---- Programmatic API (REST + MCP) ---------------------------------
+    // One implementation behind two doors: the REST routes below (for
+    // Codex / Claude Code / scripts via HTTP) and the MCP server's
+    // multiai_* tools (for Claude Desktop and any MCP client, via the IPC
+    // bridge — see handleMCPRequest in main-v2.cjs). Errors carry `status`.
+    function apiError(status, message) {
+        const e = new Error(message);
+        e.status = status;
+        return e;
+    }
+
+    function withLabels(messages) {
+        return (messages || []).map(x => Object.assign({ label: core.refLabel(x) }, x));
+    }
+
+    const api = {
+        running() { return Array.from(runSignals.keys()); },
+
+        listChats() { return store.listChats(); },
+
+        createChat(body) {
+            body = body || {};
+            const fields = {};
+            if (body.title) fields.title = String(body.title).slice(0, 120);
+            if (Array.isArray(body.participants)) fields.participants = body.participants.map(String);
+            if (body.mode === 'classic' || body.mode === 'orchestrated') fields.mode = body.mode;
+            if (body.discussMode === 'discuss' || body.discussMode === 'debate') fields.discussMode = body.discussMode;
+            if (body.brevity) fields.brevity = String(body.brevity);
+            if (core.CONTEXT_MODES.includes(body.contextMode)) fields.contextMode = body.contextMode;
+            if (body.topic) fields.topic = String(body.topic);
+            const created = store.createChat(fields);
+            if (body.topic) {
+                store.updateChat(created.id, { cycle: 1, title: fields.title || core.localTitle(body.topic) });
+                record(created.id, { who: body.who || 'You', role: 'user', text: String(body.topic), cycle: 1, round: 0 });
+            }
+            const chat = store.getChat(created.id);
+            emit('multiai-chat-created', { chat });
+            return chat;
+        },
+
+        getChat(chatId, { since, last } = {}) {
+            const chat = store.getChat(chatId);
+            if (!chat) throw apiError(404, 'Chat not found');
+            let messages = chat.messages || [];
+            if (since) {
+                const i = messages.findIndex(x => x.id === since);
+                messages = i === -1 ? messages : messages.slice(i + 1);
+            }
+            if (last && Number(last) > 0) messages = messages.slice(-Number(last));
+            return Object.assign({}, chat, { messages: withLabels(messages), running: isRunning(chatId), totalMessages: (chat.messages || []).length });
+        },
+
+        appendMessage(chatId, body) {
+            body = body || {};
+            const chat = store.getChat(chatId);
+            if (!chat) throw apiError(404, 'Chat not found');
+            const text = String(body.text || '').trim();
+            if (!text) throw apiError(400, 'text is required');
+            const role = ['assistant', 'user', 'summary', 'judge', 'system'].includes(body.role) ? body.role : 'assistant';
+            const provider = String(body.provider || (role === 'user' ? 'human' : 'external')).toLowerCase();
+            const who = String(body.who || (role === 'user' ? 'You' : core.providerLabel(provider))).slice(0, 60);
+            if (role === 'user') store.updateChat(chatId, { cycle: (chat.cycle || 0) + 1 });
+            const fresh = store.getChat(chatId);
+            const saved = record(chatId, { who, text, provider, role, cycle: fresh.cycle || 1, round: role === 'user' ? 0 : (body.round != null ? Number(body.round) : 0) });
+            return Object.assign({ label: core.refLabel(saved) }, saved);
+        },
+
+        // Optionally records `text` as a message from `who`, then runs rounds.
+        // Resolves immediately with {started:true} unless wait:true, in which
+        // case it resolves with the messages produced by this cycle.
+        async run(chatId, body) {
+            body = body || {};
+            const chat = store.getChat(chatId);
+            if (!chat) throw apiError(404, 'Chat not found');
+            if (isRunning(chatId)) throw apiError(409, 'A run is already in progress for this chat');
+            const text = String(body.text || '').trim();
+            if (text) {
+                store.updateChat(chatId, { cycle: (chat.cycle || 0) + 1, topic: chat.topic || text });
+                const fresh = store.getChat(chatId);
+                record(chatId, { who: String(body.who || 'You').slice(0, 60), text, provider: body.provider ? String(body.provider).toLowerCase() : 'human', role: 'user', cycle: fresh.cycle, round: 0 });
+                if (!chat.messages.length && (chat.title === 'New chat' || !chat.title)) store.updateChat(chatId, { title: core.localTitle(text) });
+            } else if (!(chat.cycle || 0)) {
+                store.updateChat(chatId, { cycle: 1 });
+            }
+            const rounds = body.rounds != null ? Number(body.rounds) : undefined;
+            const runP = runClassic({ chatId, rounds, latestText: text }).catch(e => { console.error('[MultiAI] API run failed:', e.message); return []; });
+            if (body.wait) return { messages: withLabels(await runP) };
+            return { started: true, chatId };
+        },
+
+        stop(chatId) {
+            if (!store.getChat(chatId)) throw apiError(404, 'Chat not found');
+            return { stopped: stopChat(chatId) };
+        },
+
+        // Blocks until the chat's run finishes or `maxMs` elapses; returns the
+        // messages after `since` either way plus whether it is still running.
+        async waitForRun(chatId, { since, maxMs } = {}) {
+            const chat = store.getChat(chatId);
+            if (!chat) throw apiError(404, 'Chat not found');
+            const deadline = Date.now() + Math.max(1000, Math.min(Number(maxMs) || 45000, 120000));
+            while (isRunning(chatId) && Date.now() < deadline) {
+                const sig = runSignals.get(chatId);
+                await Promise.race([sig ? sig.promise : Promise.resolve(), new Promise(r => setTimeout(r, 500))]);
+            }
+            const out = api.getChat(chatId, { since });
+            return { running: out.running, messages: out.messages };
+        },
+    };
+
     // ---- REST: local agents read and append ---------------------------
     // Registered on the existing gateway (port 3210+). Same loopback-only and
     // API-key rules as every other /v1 route. All bodies/results are JSON.
     //
-    //   GET  /v1/multiai/chats                      → [{id,title,mode,participants,messageCount,...}]
-    //   POST /v1/multiai/chats                      {title?, participants?, mode?, topic?} → chat
-    //   GET  /v1/multiai/chats/:id[?since=<msgId>]  → chat (messages after `since` if given)
-    //   POST /v1/multiai/chats/:id/messages         {who, text, role?, provider?} → message
+    //   GET  /v1/multiai/chats                      → {chats:[{id,title,mode,participants,messageCount,...}]}
+    //   POST /v1/multiai/chats                      {title?, participants?, mode?, contextMode?, topic?, who?} → {chat}
+    //   GET  /v1/multiai/chats/:id[?since=<msgId>&last=<n>]  → {chat} (messages after `since` / only the last n)
+    //   POST /v1/multiai/chats/:id/messages         {who, text, role?, provider?} → {message}
     //        (appends a turn from an external agent; nothing is sent to providers)
     //   POST /v1/multiai/chats/:id/run              {text?, who?, rounds?, wait?} → {started} | {messages}
-    //        (optionally records `text` as a human/agent message, then runs rounds)
-    //   POST /v1/multiai/chats/:id/stop
-    //   GET  /v1/multiai/running                    → [chatId]
+    //   POST /v1/multiai/chats/:id/wait             {since?, maxMs?} → {running, messages}
+    //   POST /v1/multiai/chats/:id/stop             → {stopped}
+    //   GET  /v1/multiai/running                    → {running:[chatId]}
     if (typeof registerRouteExtension === 'function') {
         registerRouteExtension(async (method, url, body, res, { sendJSON, sendError }) => {
             const p = url.pathname;
             if (!p.startsWith('/v1/multiai')) return false;
-            const m = /^\/v1\/multiai\/chats\/([^/]+)(?:\/(messages|run|stop))?$/.exec(p);
+            const m = /^\/v1\/multiai\/chats\/([^/]+)(?:\/(messages|run|stop|wait))?$/.exec(p);
             try {
-                if (method === 'GET' && p === '/v1/multiai/running') { sendJSON(res, 200, { running: Array.from(runSignals.keys()) }); return true; }
-                if (method === 'GET' && p === '/v1/multiai/chats') { sendJSON(res, 200, { chats: store.listChats() }); return true; }
-                if (method === 'POST' && p === '/v1/multiai/chats') {
-                    const fields = {};
-                    if (body.title) fields.title = String(body.title).slice(0, 120);
-                    if (Array.isArray(body.participants)) fields.participants = body.participants.map(String);
-                    if (body.mode === 'classic' || body.mode === 'orchestrated') fields.mode = body.mode;
-                    if (body.discussMode === 'discuss' || body.discussMode === 'debate') fields.discussMode = body.discussMode;
-                    if (body.brevity) fields.brevity = String(body.brevity);
-                    if (body.topic) fields.topic = String(body.topic);
-                    const created = store.createChat(fields);
-                    if (body.topic) {
-                        created.cycle = 1;
-                        store.updateChat(created.id, { cycle: 1, title: fields.title || core.localTitle(body.topic) });
-                        record(created.id, { who: body.who || 'You', role: 'user', text: String(body.topic), cycle: 1, round: 0 });
-                    }
-                    emit('multiai-chat-created', { chat: store.getChat(created.id) });
-                    sendJSON(res, 201, { chat: store.getChat(created.id) });
-                    return true;
-                }
+                if (method === 'GET' && p === '/v1/multiai/running') { sendJSON(res, 200, { running: api.running() }); return true; }
+                if (method === 'GET' && p === '/v1/multiai/chats') { sendJSON(res, 200, { chats: api.listChats() }); return true; }
+                if (method === 'POST' && p === '/v1/multiai/chats') { sendJSON(res, 201, { chat: api.createChat(body) }); return true; }
                 if (!m) { sendError(res, 404, 'Unknown multiai route', 'not_found'); return true; }
                 const chatId = decodeURIComponent(m[1]);
                 const sub = m[2] || '';
-                const chat = store.getChat(chatId);
-                if (!chat) { sendError(res, 404, 'Chat not found', 'not_found'); return true; }
-
                 if (method === 'GET' && !sub) {
-                    const since = url.searchParams.get('since');
-                    let messages = chat.messages || [];
-                    if (since) {
-                        const i = messages.findIndex(x => x.id === since);
-                        messages = i === -1 ? messages : messages.slice(i + 1);
-                    }
-                    const out = Object.assign({}, chat, { messages: messages.map(x => Object.assign({ label: core.refLabel(x) }, x)) });
-                    out.running = isRunning(chatId);
-                    sendJSON(res, 200, { chat: out });
+                    sendJSON(res, 200, { chat: api.getChat(chatId, { since: url.searchParams.get('since'), last: url.searchParams.get('last') }) });
                     return true;
                 }
-                if (method === 'POST' && sub === 'messages') {
-                    const text = String(body.text || '').trim();
-                    if (!text) { sendError(res, 400, 'text is required'); return true; }
-                    const role = ['assistant', 'user', 'summary', 'judge', 'system'].includes(body.role) ? body.role : 'assistant';
-                    const provider = String(body.provider || (role === 'user' ? 'human' : 'external')).toLowerCase();
-                    const who = String(body.who || (role === 'user' ? 'You' : core.providerLabel(provider))).slice(0, 60);
-                    if (role === 'user') {
-                        store.updateChat(chatId, { cycle: (chat.cycle || 0) + 1 });
-                    }
-                    const fresh = store.getChat(chatId);
-                    const saved = record(chatId, { who, text, provider, role, cycle: fresh.cycle || 1, round: role === 'user' ? 0 : (body.round != null ? Number(body.round) : 0) });
-                    sendJSON(res, 201, { message: Object.assign({ label: core.refLabel(saved) }, saved) });
-                    return true;
-                }
+                if (method === 'POST' && sub === 'messages') { sendJSON(res, 201, { message: api.appendMessage(chatId, body) }); return true; }
                 if (method === 'POST' && sub === 'run') {
-                    if (isRunning(chatId)) { sendError(res, 409, 'A run is already in progress for this chat', 'conflict'); return true; }
-                    const text = String(body.text || '').trim();
-                    if (text) {
-                        store.updateChat(chatId, { cycle: (chat.cycle || 0) + 1, topic: chat.topic || text });
-                        const fresh = store.getChat(chatId);
-                        record(chatId, { who: String(body.who || 'You').slice(0, 60), text, provider: 'human', role: 'user', cycle: fresh.cycle, round: 0 });
-                        if (!chat.messages.length && (chat.title === 'New chat' || !chat.title)) store.updateChat(chatId, { title: core.localTitle(text) });
-                    } else if (!(chat.cycle || 0)) {
-                        store.updateChat(chatId, { cycle: 1 });
-                    }
-                    const rounds = body.rounds != null ? Number(body.rounds) : undefined;
-                    const runP = runClassic({ chatId, rounds, latestText: text }).catch(e => { console.error('[MultiAI] REST run failed:', e.message); return []; });
-                    if (body.wait) {
-                        const messages = await runP;
-                        sendJSON(res, 200, { messages: messages.map(x => Object.assign({ label: core.refLabel(x) }, x)) });
-                    } else {
-                        sendJSON(res, 202, { started: true, chatId });
-                    }
+                    const r = await api.run(chatId, body);
+                    sendJSON(res, r.started ? 202 : 200, r);
                     return true;
                 }
-                if (method === 'POST' && sub === 'stop') {
-                    const sig = runSignals.get(chatId);
-                    if (sig) { sig.cancelled = true; sig.resolve(); }
-                    sendJSON(res, 200, { stopped: !!sig });
-                    return true;
-                }
+                if (method === 'POST' && sub === 'wait') { sendJSON(res, 200, await api.waitForRun(chatId, body)); return true; }
+                if (method === 'POST' && sub === 'stop') { sendJSON(res, 200, api.stop(chatId)); return true; }
                 sendError(res, 405, 'Method not allowed', 'method_not_allowed');
                 return true;
             } catch (e) {
-                sendError(res, 500, e.message);
+                sendError(res, e.status || 500, e.message, e.status === 404 ? 'not_found' : e.status === 409 ? 'conflict' : 'api_error');
                 return true;
             }
         });
     }
+
+    return api;
 }
 
 module.exports = { registerMultiAiHandlers };

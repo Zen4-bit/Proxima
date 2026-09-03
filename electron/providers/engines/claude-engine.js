@@ -181,6 +181,7 @@
         try {
             var controller = new AbortController();
             var timeoutId = setTimeout(function () { controller.abort(); }, TIMEOUT);
+            _activeController = controller;
 
             var res = await fetch('/api/organizations/' + orgId + '/chat_conversations/' + _convId + '/completion', {
                 method: 'POST',
@@ -209,6 +210,7 @@
 
                     var retryController = new AbortController();
                     var retryTimeoutId = setTimeout(function () { retryController.abort(); }, TIMEOUT);
+                    _activeController = retryController;
 
                     res = await fetch('/api/organizations/' + orgId + '/chat_conversations/' + _convId + '/completion', {
                         method: 'POST',
@@ -269,6 +271,34 @@
         console.log('[Proxima Claude] Conversation reset:', sessionId || 'current');
     }
 
-    window.__proximaClaude = { send: send, newConversation: newConversation, uploadFileToClaude: uploadFileToClaude };
+
+    // ---- User-initiated cancel (Proxima Multi-AI Chat "Stop") ---------
+    // The send() in flight keeps its AbortController here; abort() fires it
+    // and marks the failure as a deliberate cancel so callers can tell it
+    // apart from a timeout (which they retry) and so no internal
+    // retry/self-heal path re-sends the prompt after the user said stop.
+    var _activeController = null;
+    var _userAborted = false;
+    function abort() {
+        _userAborted = true;
+        if (_activeController) {
+            try { _activeController.abort(); } catch (e) { }
+            return true;
+        }
+        return false;
+    }
+    async function sendCancellable() {
+        _userAborted = false;
+        try {
+            return await send.apply(null, arguments);
+        } catch (e) {
+            if (_userAborted) throw new Error('Cancelled by user');
+            throw e;
+        } finally {
+            _activeController = null;
+        }
+    }
+
+    window.__proximaClaude = { send: sendCancellable, abort: abort, newConversation: newConversation, uploadFileToClaude: uploadFileToClaude };
     console.log('[Proxima] Claude engine loaded');
 })();

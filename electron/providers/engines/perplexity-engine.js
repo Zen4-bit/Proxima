@@ -361,6 +361,7 @@
 
         var controller = new AbortController();
         var timeoutId = setTimeout(function () { controller.abort(); }, TIMEOUT);
+        _activeController = controller;
 
         try {
             var res = await fetch('/rest/sse/perplexity_ask', {
@@ -426,6 +427,34 @@
         console.log('[Proxima Perplexity] Conversation reset:', sessionId || _currentSessionId || 'current');
     }
 
-    window.__proximaPerplexity = { send: send, newConversation: newConversation, uploadFileToPerplexity: uploadFileToPerplexity };
+
+    // ---- User-initiated cancel (Proxima Multi-AI Chat "Stop") ---------
+    // The send() in flight keeps its AbortController here; abort() fires it
+    // and marks the failure as a deliberate cancel so callers can tell it
+    // apart from a timeout (which they retry) and so no internal
+    // retry/self-heal path re-sends the prompt after the user said stop.
+    var _activeController = null;
+    var _userAborted = false;
+    function abort() {
+        _userAborted = true;
+        if (_activeController) {
+            try { _activeController.abort(); } catch (e) { }
+            return true;
+        }
+        return false;
+    }
+    async function sendCancellable() {
+        _userAborted = false;
+        try {
+            return await send.apply(null, arguments);
+        } catch (e) {
+            if (_userAborted) throw new Error('Cancelled by user');
+            throw e;
+        } finally {
+            _activeController = null;
+        }
+    }
+
+    window.__proximaPerplexity = { send: sendCancellable, abort: abort, newConversation: newConversation, uploadFileToPerplexity: uploadFileToPerplexity };
     console.log('[Proxima] Perplexity engine loaded');
 })();

@@ -632,6 +632,7 @@
 
             var controller = new AbortController();
             var timeoutId = setTimeout(function () { controller.abort(); }, TIMEOUT);
+            _activeController = controller;
 
             var res = await fetch(url, {
                 method: 'POST',
@@ -666,6 +667,7 @@
 
                 var retryUrl = '/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate?' + retryParams;
                 var retryController = new AbortController();
+                _activeController = retryController;
                 var retryTimeoutId = setTimeout(function () { retryController.abort(); }, TIMEOUT);
 
                 res = await fetch(retryUrl, {
@@ -716,7 +718,7 @@
                 return result;
             } catch (parseErr) {
                 clearTimeout(timeoutId);
-                if (!_isRetry && (_conversationId || _responseId || _choiceId || _contextToken)) {
+                if (!_isRetry && !_userAborted && (_conversationId || _responseId || _choiceId || _contextToken)) {
                     console.log('[Proxima API] Continued conversation unparseable/expired. Starting a fresh conversation and retrying once...');
                     newConversation(sessionId);
                     return await send(message, engine, attachments, sessionId, true);
@@ -756,9 +758,38 @@
         console.log('[Proxima API] Conversation reset:', sessionId || 'current');
     }
 
-    window.__proximaGeminiUnified = { send: send, newConversation: newConversation };
+
+    // ---- User-initiated cancel (Proxima Multi-AI Chat "Stop") ---------
+    // The send() in flight keeps its AbortController here; abort() fires it
+    // and marks the failure as a deliberate cancel so callers can tell it
+    // apart from a timeout (which they retry) and so no internal
+    // retry/self-heal path re-sends the prompt after the user said stop.
+    var _activeController = null;
+    var _userAborted = false;
+    function abort() {
+        _userAborted = true;
+        if (_activeController) {
+            try { _activeController.abort(); } catch (e) { }
+            return true;
+        }
+        return false;
+    }
+    async function sendCancellable() {
+        _userAborted = false;
+        try {
+            return await send.apply(null, arguments);
+        } catch (e) {
+            if (_userAborted) throw new Error('Cancelled by user');
+            throw e;
+        } finally {
+            _activeController = null;
+        }
+    }
+
+    window.__proximaGeminiUnified = { send: sendCancellable, abort: abort, newConversation: newConversation };
     window.__proximaGemini = {
-        send: function (msg, engine, attachments, sessionId) { return send(msg, engine || 'auto', attachments, sessionId); },
+        send: function (msg, engine, attachments, sessionId) { return sendCancellable(msg, engine || 'auto', attachments, sessionId); },
+        abort: abort,
         newConversation: newConversation,
         uploadFileToGoogle: uploadFileToGoogle
     };

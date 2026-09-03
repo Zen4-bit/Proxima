@@ -470,6 +470,7 @@
 
         var controller = new AbortController();
         var timeoutId = setTimeout(function () { controller.abort(); }, TIMEOUT);
+        _activeController = controller;
 
         var res = await fetch('/backend-api/conversation', {
             method: 'POST',
@@ -486,6 +487,7 @@
             headers['Authorization'] = 'Bearer ' + newToken;
             var retryController = new AbortController();
             var retryTimeoutId = setTimeout(function () { retryController.abort(); }, TIMEOUT);
+            _activeController = retryController;
             res = await fetch('/backend-api/conversation', {
                 method: 'POST',
                 credentials: 'include',
@@ -544,7 +546,35 @@
         console.log('[Proxima ChatGPT] Conversation reset:', sessionId || 'current');
     }
 
-    window.__proximaChatGPT = { send: send, newConversation: newConversation, uploadFileToChatGPT: uploadFileToChatGPT };
+
+    // ---- User-initiated cancel (Proxima Multi-AI Chat "Stop") ---------
+    // The send() in flight keeps its AbortController here; abort() fires it
+    // and marks the failure as a deliberate cancel so callers can tell it
+    // apart from a timeout (which they retry) and so no internal
+    // retry/self-heal path re-sends the prompt after the user said stop.
+    var _activeController = null;
+    var _userAborted = false;
+    function abort() {
+        _userAborted = true;
+        if (_activeController) {
+            try { _activeController.abort(); } catch (e) { }
+            return true;
+        }
+        return false;
+    }
+    async function sendCancellable() {
+        _userAborted = false;
+        try {
+            return await send.apply(null, arguments);
+        } catch (e) {
+            if (_userAborted) throw new Error('Cancelled by user');
+            throw e;
+        } finally {
+            _activeController = null;
+        }
+    }
+
+    window.__proximaChatGPT = { send: sendCancellable, abort: abort, newConversation: newConversation, uploadFileToChatGPT: uploadFileToChatGPT };
     console.log('[Proxima] ChatGPT engine loaded');
     _getToken().catch(function () { });
     _getScriptsAndDpl().catch(function () { });
