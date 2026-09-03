@@ -171,19 +171,38 @@ function registerMultiAiHandlers(deps) {
         if (!st) st = nextSessionState(chat, base);
         const sessionId = sessionIdFor(chat, st);
         const result = await raceProvider(chat.id, sender.sendMessageToProvider(providerString(chat, provider), prompt, null, null, sessionId));
+        let next = null;
         if (result.ok || result.cancelled) {
-            const next = { gen: st.gen, turns: st.turns + 1, lastId: result.ok ? (lastId !== undefined ? lastId : (st.lastId || null)) : (st.lastId || null) };
+            next = { gen: st.gen, turns: st.turns + 1, lastId: result.ok ? (lastId !== undefined ? lastId : (st.lastId || null)) : (st.lastId || null) };
+        } else if (contextModeOf(chat) === 'delta') {
+            // Delta mode leans on the provider thread's memory, and some engines
+            // (Gemini) wipe the thread on any failure. We can't see that from
+            // here, so after an error start a new generation: the next turn is
+            // a full catch-up instead of a delta into an amnesiac thread.
+            next = { gen: st.gen + 1, turns: 0, lastId: null };
+        }
+        if (next) {
             chat.providerSessions = Object.assign({}, chat.providerSessions || {}, { [base]: next });
             store.updateChat(chat.id, (c) => { c.providerSessions = Object.assign({}, c.providerSessions || {}, { [base]: next }); });
         }
         return result;
     }
 
-    // One-off calls (judge, summary, title) always get a fresh thread so they
-    // never accumulate and never pollute the chat's own thread.
-    function sendAux(chat, provider, prompt) {
-        const sessionId = `${core.auxSessionFor(chat.id)}:${Date.now().toString(36)}`;
-        return sender.sendMessageToProvider(providerString(chat, provider), prompt, null, null, sessionId);
+    // One-off calls (judge, summary, title) use a per-chat auxiliary thread,
+    // separate from the chat's own thread so they never pollute it. Their
+    // prompts are self-contained, so the thread is rotated every few uses to
+    // keep it bounded without opening a new provider conversation every time.
+    const AUX_RESET_EVERY = 5;
+    async function sendAux(chat, provider, prompt) {
+        const base = String(provider).split(':')[0];
+        const key = `aux:${base}`;
+        let st = (chat.providerSessions && chat.providerSessions[key]) || { gen: 1, turns: 0 };
+        if (st.turns >= AUX_RESET_EVERY) st = { gen: st.gen + 1, turns: 0 };
+        const sessionId = `${core.auxSessionFor(chat.id)}:${st.gen}`;
+        const result = await sender.sendMessageToProvider(providerString(chat, provider), prompt, null, null, sessionId);
+        const next = { gen: st.gen, turns: st.turns + 1 };
+        if (store.getChat(chat.id)) store.updateChat(chat.id, (c) => { c.providerSessions = Object.assign({}, c.providerSessions || {}, { [key]: next }); });
+        return result;
     }
 
     function contextOpts(chat) {
@@ -340,20 +359,42 @@ function registerMultiAiHandlers(deps) {
             const token = chat0.stopToken || core.DEFAULTS.stopToken;
             const cycle = chat0.cycle || 1;
             const stopEarly = chat0.stopWhenAllAgree !== false;
+            // A provider that fails twice in a row (Perplexity's HTTP 500s,
+            // a logged-out tab) is benched for the rest of this run rather
+            // than burning a slot — and an error message — every round.
+            const failures = {};
+            const benched = new Set();
+            const noteFailure = (provider, res) => {
+                const base = String(provider).split(':')[0];
+                if (res && res.error) {
+                    failures[base] = (failures[base] || 0) + 1;
+                    if (failures[base] >= 2 && !benched.has(base)) {
+                        benched.add(base);
+                        note(chatId, `${core.providerLabel(base)} failed twice in a row — skipping it for the rest of this run.`);
+                    }
+                } else if (res && (res.ok || res.pass)) {
+                    failures[base] = 0;
+                }
+            };
+            const active = () => order.filter(p => !benched.has(String(p).split(':')[0]));
 
             outer:
             for (let r = 1; r <= n; r++) {
                 if (sig.cancelled) break;
                 emit('multiai-round-start', { chatId, round: r, of: n });
-                const independent = r === 1 && !!chat0.independentFirstRound && order.length > 1;
+                const turnOrder = active();
+                if (!turnOrder.length) { note(chatId, 'No participants left to take a turn.'); break; }
+                const independent = r === 1 && !!chat0.independentFirstRound && turnOrder.length > 1;
                 if (independent) {
-                    const results = await Promise.all(order.map(p => takeTurn(chatId, p, r, { participants: order, independent: true })
+                    const results = await Promise.all(turnOrder.map(p => takeTurn(chatId, p, r, { participants: order, independent: true })
                         .catch(e => ({ error: e.message }))));
+                    results.forEach((res, i) => noteFailure(turnOrder[i], res));
                     if (results.some(x => x && x.cancelled) || sig.cancelled) break outer;
                 } else {
-                    for (const provider of order) {
+                    for (const provider of turnOrder) {
                         if (sig.cancelled) break outer;
                         const res = await takeTurn(chatId, provider, r, { participants: order }).catch(e => ({ error: e.message }));
+                        noteFailure(provider, res);
                         if (res && res.cancelled) break outer;
                     }
                 }

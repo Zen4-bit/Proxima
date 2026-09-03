@@ -74,6 +74,11 @@ Sends in the same chat include a condensed view of the prior conversation.
 - Runs belong to the chat, not the screen: switch chats freely; a running chat
   shows ● in the list; one run per chat at a time; Stop abandons the in-flight
   call (the browser request itself is not cancellable in the provider layer).
+- A participant that fails twice in a row is benched for the rest of that run
+  (a system note says so). In Delta mode an error also starts a fresh provider
+  thread with a full catch-up, because some engines wipe the thread on failure.
+- Judge / summary / title calls share one auxiliary provider thread per chat,
+  rotated every 5 uses, so they don't open a new web conversation each time.
 - Store: `<userData>/multiai/chats.json`, written atomically with a rolling
   `chats.backup.json`. A damaged file is parked as `chats.corrupt-<ts>.json` and
   the backup restored — history is never silently replaced by an empty store.

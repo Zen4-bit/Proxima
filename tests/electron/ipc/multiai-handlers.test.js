@@ -350,3 +350,40 @@ test('delta mode: rolling auto-summary is refreshed after enough new messages', 
     const lastTurn = providerCalls.filter(c => c.provider !== 'gemini').pop();
     assert.ok(lastTurn.message.includes('AUTO SUMMARY TEXT'), 'later turns carry the rolling summary');
 });
+
+test('delta mode: a provider error forces a fresh generation and a catch-up next turn', async () => {
+    providerCalls.length = 0;
+    let fail = true;
+    replyFn = async (p) => { if (p === 'gemini' && fail) { fail = false; throw new Error('Gemini API error (500)'); } return `${p} ok`; };
+    const chat = newChat({ participants: ['gemini', 'claude'], contextMode: 'delta', stopWhenAllAgree: false });
+    userMsg(chat.id, 'delta after error');
+    await invoke('multiai-run-round', { chatId: chat.id, rounds: 2 });
+    const gm = providerCalls.filter(c => c.provider === 'gemini');
+    assert.equal(gm.length, 2);
+    assert.ok(gm[0].conversationId.endsWith(':1') && gm[1].conversationId.endsWith(':2'), 'new thread after the error');
+    assert.ok(gm[1].message.includes('Recent messages (verbatim)'), 'catch-up, not a delta, into the new thread');
+});
+
+test('aux thread is reused across judge/summary calls and rotated after a few uses', async () => {
+    providerCalls.length = 0;
+    replyFn = async (p, prompt) => prompt.includes('note-taker') ? 'S' : 'V';
+    const chat = newChat({ stopWhenAllAgree: false });
+    userMsg(chat.id, 'x');
+    store.appendMessage(chat.id, { who: 'claude', provider: 'claude', role: 'assistant', text: 'point', cycle: 1, round: 1 });
+    for (let i = 0; i < 7; i++) await invoke('multiai-summarize', { chatId: chat.id, provider: 'chatgpt' });
+    const ids = providerCalls.map(c => c.conversationId);
+    assert.equal(new Set(ids).size, 2, 'one rotation in seven aux calls');
+    assert.ok(ids.every(id => id.includes(':aux:')));
+});
+
+test('a participant failing twice in a row is benched for the rest of the run', async () => {
+    providerCalls.length = 0;
+    replyFn = async (p) => { if (p === 'chatgpt') throw new Error('HTTP Error 500'); return `${p} fine`; };
+    const chat = newChat({ participants: ['chatgpt', 'claude'], stopWhenAllAgree: false });
+    userMsg(chat.id, 'bench test');
+    await invoke('multiai-run-round', { chatId: chat.id, rounds: 4 });
+    assert.equal(providerCalls.filter(c => c.provider === 'chatgpt').length, 2, 'not called after the second failure');
+    assert.equal(providerCalls.filter(c => c.provider === 'claude').length, 4);
+    const msgs = messagesOf(chat.id);
+    assert.ok(msgs.some(m => m.role === 'system' && /ChatGPT failed twice in a row/.test(m.text)));
+});
