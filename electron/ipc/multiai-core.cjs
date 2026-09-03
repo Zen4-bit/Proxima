@@ -30,6 +30,98 @@ const DEFAULTS = Object.freeze({
 //             rest; a rolling summary rides in the Topic block, and the first turn on a fresh thread sends a full catch-up
 const CONTEXT_MODES = ['bounded', 'full', 'delta'];
 
+// ---- Agents ------------------------------------------------------------
+// A participant is an *agent*: a name plus how to reach it. Several agents
+// may share a provider (e.g. "Opus · high" and "Sonnet · low" both through
+// Claude Code), so everything downstream is keyed by agent id, not provider.
+//   route:   'auto'    → API mode when the app's Settings have it on with a key
+//                         for this provider, otherwise the browser tab
+//            'browser' → Proxima's provider tab (session login)
+//            'api'     → the provider's API with the key from Settings
+//            'cli'     → a local CLI on your subscription: claude-cli / codex-cli
+//   provider: chatgpt | claude | gemini | perplexity (browser/api) or
+//             claude-cli | codex-cli (cli)
+//   model:    api/cli model id (or the Gemini engine string for the browser route)
+//   effort:   '' | minimal | low | medium | high | xhigh | max (api/cli only)
+const ROUTES = ['auto', 'browser', 'api', 'cli'];
+const CLI_PROVIDERS = { 'claude-cli': { label: 'Claude Code', bin: 'claude' }, 'codex-cli': { label: 'Codex', bin: 'codex' } };
+const EFFORTS = ['', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+
+function slugify(s) {
+    return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+// Two-letter code for labels: known providers keep their codes; anything else
+// takes initials of the name ("Opus · high" → OH, "Sonnet low" → SL).
+function agentCode(agent) {
+    const name = String(agent.name || '');
+    const base = String(agent.provider || '').split(':')[0];
+    if (name && PROVIDER_LABELS[base] && name === PROVIDER_LABELS[base]) return PROVIDER_CODES[base];
+    const words = name.split(/[^A-Za-z0-9]+/).filter(Boolean);
+    if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+    if (words.length === 1 && words[0].length >= 2) return words[0].slice(0, 2).toUpperCase();
+    return providerCode(base);
+}
+
+function defaultAgentName(provider, model, effort) {
+    const base = String(provider || '').split(':')[0];
+    const label = CLI_PROVIDERS[base] ? CLI_PROVIDERS[base].label : (PROVIDER_LABELS[base] || base);
+    const parts = [];
+    if (model && !(base === 'gemini' && model === 'gemini')) parts.push(String(model).replace(/^gemini:/, ''));
+    if (effort) parts.push(effort);
+    return parts.length ? `${label} · ${parts.join(' · ')}` : label;
+}
+
+// Accepts the legacy participants list (provider strings) or an agents list;
+// returns normalized agents. Ids are stable slugs so personas/sessions can
+// key on them across saves.
+function normalizeAgents(chat) {
+    const src = Array.isArray(chat.agents) && chat.agents.length ? chat.agents : (chat.participants || []);
+    const out = [];
+    const seen = new Set();
+    for (const raw of src) {
+        let a;
+        if (typeof raw === 'string') {
+            const base = raw.split(':')[0];
+            const engine = raw.includes(':') ? raw : ((chat.engines && chat.engines[base]) || '');
+            a = { id: base, name: PROVIDER_LABELS[base] || base, route: 'auto', provider: base, model: engine && engine !== base ? engine : '', effort: '' };
+        } else if (raw && typeof raw === 'object') {
+            const provider = String(raw.provider || 'chatgpt').split(':')[0];
+            a = {
+                id: raw.id || '', name: raw.name || '', route: ROUTES.includes(raw.route) ? raw.route : 'auto',
+                provider, model: raw.model || '', effort: EFFORTS.includes(raw.effort) ? raw.effort : '',
+                persona: raw.persona || '', personaKey: raw.personaKey || '',
+            };
+            if (CLI_PROVIDERS[provider]) a.route = 'cli';
+            if (!a.name) a.name = defaultAgentName(provider, a.model, a.effort);
+            if (!a.id) a.id = slugify(a.name) || provider;
+        } else continue;
+        let id = a.id; let n = 2;
+        while (seen.has(id)) id = `${a.id}-${n++}`;
+        a.id = id; seen.add(id);
+        a.code = agentCode(a);
+        out.push(a);
+    }
+    return out;
+}
+
+// Resolve a participant reference (agent id, name, provider) inside a list.
+function findAgent(agents, ref) {
+    if (!ref) return null;
+    const r = String(ref).toLowerCase().replace(/\s+/g, '');
+    return agents.find(a => a.id === ref) ||
+        agents.find(a => a.id.toLowerCase() === r) ||
+        agents.find(a => String(a.name).toLowerCase().replace(/\s+/g, '') === r) ||
+        agents.find(a => String(a.name).toLowerCase().replace(/[^a-z0-9]+/g, '') === r.replace(/[^a-z0-9]+/g, '')) ||
+        // a bare provider name matches only when exactly one agent uses that provider
+        (function () { const hits = agents.filter(a => a.provider === r || providerLabel(a.provider).toLowerCase().replace(/\s+/g, '') === r); return hits.length === 1 ? hits[0] : null; })() ||
+        null;
+}
+
+function asAgents(list) {
+    return (list || []).map(p => typeof p === 'string' ? { id: p.split(':')[0], name: providerLabel(p), provider: p.split(':')[0], code: providerCode(p) } : p);
+}
+
 const KNOWN_PROVIDERS = ['chatgpt', 'claude', 'gemini', 'perplexity'];
 
 const PROVIDER_LABELS = {
@@ -211,7 +303,7 @@ function createStore({ dir, fs, path, log }) {
         const data = load();
         return data.projects.flatMap(p => p.chats.map(c => ({
             id: c.id, title: c.title, mode: c.mode, strategy: c.strategy,
-            participants: c.participants || [], createdAt: c.createdAt || null,
+            participants: c.participants || [], agents: normalizeAgents(c).map(a => a.name), createdAt: c.createdAt || null,
             updatedAt: (c.messages || []).reduce((mx, m) => Math.max(mx, m.ts || 0), 0) || c.createdAt || null,
             messageCount: (c.messages || []).length, cycle: c.cycle || 0,
         })));
@@ -362,7 +454,7 @@ function buildFullContext(messages) {
 // skipped (they're already in its thread as its answers). Returns catchUp=true
 // when there's no usable anchor, in which case the caller sends the bounded
 // context instead so a fresh provider thread starts with the whole picture.
-function buildDeltaContext(messages, { sinceId, provider, contextOpts }) {
+function buildDeltaContext(messages, { sinceId, provider, agentId, contextOpts }) {
     const all = readable(messages);
     const idx = sinceId ? all.findIndex(m => m.id === sinceId) : -1;
     if (idx === -1) {
@@ -370,7 +462,8 @@ function buildDeltaContext(messages, { sinceId, provider, contextOpts }) {
         return Object.assign(ctx, { catchUp: true, lastId: all.length ? all[all.length - 1].id : null });
     }
     const base = String(provider || '').split(':')[0];
-    const fresh = all.slice(idx + 1).filter(m => !(m.role === 'assistant' && String(m.provider || '').split(':')[0] === base));
+    const own = (m) => m.role === 'assistant' && (agentId ? m.agentId === agentId : String(m.provider || '').split(':')[0] === base);
+    const fresh = all.slice(idx + 1).filter(m => !own(m));
     let summaryMsg = null;
     for (let i = all.length - 1; i >= 0; i--) if (all[i].role === 'summary') { summaryMsg = all[i]; break; }
     const parts = [];
@@ -434,16 +527,18 @@ const CHARTER_RULES = [
 
 const RED_TEAM_BLOCK = 'This round you hold the RED-TEAM seat: your job is to find the strongest objection to the emerging consensus — a missing assumption, a test that would falsify it, a cheaper alternative — and state it plainly, even if you privately agree. Do not soften it.';
 
-function buildClassicPromptWithMeta({ chatTitle, topic, latestUserMessage, mode, brevity, persona, participants, provider, messages, contextOpts, stopToken, independent, contextMode, delta, charter, redTeam }) {
-    const base = String(provider).split(':')[0];
-    const idx = Math.max(0, participants.indexOf(provider), participants.indexOf(base));
-    const others = participants.filter(p => p !== provider && p !== base).map(providerLabel);
-    const side = stanceFor(mode, idx, participants.length);
+function buildClassicPromptWithMeta({ chatTitle, topic, latestUserMessage, mode, brevity, persona, participants, provider, agent, messages, contextOpts, stopToken, independent, contextMode, delta, charter, redTeam }) {
+    const agents = asAgents(participants);
+    const self = agent || findAgent(agents, provider) || { id: String(provider), name: providerLabel(provider), provider: String(provider).split(':')[0] };
+    const base = String(self.provider || provider).split(':')[0];
+    const idx = Math.max(0, agents.findIndex(a => a.id === self.id));
+    const others = agents.filter(a => a.id !== self.id).map(a => a.name);
+    const side = stanceFor(mode, idx, agents.length);
     const personaText = [persona, redTeam ? RED_TEAM_BLOCK : ''].filter(Boolean).join('\n\n');
     const personaBlock = personaText ? `[Your assigned persona / instructions — stay in character]\n${personaText}\n\n` : '';
     const visible = independent ? messages.filter(m => m.role !== 'assistant' || m.cycle !== independent.cycle) : messages;
     const cmode = CONTEXT_MODES.includes(contextMode) ? contextMode : DEFAULTS.contextMode;
-    const ctx = buildContextByMode(visible, { mode: cmode, contextOpts, delta: Object.assign({ provider: base }, delta || {}) });
+    const ctx = buildContextByMode(visible, { mode: cmode, contextOpts, delta: Object.assign({ provider: base, agentId: self.id }, delta || {}) });
     const token = stopToken || DEFAULTS.stopToken;
     const rules = [
         `Add your next contribution (${brevity || 'max 4 sentences'}). Be substantive and specific; build on or directly challenge points already made. Do not repeat yourself or restate what others said. Reply with only your message.`,
@@ -453,7 +548,7 @@ function buildClassicPromptWithMeta({ chatTitle, topic, latestUserMessage, mode,
     if (independent) rules.push('This is an independent first round: you have NOT been shown the other participants\' replies to the latest message. Commit to your own position; do not guess at theirs.');
     if (cmode === 'delta' && !ctx.catchUp) rules.push('You are continuing an ongoing thread: earlier messages are already in this conversation above — only the new ones are shown here.');
     if (charter) rules.push(...CHARTER_RULES);
-    const prompt = `${personaBlock}You are ${providerLabel(provider)}, one participant in a multi-AI conversation` +
+    const prompt = `${personaBlock}You are ${self.name}, one participant in a multi-AI conversation` +
         `${others.length ? ` with ${others.join(', ')}` : ''}${chatTitle ? ` titled "${chatTitle}"` : ''}.\n` +
         `Topic / brief: ${topic || '(see conversation)'}\n` +
         `${latestUserMessage && latestUserMessage !== topic ? `Latest instruction from the human: ${latestUserMessage}\n` : ''}` +
@@ -469,10 +564,11 @@ function buildClassicPromptWithMeta({ chatTitle, topic, latestUserMessage, mode,
 function parseHandoff(text, participants) {
     const lines = String(text || '').trim().split('\n').map(l => l.trim()).filter(Boolean);
     const tail = lines.slice(-3).join('\n');
-    const m = /HANDOFF\s*(?:→|->|=>)\s*@?([A-Za-z][\w-]*)/i.exec(tail);
+    const m = /HANDOFF\s*(?:→|->|=>)\s*@?([A-Za-z][\w.·-]*(?:\s+[\w.·-]+){0,2}?)\s*(?::|$)/im.exec(tail) || /HANDOFF\s*(?:→|->|=>)\s*@?([A-Za-z][\w.-]*)/i.exec(tail);
     if (!m) return null;
-    const name = m[1].toLowerCase();
-    return participants.find(p => p.split(':')[0] === name || providerLabel(p).toLowerCase().replace(/\s+/g, '') === name) || null;
+    const agents = asAgents(participants);
+    const hit = findAgent(agents, m[1].trim()) || findAgent(agents, m[1].trim().split(/\s+/)[0]);
+    return hit ? participants[agents.indexOf(hit)] : null;
 }
 
 // Which participant holds the red-team seat in a given round (rotates).
@@ -525,20 +621,23 @@ function cleanTitle(raw, maxLen = 60) {
 // "@claude kick off, others review after" → ['claude', ...rest].
 // Mentioned participants go first in mention order; the rest follow in their
 // configured order. "@claude only" / "only @claude" restricts to the mentioned set.
+// Works on provider strings or agent objects; returns the same kind it was given.
 function parseMentions(text, participants) {
     const t = String(text || '');
+    const agents = asAgents(participants);
     const found = [];
-    const re = /(^|[^\w@])@([a-z][\w-]*)/gi;
+    const re = /(^|[^\w@])@([a-z][\w.-]*)/gi;
     let m;
     while ((m = re.exec(t)) !== null) {
-        const name = m[2].toLowerCase();
-        const hit = participants.find(p => p.split(':')[0] === name || providerLabel(p).toLowerCase().replace(/\s+/g, '') === name);
+        const hit = findAgent(agents, m[2]);
         if (hit && !found.includes(hit)) found.push(hit);
     }
+    const back = (a) => participants[agents.indexOf(a)];
     if (!found.length) return { order: participants.slice(), only: false, mentioned: [] };
     const only = /\bonly\b/i.test(t);
-    const order = only ? found : found.concat(participants.filter(p => !found.includes(p)));
-    return { order, only, mentioned: found };
+    const rest = agents.filter(a => !found.includes(a));
+    const order = (only ? found : found.concat(rest)).map(back);
+    return { order, only, mentioned: found.map(back) };
 }
 
 function isPass(text) {
@@ -598,6 +697,7 @@ module.exports = {
     CONTEXT_MODES, READABLE_ROLES, readable, buildContext, buildFullContext, buildDeltaContext, buildContextByMode,
     renderFullTranscript, briefAndLatest, messagesSinceSummary, stanceFor,
     buildClassicPrompt, buildClassicPromptWithMeta, buildJudgePrompt, buildSummaryPrompt, buildTitlePrompt,
+    ROUTES, CLI_PROVIDERS, EFFORTS, slugify, agentCode, defaultAgentName, normalizeAgents, findAgent, asAgents,
     localTitle, cleanTitle, parseMentions, parseHandoff, redTeamFor, CHARTER_RULES, RED_TEAM_BLOCK, isPass, startsWithToken, roundOutcome,
     sessionFor, auxSessionFor, parseToolCall, parseWorkflowLine,
 };

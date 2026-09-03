@@ -9,7 +9,7 @@
 function summarizeChat(c) {
     const when = c.updatedAt ? new Date(c.updatedAt).toISOString() : '';
     return `${c.id}  "${c.title || 'Untitled'}"  [${c.mode || 'classic'}${c.strategy && c.mode === 'orchestrated' ? '/' + c.strategy : ''}]  ` +
-        `${(c.participants || []).join(', ') || 'no participants'}  ·  ${c.messageCount || 0} msgs  ·  cycle ${c.cycle || 0}${when ? '  ·  ' + when : ''}`;
+        `${(c.agents && c.agents.length ? c.agents : (c.participants || [])).join(', ') || 'no agents'}  ·  ${c.messageCount || 0} msgs  ·  cycle ${c.cycle || 0}${when ? '  ·  ' + when : ''}`;
 }
 
 function renderMessages(messages) {
@@ -41,7 +41,7 @@ export function register(server, deps) {
 
     server.registerTool('multiai_list_chats', {
         title: 'Multi-AI Chat: list chats',
-        description: 'List the chats in Proxima\'s Multi-AI Chat tab (id, title, mode, participants, message count, whether a run is in progress). Use the id with the other multiai_* tools.',
+        description: 'List the chats in Proxima\'s Multi-AI Chat tab (id, title, mode, agents, message count, whether a run is in progress). Use the id with the other multiai_* tools.',
         inputSchema: {},
         annotations: Object.freeze({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }),
     }, async () => {
@@ -69,20 +69,29 @@ export function register(server, deps) {
     }, async ({ chatId, since, last }) => {
         try {
             const { chat } = await ipc('multiaiGetChat', { chatId, since, last });
+            const agents = (chat.agents || []).map(a => `${a.name} [${a.id}: ${a.route}${a.model ? ' ' + a.model : ''}${a.effort ? ' ' + a.effort : ''}]`);
             const header = `"${chat.title}"  [${chat.mode}${chat.mode === 'orchestrated' ? '/' + (chat.strategy || 'crew') : ''}, ${chat.discussMode || 'discuss'}, context=${chat.contextMode || 'bounded'}]  ` +
-                `participants: ${(chat.participants || []).join(', ') || '—'}  ·  ${chat.totalMessages} messages total  ·  cycle ${chat.cycle || 0}  ·  ${chat.running ? 'RUN IN PROGRESS' : 'idle'}`;
+                `agents: ${agents.join(', ') || (chat.participants || []).join(', ') || '—'}  ·  ${chat.totalMessages} messages total  ·  cycle ${chat.cycle || 0}  ·  ${chat.running ? 'RUN IN PROGRESS' : 'idle'}`;
             return toolResponse(`${header}\n\n${renderMessages(chat.messages)}`);
         } catch (err) { return toolError(err); }
     });
 
     server.registerTool('multiai_create_chat', {
         title: 'Multi-AI Chat: create a chat',
-        description: 'Create a new Multi-AI chat. Optionally give it an opening message (topic), participants (chatgpt, claude, gemini, perplexity), discuss/debate mode and a context mode (bounded | delta | full).',
+        description: 'Create a new Multi-AI chat. Optionally give it an opening message (topic), agents, discuss/debate mode and a context mode (bounded | delta | full). An agent is a name + provider + route + model + effort: several agents may share one provider ("GPT high" and "GPT low"). Routes: auto (follows the app\'s Settings — API mode on with a key → API, else the browser tab), browser, api, cli (claude-cli = Claude Code, codex-cli = Codex, run locally on the user\'s subscription). `participants` is the legacy shorthand: one browser-tab agent per provider.',
         inputSchema: {
             title: z.string().optional().describe('Chat title (defaults to the first words of the topic)'),
             topic: z.string().optional().describe('Opening message / brief, recorded as the first human message'),
             who: z.string().optional().describe('Name to record the opening message under (default: You)'),
-            participants: z.array(z.string()).optional().describe('Browser AIs that take turns, e.g. ["chatgpt","claude"]'),
+            participants: z.array(z.string()).optional().describe('Legacy shorthand: one agent per provider, e.g. ["chatgpt","claude"] (ignored when `agents` is given)'),
+            agents: z.array(z.object({
+                name: z.string().optional().describe('Display name, e.g. "Opus · max" (default: provider · model · effort)'),
+                provider: z.enum(['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli']),
+                route: z.enum(['auto', 'browser', 'api', 'cli']).optional().describe('auto (default) follows Settings; cli is implied for claude-cli/codex-cli'),
+                model: z.string().optional().describe('API model id, CLI alias (opus/sonnet/gpt-5.5) or Gemini engine (3.1-pro); blank = Settings default'),
+                effort: z.enum(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']).optional().describe('Reasoning effort — API and CLI routes only'),
+                persona: z.string().optional().describe('Persona / system instructions for this agent'),
+            })).optional().describe('The agents that take turns, in order'),
             discussMode: z.enum(['discuss', 'debate']).optional(),
             contextMode: z.enum(['bounded', 'delta', 'full']).optional(),
             brevity: z.string().optional().describe('e.g. "max 4 sentences" or "as long as needed"'),
@@ -97,7 +106,7 @@ export function register(server, deps) {
     }, async (args) => {
         try {
             const { chat } = await ipc('multiaiCreateChat', args);
-            return toolResponse({ success: true, chatId: chat.id, title: chat.title, participants: chat.participants });
+            return toolResponse({ success: true, chatId: chat.id, title: chat.title, agents: (chat.agents || []).map(a => ({ id: a.id, name: a.name, provider: a.provider, route: a.route, model: a.model || undefined, effort: a.effort || undefined })) });
         } catch (err) { return toolError(err); }
     });
 
@@ -120,7 +129,7 @@ export function register(server, deps) {
 
     server.registerTool('multiai_run_round', {
         title: 'Multi-AI Chat: run round(s)',
-        description: 'Have the chat\'s browser-AI participants take their turns. Optionally post a message first (as the human, or under your name). Returns immediately by default — the run continues in the app; call multiai_wait_for_run to collect the replies. Mention participants in the text to direct the order ("@claude kick off, others react", "only @gemini …").',
+        description: 'Have the chat\'s agents take their turns (browser tabs, API keys or local CLIs, per each agent\'s route). Optionally post a message first (as the human, or under your name). Returns immediately by default — the run continues in the app; call multiai_wait_for_run to collect the replies. Mention agents by id or name in the text to direct the order ("@claude kick off, others react", "only @opus-max …").',
         inputSchema: {
             chatId: z.string().describe('Chat id'),
             text: z.string().optional().describe('Message to post before the round (recorded as a human/agent instruction — starts a new cycle)'),

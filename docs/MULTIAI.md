@@ -1,14 +1,59 @@
 # Multi-AI Chat tab
 
-A native tab in this fork that runs discussions, debates and pipelines across the
-browser-session providers Proxima already drives (ChatGPT, Claude, Gemini,
-Perplexity), with a transcript that local agents (Codex, Claude Code, scripts)
-can read and append to over the gateway's REST API.
+A native tab in this fork that runs discussions, debates and pipelines across
+**agents** — the browser-session providers Proxima already drives (ChatGPT,
+Claude, Gemini, Perplexity), the same providers over their APIs when API mode
+is on in Settings, and Claude Code / Codex run locally on your subscriptions —
+with a transcript that local agents (Codex, Claude Code, scripts) can read and
+append to over the gateway's REST API or MCP tools.
 
 Code: `electron/ipc/multiai-core.cjs` (pure logic, unit-tested),
 `electron/ipc/multiai.cjs` (main-process handlers + REST routes),
+`electron/providers/cli.cjs` (Claude Code / Codex runners),
 `electron/multiai-renderer.js` + the `#multiai-panel` block in
-`electron/index-v2.html` (UI). Tests: `tests/electron/ipc/`.
+`electron/index-v2.html` (UI). Tests: `tests/electron/ipc/`, `tests/mcp/`.
+
+## Agents and routes
+
+A participant is an **agent**: `name + provider + route + model + effort +
+persona`. The same provider can appear several times with different models or
+efforts ("Opus · max" and "Sonnet · low", or "GPT high" and "GPT low"), which is
+how you run a single-provider panel. Each agent's id (`opus-max`) is the slug of
+its name, made unique within the chat (`bull`, `bull-2`); it is what `@mentions`,
+HANDOFFs, the judge picker and the provider-side thread key on.
+
+| Route | What runs the turn | Model / effort |
+|---|---|---|
+| `auto` (default) | Follows **Settings → API mode**: on, with a key for that provider → the provider's API; otherwise the browser tab | API: the agent's model or, blank, the model selected in Settings; effort honoured. Browser: model ignored except Gemini's engine picker; effort ignored |
+| `browser` | Always the logged-in browser tab | as above |
+| `api` | The provider's API; falls back to the browser tab (with a ⚠ in the editor) if API mode is off or no key | model + effort |
+| `cli` (implied for `claude-cli`, `codex-cli`) | `claude -p` / `codex exec` on this machine, one-shot, tool-less, in an empty scratch folder, ≤2 in parallel per CLI | Claude Code aliases `opus` `sonnet` `haiku` `fable` (+ `[1m]`), `--effort low…max`; Codex `gpt-5.5` etc., `model_reasoning_effort` (`max` → `xhigh`) |
+
+Settings is the single source of truth for API mode, keys and default models —
+the tab never stores keys and never overrides the mode; it only reads it
+(`↻` in the Agents block re-reads Settings and re-probes the CLIs). Effort maps to
+`reasoning_effort` for OpenAI and to an extended-thinking budget for Anthropic
+(1k → 32k tokens for `minimal` → `max`).
+
+Route-specific behaviour:
+
+- **Context.** API and CLI turns are one-shot, so `Delta` context is replaced by
+  `Bounded` for them (the browser route keeps Delta). `Full` works everywhere.
+- **Threads.** Browser agents keep one provider-side thread per agent
+  (`multiai:<chatId>:<agentId>:<gen>`), rotated every 12 turns (40 in Delta).
+- **Stop** aborts browser turns in the BrowserView and kills CLI process trees;
+  an API request in flight is left to finish and its result discarded.
+- **Codex** has no "no tools" switch and its sandbox helper is missing on some
+  Windows installs, so it runs with approvals/sandbox bypassed inside an empty
+  scratch folder and a system prompt that forbids running anything. The Codex
+  account must support the model you pick (`gpt-5` is rejected on ChatGPT
+  subscriptions; `gpt-5.5` works).
+- **Labels.** Known providers keep their codes; other agents get initials of
+  their name (`Opus · high` → `OH`).
+
+Legacy chats (a `participants` list) are migrated to one browser-tab agent per
+provider the first time they are opened; the `participants` field is kept in
+sync for older readers.
 
 ## How a turn is built
 
@@ -45,15 +90,17 @@ bleed into each other or into the MCP tools' `mcp-session` thread.
 
 - **Discuss / Debate.** In Debate with three or more participants the stances are
   assigned: for, against, critical evaluator, third option.
-- **Rounds, Brevity, Personas** as before; the Gemini participant has a model
-  picker (`3.5-flash`, `3.1-pro`, `3.1-flash-lite`, `auto`). Other providers ignore
-  engine choice in the provider layer.
+- **Rounds, Brevity, Personas** as before; personas are set per agent in the
+  Agents block. A Gemini browser agent's model field picks the engine
+  (`3.5-flash`, `3.1-pro`, `3.1-flash-lite`, `auto`); other browser agents ignore it.
 - **Stop early when all agree.** A round where everyone says the stop token or
   passes ends the run and posts a system note.
 - **Independent first round.** Round 1 of each Send runs everyone in parallel
   and blind (no same-cycle replies in their prompt); later rounds are round-robin.
 - **Directed turns.** `@claude kick off, others react` puts Claude first;
-  `only @gemini and @chatgpt …` restricts the round to those two.
+  `only @gemini and @chatgpt …` restricts the round to those two. Mention agents
+  by id (`@opus-max`), by name with the spaces dropped (`@gptlow` for "GPT low")
+  or, when only one agent uses it, by provider (`@claude`).
 - **Judge** with scope: whole chat / since my last message / last round only
   (resolved by cycle *and* round).
 - **Summarize state** pins a `DECISIONS / OPEN QUESTIONS / CLAIMS TO VERIFY /
@@ -105,9 +152,9 @@ Same server as the rest of the gateway (Settings → API; default
 
 | Method | Path | Body / query | Result |
 |---|---|---|---|
-| GET | `/v1/multiai/chats` | | `{chats:[{id,title,mode,participants,messageCount,cycle,updatedAt}]}` |
-| POST | `/v1/multiai/chats` | `{title?, participants?, mode?, discussMode?, brevity?, topic?, who?}` | `{chat}` (201); `topic` is recorded as the first message |
-| GET | `/v1/multiai/chats/:id` | `?since=<messageId>` | `{chat}` with `messages` (each has a `label` like `0103CG`) and `running` |
+| GET | `/v1/multiai/chats` | | `{chats:[{id,title,mode,agents:[name],participants,messageCount,cycle,updatedAt}]}` |
+| POST | `/v1/multiai/chats` | `{title?, agents?, participants?, mode?, discussMode?, contextMode?, brevity?, topic?, who?}` | `{chat}` (201); `topic` is recorded as the first message. `agents: [{name?, provider, route?, model?, effort?, persona?}]`; `participants` is the legacy one-agent-per-provider shorthand |
+| GET | `/v1/multiai/chats/:id` | `?since=<messageId>&last=<n>` | `{chat}` with `agents` (resolved `route` per agent), `messages` (each has a `label` like `0103CG`, plus `agentId`, `route`, `model` on agent turns) and `running` |
 | POST | `/v1/multiai/chats/:id/messages` | `{who, text, provider?, role?}` | `{message}` (201). Appends a turn; nothing is sent to providers. `role: "user"` starts a new cycle. |
 | POST | `/v1/multiai/chats/:id/run` | `{text?, who?, rounds?, wait?}` | `{started:true}` (202) or, with `wait:true`, `{messages}` once the rounds finish |
 | POST | `/v1/multiai/chats/:id/wait` | `{since?, maxMs?}` | blocks until the run ends or `maxMs` (≤120 s); `{running, messages}` |
@@ -135,9 +182,9 @@ Agent Hub IPC bridge, so they work even with the REST API disabled:
 
 | Tool | What it does |
 |---|---|
-| `multiai_list_chats` | Chats with id, title, mode, participants, message count; ● when a run is in progress |
-| `multiai_read_chat {chatId, since?, last?}` | Transcript with reference labels and message ids |
-| `multiai_create_chat {title?, topic?, participants?, discussMode?, contextMode?}` | New chat, optionally with an opening message |
+| `multiai_list_chats` | Chats with id, title, mode, agents, message count; ● when a run is in progress |
+| `multiai_read_chat {chatId, since?, last?}` | Transcript with reference labels and message ids; header lists each agent's id, resolved route, model and effort |
+| `multiai_create_chat {title?, topic?, agents?, participants?, discussMode?, contextMode?, …}` | New chat, optionally with an opening message; `agents` as in the REST body (e.g. `[{provider:"claude-cli", model:"opus", effort:"max"}, {provider:"chatgpt", route:"api", effort:"low"}]`) |
 | `multiai_post_message {chatId, who, text, role?}` | Append a turn under your own name (provider inferred: Codex → `codex`, Claude Code → `claude-code`); browser-AI names are never impersonated |
 | `multiai_run_round {chatId, text?, who?, rounds?, wait?}` | Optionally post, then run rounds; returns immediately unless `wait` |
 | `multiai_wait_for_run {chatId, since?, maxSeconds?}` | Block up to 120 s for the run, return new messages, say if still running |

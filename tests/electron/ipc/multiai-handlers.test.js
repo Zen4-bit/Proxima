@@ -17,6 +17,7 @@ const require = createRequire(import.meta.url);
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'multiai-handlers-'));
 const handlers = new Map();
+const delay = (ms) => new Promise(r => setTimeout(r, ms));
 const sent = [];          // every webContents.send(channel, payload)
 const providerCalls = []; // every sendMessageToProvider(provider, prompt, ..., sessionId)
 let replyFn = async (provider, prompt) => `reply from ${provider}`;
@@ -39,10 +40,46 @@ const fakeSender = {
     },
 };
 
+// Fake local CLIs (Claude Code / Codex) and a fake BYOK subsystem.
+const cliCalls = [];
+let cliReplyFn = async (provider, opts) => `${provider} says ${opts.model || 'default'}/${opts.effort || 'none'}`;
+const fakeCli = {
+    availability: () => ({ claude: true, codex: true }),
+    resetAvailabilityCache() { },
+    run(provider, opts) {
+        const call = { provider, opts, aborted: false };
+        cliCalls.push(call);
+        let rejectFn;
+        const promise = new Promise((resolve, reject) => {
+            rejectFn = reject;
+            Promise.resolve().then(() => cliReplyFn(provider, opts)).then(text => resolve({ text, model: opts.model || null }), reject);
+        });
+        return { promise, abort() { call.aborted = true; rejectFn(Object.assign(new Error('Cancelled by user'), { cancelled: true })); } };
+    },
+};
+const byokState = { enabled: false, keys: { chatgpt: 'sk-openai', claude: 'sk-ant' }, selected: { chatgpt: 'gpt-5.5', claude: 'claude-sonnet-5' } };
+const byokCalls = [];
+const fakeByok = {
+    keys: {
+        isEnabled: () => byokState.enabled,
+        hasKey: (p) => !!byokState.keys[p],
+        getKey: (p) => byokState.keys[p] || null,
+        getSelectedModel: (p) => byokState.selected[p] || null,
+        getModels: (p) => (byokState.selected[p] ? [{ id: byokState.selected[p], enabled: true }] : []),
+    },
+    models: { DEFAULT_MODELS: { chatgpt: 'gpt-5.5', claude: 'claude-sonnet-5' } },
+    async callProvider(provider, key, messages, options) {
+        byokCalls.push({ provider, key, messages, options });
+        await delay(5);
+        return { text: `${provider} api says ${options.modelId || 'selected'}/${options.reasoningEffort || 'none'}`, model: options.modelId || byokState.selected[provider] };
+    },
+};
+
 const origLoad = Module._load;
 Module._load = function (request, parent, isMain) {
     if (request === 'electron') return fakeElectron;
     if (request.endsWith('providers/sender.cjs')) return fakeSender;
+    if (request.endsWith('providers/cli.cjs')) return fakeCli;
     return origLoad.apply(this, arguments);
 };
 const { registerMultiAiHandlers } = require('../../../electron/ipc/multiai.cjs');
@@ -53,6 +90,7 @@ registerMultiAiHandlers({
     mainWindow: () => ({ isDestroyed: () => false, webContents: { send: (ch, p) => sent.push({ ch, p }) } }),
     loadSettings: () => ({ providers: { chatgpt: { enabled: true }, claude: { enabled: true }, gemini: { enabled: true }, perplexity: { enabled: false } } }),
     registerRouteExtension: (fn) => routeExtensions.push(fn),
+    byok: fakeByok,
 });
 
 const invoke = (ch, payload) => handlers.get(ch)({}, payload);
@@ -69,8 +107,6 @@ function userMsg(chatId, text, cycle = 1) {
 
 function messagesOf(chatId) { return store.getChat(chatId).messages; }
 
-const delay = (ms) => new Promise(r => setTimeout(r, ms));
-
 // ---- tests -----------------------------------------------------------------
 
 test('run-round: records one turn per participant per round, on per-chat session ids, and emits them', async () => {
@@ -83,7 +119,7 @@ test('run-round: records one turn per participant per round, on per-chat session
     const turns = messagesOf(chat.id).filter(m => m.role === 'assistant');
     assert.equal(turns.length, 4);
     assert.deepEqual(turns.map(t => t.round), [1, 1, 2, 2]);
-    assert.ok(providerCalls.every(c => c.conversationId === `multiai:${chat.id}:1`), 'every call rides the chat-specific thread');
+    assert.ok(providerCalls.every(c => c.conversationId === `multiai:${chat.id}:${c.provider}:1`), 'every call rides the chat- and agent-specific thread');
     assert.ok(sent.filter(e => e.ch === 'multiai-message').length >= 4, 'renderer is notified of each turn');
     assert.ok(sent.some(e => e.ch === 'multiai-done' && e.p.chatId === chat.id));
     // second turn of a participant sees the first round in its prompt
@@ -155,8 +191,8 @@ test('run-round: provider threads rotate after providerResetEvery turns', async 
     await invoke('multiai-run-round', { chatId: chat.id, rounds: core.DEFAULTS.providerResetEvery + 2 });
     const ids = providerCalls.map(c => c.conversationId);
     assert.equal(new Set(ids).size, 2, 'exactly one rotation');
-    assert.equal(ids[0], `multiai:${chat.id}:1`);
-    assert.equal(ids[ids.length - 1], `multiai:${chat.id}:2`);
+    assert.equal(ids[0], `multiai:${chat.id}:chatgpt:1`);
+    assert.equal(ids[ids.length - 1], `multiai:${chat.id}:chatgpt:2`);
 });
 
 test('run-round: a provider error is recorded as an error message and the round continues', async () => {
@@ -399,7 +435,7 @@ test('stop: aborts the in-flight provider call and skips queued ones', async () 
     await delay(20);
     await invoke('multiai-stop-run', { chatId: chat.id });
     await running;
-    assert.deepEqual(fakeSender.aborted, [`chatgpt|multiai:${chat.id}:1`], 'exactly the active call was aborted, by its session id');
+    assert.deepEqual(fakeSender.aborted, [`chatgpt|multiai:${chat.id}:chatgpt:1`], 'exactly the active call was aborted, by its session id');
     assert.equal(providerCalls.length, 1, 'no further participant was called after Stop');
     release('late');
     delete fakeSender.abortActive; delete fakeSender.aborted;
@@ -436,4 +472,91 @@ test('charter mode: a HANDOFF → in a local agent\'s posted message picks who s
     store.appendMessage(chat.id, { who: 'Codex', provider: 'codex', role: 'assistant', text: 'VERIFIED [ran it]: numbers attached.\n\nHANDOFF → Gemini: sanity-check them', cycle: 1, round: 0 });
     await invoke('multiai-run-round', { chatId: chat.id, rounds: 1 });
     assert.deepEqual(providerCalls.map(c => c.provider), ['gemini', 'chatgpt', 'claude']);
+});
+
+
+test('agents: same provider twice with different models/efforts, API route when Settings has API mode on', async () => {
+    providerCalls.length = 0; byokCalls.length = 0;
+    byokState.enabled = true;
+    const chat = newChat({
+        participants: [],
+        agents: [
+            { name: 'GPT high', provider: 'chatgpt', model: 'gpt-5.5', effort: 'high' },
+            { name: 'GPT low', provider: 'chatgpt', model: 'gpt-5.5', effort: 'low' },
+            { name: 'Claude tab', provider: 'claude', route: 'browser' },
+        ],
+        stopWhenAllAgree: false,
+    });
+    userMsg(chat.id, '@gpt-low you start');
+    await invoke('multiai-run-round', { chatId: chat.id, rounds: 1, latestText: '@gpt-low you start' });
+    assert.equal(byokCalls.length, 2, 'both GPT agents went through the API');
+    assert.deepEqual(byokCalls.map(c => c.options.reasoningEffort), ['low', 'high'], 'mention put GPT low first; efforts are per agent');
+    assert.ok(byokCalls.every(c => c.provider === 'chatgpt' && c.key === 'sk-openai' && c.options.modelId === 'gpt-5.5'));
+    assert.equal(providerCalls.length, 1, 'the explicit browser-route agent used the tab');
+    assert.equal(providerCalls[0].provider, 'claude');
+    const msgs = messagesOf(chat.id).filter(m => m.role === 'assistant');
+    assert.deepEqual(msgs.map(m => m.who), ['GPT low', 'GPT high', 'Claude tab']);
+    assert.deepEqual(msgs.map(m => m.code), ['GL', 'GH', 'CT']);
+    assert.ok(msgs[0].agentId && msgs[0].route === 'api' && msgs[2].route === 'browser');
+    assert.ok(byokCalls[1].messages[0].content.includes('GPT low'), 'the second agent sees the first by name');
+    byokState.enabled = false;
+});
+
+test('agents: with API mode off in Settings, auto agents fall back to the browser tab; model becomes the Gemini engine', async () => {
+    providerCalls.length = 0; byokCalls.length = 0;
+    byokState.enabled = false;
+    const chat = newChat({ participants: [], agents: [{ name: 'GPT', provider: 'chatgpt', effort: 'high' }, { name: 'Gem pro', provider: 'gemini', model: '3.1-pro' }], stopWhenAllAgree: false });
+    userMsg(chat.id, 'go');
+    await invoke('multiai-run-round', { chatId: chat.id, rounds: 1 });
+    assert.equal(byokCalls.length, 0);
+    assert.deepEqual(providerCalls.map(c => c.provider), ['chatgpt', 'gemini:3.1-pro']);
+    assert.ok(providerCalls[0].conversationId.includes(':gpt:'));
+});
+
+test('agents: CLI agents run through the local CLI with model + effort; Stop kills the process', async () => {
+    cliCalls.length = 0;
+    cliReplyFn = async (p, o) => `${p} ${o.model}/${o.effort}`;
+    const chat = newChat({ participants: [], agents: [{ name: 'Opus · high', provider: 'claude-cli', model: 'opus', effort: 'high' }, { name: 'Codex 5.5', provider: 'codex-cli', model: 'gpt-5.5', effort: 'medium' }], stopWhenAllAgree: false });
+    userMsg(chat.id, 'cli test');
+    await invoke('multiai-run-round', { chatId: chat.id, rounds: 1 });
+    assert.deepEqual(cliCalls.map(c => [c.provider, c.opts.model, c.opts.effort]), [['claude-cli', 'opus', 'high'], ['codex-cli', 'gpt-5.5', 'medium']]);
+    const msgs = messagesOf(chat.id).filter(m => m.role === 'assistant');
+    assert.deepEqual(msgs.map(m => m.who), ['Opus · high', 'Codex 5.5']);
+    assert.deepEqual(msgs.map(m => m.code), ['OH', 'C5']);
+    assert.ok(cliCalls[1].opts.prompt.includes('Opus · high'), 'second CLI agent sees the first');
+
+    // Stop mid-call
+    cliCalls.length = 0;
+    let release;
+    cliReplyFn = () => new Promise(r => { release = r; });
+    store.updateChat(chat.id, { cycle: 2 });
+    userMsg(chat.id, 'again', 2);
+    const running = invoke('multiai-run-round', { chatId: chat.id, rounds: 1 });
+    await delay(20);
+    await invoke('multiai-stop-run', { chatId: chat.id });
+    await running;
+    assert.equal(cliCalls[0].aborted, true, 'the in-flight CLI process was killed');
+    assert.equal(cliCalls.length, 1, 'the queued agent never started');
+    release && release('late');
+});
+
+test('routes: multiai-routes reports Settings API mode, selected models and CLI availability', async () => {
+    byokState.enabled = true;
+    const r = await invoke('multiai-routes');
+    assert.equal(r.apiMode, true);
+    assert.equal(r.providers.chatgpt.hasKey, true);
+    assert.equal(r.providers.chatgpt.model, 'gpt-5.5');
+    assert.equal(r.providers.gemini.hasKey, false);
+    assert.deepEqual(r.cli, { claude: true, codex: true });
+    byokState.enabled = false;
+});
+
+test('legacy participants still work and judge can be an agent id', async () => {
+    providerCalls.length = 0;
+    replyFn = async () => 'verdict';
+    const chat = newChat({ participants: ['chatgpt', 'claude'], judgeProvider: 'claude' });
+    userMsg(chat.id, 'x');
+    await invoke('multiai-judge', { chatId: chat.id, judgeProvider: 'claude', scope: 'all' });
+    const j = messagesOf(chat.id).find(m => m.role === 'judge');
+    assert.ok(j && j.who === 'Judge · Claude');
 });

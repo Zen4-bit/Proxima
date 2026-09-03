@@ -252,3 +252,59 @@ test('charter mode: claim-tag rules and red-team block appear only when asked; h
     assert.equal(core.redTeamFor(parts, 2), 'claude');
     assert.equal(core.redTeamFor(['solo'], 1), null);
 });
+
+// ---- agents ----------------------------------------------------------------
+
+test('normalizeAgents: legacy participants migrate, ids are unique slugs, CLI providers force the cli route', () => {
+    const legacy = core.normalizeAgents({ participants: ['chatgpt', 'gemini:3.1-pro'], engines: { chatgpt: 'chatgpt' } });
+    assert.deepEqual(legacy.map(a => [a.id, a.name, a.provider, a.model, a.route, a.code]),
+        [['chatgpt', 'ChatGPT', 'chatgpt', '', 'auto', 'CG'], ['gemini', 'Gemini', 'gemini', 'gemini:3.1-pro', 'auto', 'GM']]);
+    const agents = core.normalizeAgents({ agents: [
+        { provider: 'claude-cli', model: 'opus', effort: 'max' },
+        { name: 'Bull', provider: 'chatgpt', route: 'api', effort: 'low' },
+        { name: 'Bull', provider: 'chatgpt', route: 'nonsense', effort: 'silly' },
+        'perplexity',
+    ] });
+    assert.deepEqual(agents.map(a => a.id), ['claude-code-opus-max', 'bull', 'bull-2', 'perplexity']);
+    assert.equal(agents[0].route, 'cli');
+    assert.equal(agents[0].name, 'Claude Code · opus · max');
+    assert.equal(agents[0].code, 'CC');
+    assert.equal(agents[1].code, 'BU');
+    assert.deepEqual([agents[2].route, agents[2].effort], ['auto', '']);
+});
+
+test('findAgent: id, name (spaces/punctuation dropped), unique provider; ambiguous provider is null', () => {
+    const agents = core.normalizeAgents({ agents: [
+        { name: 'GPT high', provider: 'chatgpt', effort: 'high' }, { name: 'GPT low', provider: 'chatgpt', effort: 'low' }, { provider: 'claude' },
+    ] });
+    assert.equal(core.findAgent(agents, 'gpt-high').name, 'GPT high');
+    assert.equal(core.findAgent(agents, 'gptlow').name, 'GPT low');
+    assert.equal(core.findAgent(agents, 'GPT Low').name, 'GPT low');
+    assert.equal(core.findAgent(agents, 'claude').id, 'claude');
+    assert.equal(core.findAgent(agents, 'chatgpt'), null, 'two ChatGPT agents: a bare provider name is ambiguous');
+});
+
+test('parseMentions / parseHandoff work on agents and return the same objects', () => {
+    const agents = core.normalizeAgents({ agents: [{ name: 'Opus max', provider: 'claude-cli', model: 'opus', effort: 'max' }, { name: 'Sonnet low', provider: 'claude-cli', model: 'sonnet', effort: 'low' }, { provider: 'gemini' }] });
+    const m = core.parseMentions('only @sonnet-low and @gemini answer', agents);
+    assert.deepEqual(m.order.map(a => a.id), ['sonnet-low', 'gemini']);
+    assert.ok(m.order[0] === agents[1], 'returns the original agent objects');
+    assert.equal(core.parseHandoff('fine.\n\nHANDOFF → Opus max: verify it', agents), agents[0]);
+    assert.equal(core.parseHandoff('HANDOFF -> @gemini', agents).id, 'gemini');
+});
+
+test('buildClassicPromptWithMeta with agents: names the seat, lists the others by name, stances by seat index; delta excludes own turns by agentId', () => {
+    const agents = core.normalizeAgents({ agents: [{ name: 'Bull', provider: 'chatgpt', effort: 'high' }, { name: 'Bear', provider: 'chatgpt', effort: 'low' }] });
+    const r = core.buildClassicPromptWithMeta({ topic: 'T', mode: 'debate', participants: agents, agent: agents[1], messages: [] });
+    assert.ok(r.prompt.includes('You are Bear, one participant in a multi-AI conversation with Bull'));
+    assert.ok(/against/i.test(r.prompt), 'second seat argues against');
+    const messages = [
+        msg({ id: 'u1', role: 'user', provider: 'human', who: 'You', text: 'go' }),
+        msg({ id: 'a1', who: 'Bull', provider: 'chatgpt', agentId: 'bull', text: 'buy' }),
+        msg({ id: 'a2', who: 'Bear', provider: 'chatgpt', agentId: 'bear', text: 'sell' }),
+        msg({ id: 'a3', who: 'Bull', provider: 'chatgpt', agentId: 'bull', text: 'buy more' }),
+    ];
+    const d = core.buildClassicPromptWithMeta({ topic: 'T', mode: 'discuss', participants: agents, agent: agents[1], messages, contextMode: 'delta', delta: { sinceId: 'a2' } });
+    assert.ok(d.prompt.includes('buy more'), 'Bull\'s newer turn is shown to Bear');
+    assert.ok(!d.prompt.includes('] Bear: sell'), 'Bear\'s own turn is not echoed back');
+});

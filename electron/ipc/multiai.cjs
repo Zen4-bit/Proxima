@@ -26,6 +26,7 @@ const fs = require('fs');
 const path = require('path');
 
 const sender = require('../providers/sender.cjs');
+const cli = require('../providers/cli.cjs');
 const core = require('./multiai-core.cjs');
 
 function dataDir() {
@@ -105,11 +106,13 @@ function registerMultiAiHandlers(deps) {
         if (sig) { sig.cancelled = true; sig.resolve(); }
         const set = inFlight.get(chatId);
         if (set) {
-            for (const key of set) {
-                const [base, sessionId] = key.split('|');
-                if (typeof sender.abortActive === 'function') {
-                    sender.abortActive(base, sessionId).catch(() => { });
+            for (const entry of set) {
+                if (entry.kind === 'browser' && typeof sender.abortActive === 'function') {
+                    sender.abortActive(entry.base, entry.sessionId).catch(() => { });
+                } else if (entry.kind === 'cli' && typeof entry.abort === 'function') {
+                    try { entry.abort(); } catch { /* ignore */ }
                 }
+                // API calls have no cancel hook yet; their result is discarded.
             }
         }
         return !!sig;
@@ -145,63 +148,118 @@ function registerMultiAiHandlers(deps) {
         ]);
     }
 
-    // ---- provider sessions ---------------------------------------------
-    // Per chat, per provider: a generation counter and a turn counter. The
-    // session id embeds the generation; bumping it starts a fresh provider
-    // thread without touching the engine's live state (which a mid-flight
-    // reset for another chat could corrupt).
-    function providerString(chat, provider) {
-        const base = String(provider).split(':')[0];
-        const engine = chat.engines && chat.engines[base];
-        return engine || base;
+    // ---- agents & routes ---------------------------------------------------
+    // Participants are agents (multiai-core.normalizeAgents): name + route +
+    // provider + model + effort. Route resolution is governed by the app's
+    // general Settings: when API mode is on there and a key exists for the
+    // agent's provider, 'auto' agents go to the API with the model chosen there
+    // (or the agent's own); otherwise they go through the browser tab. CLI
+    // agents (Claude Code / Codex) always run locally on your subscription.
+    const byok = deps.byok || null;
+
+    function agentsOf(chat) {
+        return core.normalizeAgents(chat || {});
     }
 
-    function sessionState(chat, base) {
+    function apiAvailable(provider) {
+        try {
+            return !!(byok && byok.keys && byok.keys.isEnabled() && byok.keys.hasKey(provider));
+        } catch { return false; }
+    }
+
+    function resolveRoute(agent) {
+        if (core.CLI_PROVIDERS[agent.provider]) return 'cli';
+        if (agent.route === 'browser') return 'browser';
+        return apiAvailable(agent.provider) ? 'api' : 'browser';
+    }
+
+    // What the editor needs to offer sensible choices: API mode state and
+    // per-provider selected model / model list from Settings, CLI availability.
+    function routeInfo() {
+        const info = { apiMode: false, providers: {}, cli: cli.availability() };
+        try {
+            info.apiMode = !!(byok && byok.keys && byok.keys.isEnabled());
+            for (const p of core.KNOWN_PROVIDERS) {
+                let hasKey = false, model = '', models = [];
+                try { hasKey = !!(byok && byok.keys.hasKey(p)); } catch { /* ignore */ }
+                try { model = (byok && byok.keys.getSelectedModel(p)) || (byok && byok.models && byok.models.DEFAULT_MODELS && byok.models.DEFAULT_MODELS[p]) || ''; } catch { /* ignore */ }
+                try { models = ((byok && byok.keys.getModels(p)) || []).filter(m => m.enabled !== false).map(m => m.id); } catch { /* ignore */ }
+                info.providers[p] = { hasKey, model, models };
+            }
+        } catch { /* settings unavailable */ }
+        return info;
+    }
+
+    // Ad-hoc agent from a provider string / agent id / agent object (judge,
+    // summary, title, orchestrated steps).
+    function agentFrom(chat, ref) {
+        if (ref && typeof ref === 'object') return core.normalizeAgents({ agents: [ref] })[0];
+        const agents = agentsOf(chat);
+        const hit = core.findAgent(agents, ref) || agents.find(a => a.provider === String(ref || '').split(':')[0]);
+        if (hit) return hit;
+        const base = String(ref || '').split(':')[0];
+        const model = String(ref || '').includes(':') && !core.CLI_PROVIDERS[base] ? String(ref) : '';
+        return core.normalizeAgents({ agents: [{ provider: base, model }] })[0];
+    }
+
+    function sessionState(chat, key) {
         const all = chat.providerSessions || {};
-        return all[base] || { gen: 1, turns: 0, lastId: null };
+        return all[key] || { gen: 1, turns: 0, lastId: null };
     }
 
     function contextModeOf(chat) {
         return core.CONTEXT_MODES.includes(chat.contextMode) ? chat.contextMode : core.DEFAULTS.contextMode;
     }
 
+    // Delta needs a provider-side thread; API and CLI turns are one-shot, so
+    // they use the self-sufficient bounded prompt (or full, if chosen).
+    function contextModeFor(chat, route) {
+        const m = contextModeOf(chat);
+        if (route !== 'browser' && m === 'delta') return 'bounded';
+        return m;
+    }
+
     function resetEveryFor(chat) {
         return contextModeOf(chat) === 'delta' ? core.DEFAULTS.providerResetEveryDelta : core.DEFAULTS.providerResetEvery;
     }
 
-    function sessionIdFor(chat, st) {
-        return `${core.sessionFor(chat.id)}:${st.gen}`;
+    function sessionIdFor(chat, agent, st) {
+        return `${core.sessionFor(chat.id)}:${agent.id}:${st.gen}`;
     }
 
     // The thread state a turn will use: rotates to a fresh generation when the
     // turn bound is hit. Delta mode needs to know this BEFORE building the
     // prompt (a fresh thread gets a full catch-up instead of a delta).
-    function nextSessionState(chat, base) {
-        const st = sessionState(chat, base);
+    function nextSessionState(chat, agent) {
+        const st = sessionState(chat, agent.id);
         if (st.turns >= resetEveryFor(chat)) return { gen: st.gen + 1, turns: 0, lastId: null, rotated: true };
         return Object.assign({}, st, { rotated: false });
     }
 
-    // Sends one turn on the chat's thread for that provider, then advances the
-    // turn counter. `st` comes from nextSessionState(); `lastId` (delta mode)
-    // is the anchor to remember on success — the last message this provider
-    // has now seen. A cancelled call leaves the anchor alone so the next turn
-    // re-sends what the provider may or may not have read.
-    async function sendOnChatThread(chat, provider, prompt, st, lastId) {
-        const base = String(provider).split(':')[0];
-        if (!st) st = nextSessionState(chat, base);
-        const sessionId = sessionIdFor(chat, st);
-        const key = `${base}|${sessionId}`;
-        if (!inFlight.has(chat.id)) inFlight.set(chat.id, new Set());
-        inFlight.get(chat.id).add(key);
+    function saveSession(chat, key, next) {
+        chat.providerSessions = Object.assign({}, chat.providerSessions || {}, { [key]: next });
+        if (store.getChat(chat.id)) store.updateChat(chat.id, (c) => { c.providerSessions = Object.assign({}, c.providerSessions || {}, { [key]: next }); });
+    }
+
+    function trackInFlight(chatId, entry) {
+        if (!inFlight.has(chatId)) inFlight.set(chatId, new Set());
+        inFlight.get(chatId).add(entry);
+        return () => { const set = inFlight.get(chatId); if (set) { set.delete(entry); if (!set.size) inFlight.delete(chatId); } };
+    }
+
+    // Browser route: one provider-side thread per agent per chat.
+    async function sendBrowser(chat, agent, prompt, st, lastId) {
+        if (!st) st = nextSessionState(chat, agent);
+        const sessionId = sessionIdFor(chat, agent, st);
+        const providerString = (agent.provider === 'gemini' && agent.model) ? (agent.model.startsWith('gemini:') ? agent.model : `gemini:${agent.model}`) : agent.provider;
+        const untrack = trackInFlight(chat.id, { kind: 'browser', base: agent.provider, sessionId });
         const sig = runSignals.get(chat.id);
         const options = { shouldRun: () => !(sig && sig.cancelled) };
         let result;
         try {
-            result = await raceProvider(chat.id, sender.sendMessageToProvider(providerString(chat, provider), prompt, null, null, sessionId, options));
+            result = await raceProvider(chat.id, sender.sendMessageToProvider(providerString, prompt, null, null, sessionId, options));
         } finally {
-            const set = inFlight.get(chat.id);
-            if (set) { set.delete(key); if (!set.size) inFlight.delete(chat.id); }
+            untrack();
         }
         let next = null;
         if (result.ok) {
@@ -215,28 +273,77 @@ function registerMultiAiHandlers(deps) {
             // a full catch-up instead of a delta into an amnesiac thread.
             next = { gen: st.gen + 1, turns: 0, lastId: null };
         }
-        if (next) {
-            chat.providerSessions = Object.assign({}, chat.providerSessions || {}, { [base]: next });
-            store.updateChat(chat.id, (c) => { c.providerSessions = Object.assign({}, c.providerSessions || {}, { [base]: next }); });
-        }
+        if (next) saveSession(chat, agent.id, next);
+        if (result.ok) result.value = { response: result.value.response, model: agent.model || null, route: 'browser' };
         return result;
     }
 
-    // One-off calls (judge, summary, title) use a per-chat auxiliary thread,
-    // separate from the chat's own thread so they never pollute it. Their
-    // prompts are self-contained, so the thread is rotated every few uses to
-    // keep it bounded without opening a new provider conversation every time.
+    // API route: the provider's API with the key from Settings. Model = the
+    // agent's, else the model selected in Settings (resolveModel handles it).
+    async function sendApi(chat, agent, prompt) {
+        const key = byok.keys.getKey(agent.provider);
+        if (!key) return { ok: false, error: new Error(`No API key for ${core.providerLabel(agent.provider)} in Settings`) };
+        const untrack = trackInFlight(chat.id, { kind: 'api', base: agent.provider });
+        try {
+            const p = byok.callProvider(agent.provider, key, [{ role: 'user', content: prompt }], {
+                modelId: agent.model || undefined,
+                reasoningEffort: agent.effort || undefined,
+            }).then(r => ({ response: r.text, model: r.model || agent.model || null, route: 'api' }));
+            return await raceProvider(chat.id, p);
+        } finally {
+            untrack();
+        }
+    }
+
+    // CLI route: Claude Code / Codex on the local machine.
+    async function sendCli(chat, agent, prompt) {
+        const handle = cli.run(agent.provider, { model: agent.model || undefined, effort: agent.effort || undefined, prompt, cwd: dataDir() });
+        const entry = { kind: 'cli', base: agent.provider, abort: handle.abort };
+        const untrack = trackInFlight(chat.id, entry);
+        try {
+            const p = handle.promise.then(r => ({ response: r.text, model: r.model || agent.model || null, route: 'cli', costUsd: r.costUsd }));
+            const raced = await raceProvider(chat.id, p);
+            if (raced.cancelled) handle.abort();
+            return raced;
+        } finally {
+            untrack();
+        }
+    }
+
+    async function sendAgent(chat, agent, prompt, extra) {
+        const route = resolveRoute(agent);
+        if (route === 'api') return sendApi(chat, agent, prompt);
+        if (route === 'cli') return sendCli(chat, agent, prompt);
+        return sendBrowser(chat, agent, prompt, extra && extra.st, extra && extra.lastId);
+    }
+
+    // One-off calls (judge, summary, title) use a per-chat auxiliary thread
+    // on the browser route (rotated every few uses so it stays bounded);
+    // API/CLI calls are one-shot anyway. `ref` may be an agent, an agent id
+    // or a provider string.
     const AUX_RESET_EVERY = 5;
-    async function sendAux(chat, provider, prompt) {
-        const base = String(provider).split(':')[0];
-        const key = `aux:${base}`;
-        let st = (chat.providerSessions && chat.providerSessions[key]) || { gen: 1, turns: 0 };
+    async function sendAux(chat, ref, prompt) {
+        const agent = agentFrom(chat, ref);
+        const route = resolveRoute(agent);
+        if (route === 'api') {
+            const r = await sendApi(chat, agent, prompt);
+            if (r.ok) return r.value;
+            throw r.error;
+        }
+        if (route === 'cli') {
+            const r = await sendCli(chat, agent, prompt);
+            if (r.ok) return r.value;
+            if (r.cancelled) throw new Error('Cancelled by user');
+            throw r.error;
+        }
+        const key = `aux:${agent.provider}`;
+        let st = sessionState(chat, key);
         if (st.turns >= AUX_RESET_EVERY) st = { gen: st.gen + 1, turns: 0 };
         const sessionId = `${core.auxSessionFor(chat.id)}:${st.gen}`;
-        const result = await sender.sendMessageToProvider(providerString(chat, provider), prompt, null, null, sessionId);
-        const next = { gen: st.gen, turns: st.turns + 1 };
-        if (store.getChat(chat.id)) store.updateChat(chat.id, (c) => { c.providerSessions = Object.assign({}, c.providerSessions || {}, { [key]: next }); });
-        return result;
+        const providerString = (agent.provider === 'gemini' && agent.model) ? (agent.model.startsWith('gemini:') ? agent.model : `gemini:${agent.model}`) : agent.provider;
+        const result = await sender.sendMessageToProvider(providerString, prompt, null, null, sessionId);
+        saveSession(chat, key, { gen: st.gen, turns: st.turns + 1 });
+        return { response: result.response, model: agent.model || null, route: 'browser' };
     }
 
     function contextOpts(chat) {
@@ -256,6 +363,7 @@ function registerMultiAiHandlers(deps) {
         return { success: true };
     });
     ipcMain.handle('multiai-enabled-providers', () => enabledProviders());
+    ipcMain.handle('multiai-routes', () => { cli.resetAvailabilityCache(); return routeInfo(); });
     ipcMain.handle('multiai-running', () => Array.from(runSignals.keys()));
 
     ipcMain.handle('multiai-stop-run', (event, { chatId }) => {
@@ -299,71 +407,78 @@ function registerMultiAiHandlers(deps) {
         return (chat.messages || []).filter(m => (m.cycle || 1) === cycle && m.round === round);
     }
 
-    async function takeTurn(chatId, provider, round, opts) {
+    function personaFor(chat, agent) {
+        if (agent.persona) return agent.persona;
+        const p = chat.personas || {};
+        return p[agent.id] || p[agent.provider] || null;
+    }
+
+    async function takeTurn(chatId, agent, round, opts) {
         const chat = store.getChat(chatId);
         if (!chat) throw new Error('Chat not found');
-        const base = String(provider).split(':')[0];
         const cycle = chat.cycle || 1;
-        emit('multiai-thinking', { chatId, provider: base });
+        emit('multiai-thinking', { chatId, provider: agent.provider, agentId: agent.id, who: agent.name });
         const { brief, latest } = core.briefAndLatest(chat.messages, chat.topic);
-        const st = nextSessionState(chat, base);
-        const cmode = contextModeOf(chat);
+        const route = resolveRoute(agent);
+        const st = route === 'browser' ? nextSessionState(chat, agent) : null;
+        const cmode = contextModeFor(chat, route);
         const built = core.buildClassicPromptWithMeta({
             chatTitle: chat.title,
             topic: brief,
             latestUserMessage: latest,
             mode: chat.discussMode,
             brevity: chat.brevity,
-            persona: (chat.personas && chat.personas[base]) || null,
+            persona: personaFor(chat, agent),
             participants: opts.participants,
-            provider: base,
+            agent,
+            provider: agent.provider,
             messages: chat.messages,
             contextOpts: contextOpts(chat),
             stopToken: chat.stopToken || core.DEFAULTS.stopToken,
             independent: opts.independent ? { cycle } : null,
             contextMode: cmode,
             // A fresh/rotated thread has no memory: force the catch-up prompt.
-            delta: { sinceId: (st.rotated || st.turns === 0) ? null : st.lastId, provider: base },
+            delta: { sinceId: (!st || st.rotated || st.turns === 0) ? null : st.lastId, provider: agent.provider, agentId: agent.id },
             charter: !!chat.charterMode,
-            redTeam: !!(chat.charterMode && opts.redTeam && String(opts.redTeam).split(':')[0] === base),
+            redTeam: !!(chat.charterMode && opts.redTeam && opts.redTeam.id === agent.id),
         });
-        const raced = await sendOnChatThread(chat, provider, built.prompt, st, cmode === 'delta' ? built.meta.lastId : null);
-        const label = core.providerLabel(base);
+        const raced = await sendAgent(chat, agent, built.prompt, { st, lastId: cmode === 'delta' ? built.meta.lastId : null });
+        const base = { provider: agent.provider, agentId: agent.id, code: agent.code, route, cycle, round };
         if (raced.cancelled) {
-            record(chatId, { who: `${label} (stopped)`, text: 'Stopped before this reply arrived.', provider: base, role: 'error', cycle, round });
+            record(chatId, Object.assign({ who: `${agent.name} (stopped)`, text: 'Stopped before this reply arrived.', role: 'error' }, base));
             return { cancelled: true };
         }
         if (!raced.ok) {
-            record(chatId, { who: `${label} error`, text: raced.error.message, provider: base, role: 'error', cycle, round });
+            record(chatId, Object.assign({ who: `${agent.name} error`, text: raced.error.message, role: 'error' }, base));
             return { error: raced.error.message };
         }
         const text = raced.value.response || '';
+        const model = raced.value.model || undefined;
         if (core.isPass(text)) {
-            record(chatId, { who: label, text: 'PASS', provider: base, role: 'pass', cycle, round });
+            record(chatId, Object.assign({ who: agent.name, text: 'PASS', role: 'pass', model }, base));
             return { pass: true };
         }
-        record(chatId, { who: label, text, provider: base, role: 'assistant', cycle, round, redTeam: built.meta.redTeam || undefined });
+        record(chatId, Object.assign({ who: agent.name, text, role: 'assistant', model, redTeam: built.meta.redTeam || undefined }, base));
         return { ok: true, handoff: chat.charterMode ? core.parseHandoff(text, opts.participants) : null };
     }
 
     // Rolling summary (delta mode's "Topic block"): once more than
     // autoSummaryEvery readable messages have accumulated since the last
-    // pinned summary, ask the judge provider (or the first participant) for a
-    // fresh one. Runs between rounds so it never interrupts a turn.
-    async function maybeAutoSummary(chatId, participants) {
+    // pinned summary, ask the judge (or the first participant) for a fresh
+    // one. Runs between rounds so it never interrupts a turn.
+    async function maybeAutoSummary(chatId, agents) {
         const chat = store.getChat(chatId);
         if (!chat) return;
         const every = parseInt(chat.autoSummaryEvery, 10) || 0;
         if (every <= 0) return;
         if (core.messagesSinceSummary(chat.messages).length < every) return;
-        const provider = chat.judgeProvider || participants[0];
-        if (!provider) return;
-        const base = String(provider).split(':')[0];
-        emit('multiai-thinking', { chatId, provider: base });
+        const judge = chat.judgeProvider ? agentFrom(chat, chat.judgeProvider) : agents[0];
+        if (!judge) return;
+        emit('multiai-thinking', { chatId, provider: judge.provider, who: judge.name });
         const { brief } = core.briefAndLatest(chat.messages, chat.topic);
         try {
-            const result = await sendAux(chat, provider, core.buildSummaryPrompt({ topic: brief, messages: chat.messages }));
-            record(chatId, { who: `State summary · ${core.providerLabel(base)} (auto)`, text: result.response, provider: base, role: 'summary', cycle: chat.cycle || 1, round: 0 });
+            const result = await sendAux(chat, judge, core.buildSummaryPrompt({ topic: brief, messages: chat.messages }));
+            record(chatId, { who: `State summary · ${judge.name} (auto)`, text: result.response, provider: judge.provider, agentId: judge.id, role: 'summary', cycle: chat.cycle || 1, round: 0 });
         } catch (e) {
             note(chatId, `Auto-summary failed: ${e.message}`);
         }
@@ -376,39 +491,41 @@ function registerMultiAiHandlers(deps) {
         const chat0 = store.getChat(chatId);
         if (!chat0) throw new Error('Chat not found');
         const sig = startSignal(chatId);
-        const produced = [];
         try {
             const enabled = enabledProviders();
-            let participants = (chat0.participants || []).filter(p => enabled.includes(String(p).split(':')[0]));
-            if (!participants.length) participants = (chat0.participants || []).slice();
-            if (!participants.length) throw new Error('No participants selected.');
-            const mentions = core.parseMentions(latestText || '', participants);
+            const all = agentsOf(chat0);
+            // Browser-route agents need their provider tab enabled in Settings;
+            // API and CLI agents don't.
+            let agents = all.filter(a => resolveRoute(a) !== 'browser' || enabled.includes(a.provider));
+            if (!agents.length) agents = all.slice();
+            if (!agents.length) throw new Error('No participants selected.');
+            const mentions = core.parseMentions(latestText || '', agents);
             const order = mentions.order;
             if (mentions.mentioned.length) {
-                note(chatId, `Directed turn: ${mentions.only ? 'only ' : ''}${mentions.mentioned.map(core.providerLabel).join(', ')}${mentions.only ? '' : ' first'}.`);
+                note(chatId, `Directed turn: ${mentions.only ? 'only ' : ''}${mentions.mentioned.map(a => a.name).join(', ')}${mentions.only ? '' : ' first'}.`);
             }
             const n = Math.max(1, Math.min(30, rounds || chat0.rounds || 1));
             const token = chat0.stopToken || core.DEFAULTS.stopToken;
             const cycle = chat0.cycle || 1;
             const stopEarly = chat0.stopWhenAllAgree !== false;
-            // A provider that fails twice in a row (Perplexity's HTTP 500s,
-            // a logged-out tab) is benched for the rest of this run rather
-            // than burning a slot — and an error message — every round.
+            // An agent that fails twice in a row (Perplexity's HTTP 500s, a
+            // logged-out tab, a CLI that can't start) is benched for the rest
+            // of this run rather than burning a slot — and an error message —
+            // every round.
             const failures = {};
             const benched = new Set();
-            const noteFailure = (provider, res) => {
-                const base = String(provider).split(':')[0];
+            const noteFailure = (agent, res) => {
                 if (res && res.error) {
-                    failures[base] = (failures[base] || 0) + 1;
-                    if (failures[base] >= 2 && !benched.has(base)) {
-                        benched.add(base);
-                        note(chatId, `${core.providerLabel(base)} failed twice in a row — skipping it for the rest of this run.`);
+                    failures[agent.id] = (failures[agent.id] || 0) + 1;
+                    if (failures[agent.id] >= 2 && !benched.has(agent.id)) {
+                        benched.add(agent.id);
+                        note(chatId, `${agent.name} failed twice in a row — skipping it for the rest of this run.`);
                     }
                 } else if (res && (res.ok || res.pass)) {
-                    failures[base] = 0;
+                    failures[agent.id] = 0;
                 }
             };
-            const active = () => order.filter(p => !benched.has(String(p).split(':')[0]));
+            const active = () => order.filter(a => !benched.has(a.id));
             // Charter mode: a HANDOFF → trailer can pull the named participant
             // forward — next within this round if they haven't spoken yet,
             // otherwise first in the next round.
@@ -428,15 +545,15 @@ function registerMultiAiHandlers(deps) {
                 emit('multiai-round-start', { chatId, round: r, of: n });
                 let turnOrder = active();
                 if (!turnOrder.length) { note(chatId, 'No participants left to take a turn.'); break; }
-                if (nextFirst && turnOrder.includes(nextFirst)) turnOrder = [nextFirst].concat(turnOrder.filter(p => p !== nextFirst));
+                if (nextFirst && turnOrder.includes(nextFirst)) turnOrder = [nextFirst].concat(turnOrder.filter(a => a !== nextFirst));
                 nextFirst = null;
                 // Seat rotates over the stable participant order, not the
                 // handoff-reordered turn order, so everyone gets it in turn.
                 const redTeam = chat0.charterMode ? core.redTeamFor(active(), r) : null;
-                if (redTeam) note(chatId, `Round ${r}: ${core.providerLabel(redTeam)} holds the red-team seat.`);
+                if (redTeam) note(chatId, `Round ${r}: ${redTeam.name} holds the red-team seat.`);
                 const independent = r === 1 && !!chat0.independentFirstRound && turnOrder.length > 1;
                 if (independent) {
-                    const results = await Promise.all(turnOrder.map(p => takeTurn(chatId, p, r, { participants: order, independent: true, redTeam })
+                    const results = await Promise.all(turnOrder.map(a => takeTurn(chatId, a, r, { participants: order, independent: true, redTeam })
                         .catch(e => ({ error: e.message }))));
                     results.forEach((res, i) => noteFailure(turnOrder[i], res));
                     if (results.some(x => x && x.cancelled) || sig.cancelled) break outer;
@@ -446,17 +563,17 @@ function registerMultiAiHandlers(deps) {
                     const remaining = turnOrder.slice();
                     while (remaining.length) {
                         if (sig.cancelled) break outer;
-                        const provider = remaining.shift();
-                        const res = await takeTurn(chatId, provider, r, { participants: order, redTeam }).catch(e => ({ error: e.message }));
-                        noteFailure(provider, res);
+                        const agent = remaining.shift();
+                        const res = await takeTurn(chatId, agent, r, { participants: order, redTeam }).catch(e => ({ error: e.message }));
+                        noteFailure(agent, res);
                         if (res && res.cancelled) break outer;
                         if (res && res.handoff) {
                             const target = res.handoff;
                             if (remaining.includes(target)) {
                                 remaining.splice(remaining.indexOf(target), 1);
                                 remaining.unshift(target);
-                                note(chatId, `${core.providerLabel(provider)} handed off to ${core.providerLabel(target)} — they go next.`);
-                            } else if (target !== provider) {
+                                note(chatId, `${agent.name} handed off to ${target.name} — they go next.`);
+                            } else if (target !== agent) {
                                 nextFirst = target;
                             }
                         }
@@ -511,17 +628,17 @@ function registerMultiAiHandlers(deps) {
     ipcMain.handle('multiai-judge', async (event, { chatId, judgeProvider, scope }) => {
         const chat = store.getChat(chatId);
         if (!chat) return { success: false, error: 'Chat not found' };
-        const base = String(judgeProvider).split(':')[0];
-        emit('multiai-thinking', { chatId, provider: base });
+        const judge = agentFrom(chat, judgeProvider);
+        emit('multiai-thinking', { chatId, provider: judge.provider, who: judge.name });
         const { brief } = core.briefAndLatest(chat.messages, chat.topic);
         const prompt = core.buildJudgePrompt({ topic: brief, messages: scopedMessages(chat, scope || chat.judgeScope || 'all') });
         try {
-            const result = await sendAux(chat, judgeProvider, prompt);
-            const msg = record(chatId, { who: `Judge · ${core.providerLabel(base)}`, text: result.response, provider: base, role: 'judge', cycle: chat.cycle || 1, round: 0 });
+            const result = await sendAux(chat, judge, prompt);
+            const msg = record(chatId, { who: `Judge · ${judge.name}`, text: result.response, provider: judge.provider, agentId: judge.id, model: result.model || undefined, role: 'judge', cycle: chat.cycle || 1, round: 0 });
             emit('multiai-done', { chatId });
             return { success: true, message: msg };
         } catch (e) {
-            record(chatId, { who: 'Judge error', text: e.message, provider: base, role: 'error', cycle: chat.cycle || 1, round: 0 });
+            record(chatId, { who: 'Judge error', text: e.message, provider: judge.provider, role: 'error', cycle: chat.cycle || 1, round: 0 });
             emit('multiai-done', { chatId });
             return { success: false, error: e.message };
         }
@@ -531,17 +648,17 @@ function registerMultiAiHandlers(deps) {
     ipcMain.handle('multiai-summarize', async (event, { chatId, provider }) => {
         const chat = store.getChat(chatId);
         if (!chat) return { success: false, error: 'Chat not found' };
-        const base = String(provider).split(':')[0];
-        emit('multiai-thinking', { chatId, provider: base });
+        const judge = agentFrom(chat, provider);
+        emit('multiai-thinking', { chatId, provider: judge.provider, who: judge.name });
         const { brief } = core.briefAndLatest(chat.messages, chat.topic);
         const prompt = core.buildSummaryPrompt({ topic: brief, messages: chat.messages });
         try {
-            const result = await sendAux(chat, provider, prompt);
-            const msg = record(chatId, { who: `State summary · ${core.providerLabel(base)}`, text: result.response, provider: base, role: 'summary', cycle: chat.cycle || 1, round: 0 });
+            const result = await sendAux(chat, judge, prompt);
+            const msg = record(chatId, { who: `State summary · ${judge.name}`, text: result.response, provider: judge.provider, agentId: judge.id, role: 'summary', cycle: chat.cycle || 1, round: 0 });
             emit('multiai-done', { chatId });
             return { success: true, message: msg };
         } catch (e) {
-            record(chatId, { who: 'Summary error', text: e.message, provider: base, role: 'error', cycle: chat.cycle || 1, round: 0 });
+            record(chatId, { who: 'Summary error', text: e.message, provider: judge.provider, role: 'error', cycle: chat.cycle || 1, round: 0 });
             emit('multiai-done', { chatId });
             return { success: false, error: e.message };
         }
@@ -555,7 +672,7 @@ function registerMultiAiHandlers(deps) {
     async function chat(chatId, provider, prompt) {
         const c = store.getChat(chatId);
         if (!c) throw new Error('Chat not found');
-        const raced = await sendOnChatThread(c, provider, prompt);
+        const raced = await sendAgent(c, agentFrom(c, provider), prompt);
         if (raced.cancelled) {
             const err = new Error('Stopped before this reply arrived.');
             err.wasCancelled = true;
@@ -861,6 +978,11 @@ function registerMultiAiHandlers(deps) {
         return e;
     }
 
+    // Agents as shown to REST/MCP clients: resolved route, no persona text.
+    function publicAgents(chat) {
+        return agentsOf(chat).map(a => ({ id: a.id, name: a.name, code: a.code, route: resolveRoute(a), provider: a.provider, model: a.model, effort: a.effort }));
+    }
+
     function withLabels(messages) {
         return (messages || []).map(x => Object.assign({ label: core.refLabel(x) }, x));
     }
@@ -887,6 +1009,7 @@ function registerMultiAiHandlers(deps) {
             if (body.contextWindow != null) fields.contextWindow = Math.max(0, parseInt(body.contextWindow, 10) || 0);
             if (body.autoSummaryEvery != null) fields.autoSummaryEvery = Math.max(0, parseInt(body.autoSummaryEvery, 10) || 0);
             if (body.engines && typeof body.engines === 'object') fields.engines = body.engines;
+            if (Array.isArray(body.agents) && body.agents.length) fields.agents = core.normalizeAgents({ agents: body.agents }).map(a => ({ id: a.id, name: a.name, route: a.route, provider: a.provider, model: a.model, effort: a.effort, persona: a.persona || '' }));
             if (body.topic) fields.topic = String(body.topic);
             const created = store.createChat(fields);
             if (body.topic) {
@@ -895,7 +1018,7 @@ function registerMultiAiHandlers(deps) {
             }
             const chat = store.getChat(created.id);
             emit('multiai-chat-created', { chat });
-            return chat;
+            return Object.assign({}, chat, { agents: publicAgents(chat) });
         },
 
         getChat(chatId, { since, last } = {}) {
@@ -907,7 +1030,7 @@ function registerMultiAiHandlers(deps) {
                 messages = i === -1 ? messages : messages.slice(i + 1);
             }
             if (last && Number(last) > 0) messages = messages.slice(-Number(last));
-            return Object.assign({}, chat, { messages: withLabels(messages), running: isRunning(chatId), totalMessages: (chat.messages || []).length });
+            return Object.assign({}, chat, { messages: withLabels(messages), agents: publicAgents(chat), running: isRunning(chatId), totalMessages: (chat.messages || []).length });
         },
 
         appendMessage(chatId, body) {
@@ -972,8 +1095,9 @@ function registerMultiAiHandlers(deps) {
     // Registered on the existing gateway (port 3210+). Same loopback-only and
     // API-key rules as every other /v1 route. All bodies/results are JSON.
     //
-    //   GET  /v1/multiai/chats                      → {chats:[{id,title,mode,participants,messageCount,...}]}
-    //   POST /v1/multiai/chats                      {title?, participants?, mode?, contextMode?, topic?, who?} → {chat}
+    //   GET  /v1/multiai/chats                      → {chats:[{id,title,mode,agents:[name],participants,messageCount,...}]}
+    //   POST /v1/multiai/chats                      {title?, agents?|participants?, mode?, contextMode?, topic?, who?} → {chat}
+    //        (agents: [{name?, provider, route?, model?, effort?, persona?}]; participants: legacy provider list)
     //   GET  /v1/multiai/chats/:id[?since=<msgId>&last=<n>]  → {chat} (messages after `since` / only the last n)
     //   POST /v1/multiai/chats/:id/messages         {who, text, role?, provider?} → {message}
     //        (appends a turn from an external agent; nothing is sent to providers)

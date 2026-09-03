@@ -34,9 +34,18 @@ async function call(apiKey, messageOrMessages, options = {}) {
 
     const payload = {
         model,
-        max_tokens: MAX_TOKENS.claude,
+        max_tokens: options.maxTokens || MAX_TOKENS.claude,
         messages,
     };
+
+    // Effort → extended thinking budget. max_tokens must exceed the budget.
+    if (options.reasoningEffort) {
+        const budget = { minimal: 1024, low: 2048, medium: 6000, high: 12000, xhigh: 24000, max: 32000 }[options.reasoningEffort];
+        if (budget) {
+            payload.thinking = { type: 'enabled', budget_tokens: budget };
+            payload.max_tokens = Math.max(payload.max_tokens, budget + 8192);
+        }
+    }
 
     if (system) {
         payload.system = system;

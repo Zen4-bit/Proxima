@@ -134,3 +134,27 @@ test('openai-compatible aborts immediately on fatal 401 (no model fan-out)', asy
     await assert.rejects(() => compatible.call('key', 'hi', { provider: 'deepseek' }), /invalid key|401/i);
     assert.equal(stub.calls, 1, 'a 401 must abort after ONE attempt (no retry, no model fallback)');
 });
+
+test('openai maps reasoningEffort to reasoning_effort (xhigh/max clamp to high) and widens the completion budget', async () => {
+    reset();
+    stub.resolve = { choices: [{ message: { content: 'ok' } }], model: 'gpt-5.5' };
+    await openai.call('sk-x', 'hi', { reasoningEffort: 'low' });
+    assert.equal(stub.last.body.reasoning_effort, 'low');
+    assert.ok(stub.last.body.max_completion_tokens >= 16000);
+    await openai.call('sk-x', 'hi', { reasoningEffort: 'max', maxTokens: 500 });
+    assert.equal(stub.last.body.reasoning_effort, 'high');
+    assert.equal(stub.last.body.max_completion_tokens, 500, 'an explicit maxTokens is respected');
+    await openai.call('sk-x', 'hi', {});
+    assert.equal(stub.last.body.reasoning_effort, undefined);
+});
+
+test('anthropic maps reasoningEffort to an extended-thinking budget, keeps max_tokens above it, and ignores thinking blocks in the text', async () => {
+    reset();
+    stub.resolve = { content: [{ type: 'thinking', thinking: 'hmm' }, { type: 'text', text: 'answer' }], model: 'claude-x' };
+    const r = await anthropic.call('sk-x', 'hi', { reasoningEffort: 'high' });
+    assert.deepEqual(stub.last.body.thinking, { type: 'enabled', budget_tokens: 12000 });
+    assert.ok(stub.last.body.max_tokens > 12000);
+    assert.equal(r.text, 'answer');
+    await anthropic.call('sk-x', 'hi', {});
+    assert.equal(stub.last.body.thinking, undefined);
+});

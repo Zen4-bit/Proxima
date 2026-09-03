@@ -42,6 +42,7 @@ function multiaiDefaultChat() {
         rounds: 1,
         brevity: 'max 4 sentences',
         participants: [],
+        agents: [],             // [{id, name, route, provider, model, effort, persona, personaKey}] — see multiaiEnsureAgents
         personas: {},
         judgeProvider: '',
         judgeScope: 'all',
@@ -96,7 +97,7 @@ function multiaiRefLabel(msg) {
     else if (msg.role === 'summary') code = 'SM';
     else if (msg.role === 'system') code = 'SY';
     else if (msg.role === 'error') code = 'ER';
-    else code = multiaiProviderCode(msg.provider);
+    else code = msg.code || multiaiProviderCode(msg.provider);
     return `${String(c).padStart(2, '0')}${String(r).padStart(2, '0')}${code}`;
 }
 
@@ -146,11 +147,13 @@ async function multiaiInit() {
     }
     multiaiState.initDone = true;
 
-    const [data, providers, personas] = await Promise.all([
+    const [data, providers, personas, routes] = await Promise.all([
         agentHub.multiaiLoad(),
         agentHub.multiaiEnabledProviders(),
         agentHub.multiaiListPersonas(),
+        (agentHub.multiaiRoutes ? agentHub.multiaiRoutes() : Promise.resolve(null)).catch(() => null),
     ]);
+    multiaiState.routes = routes || { apiMode: false, providers: {}, cli: {} };
     multiaiState.data = data && data.projects ? data : { projects: [{ id: 'default', name: 'General', chats: [] }] };
     if (!multiaiState.data.uiPrefs) multiaiState.data.uiPrefs = {};
     multiaiState.enabledProviders = providers || [];
@@ -180,8 +183,8 @@ async function multiaiInit() {
         multiaiState.data.projects[0].chats.push(chat);
         multiaiRenderChatList();
     });
-    agentHub.onMultiaiThinking(({ chatId, provider }) => {
-        if (chatId === multiaiState.currentChatId) multiaiSetThinking(provider, true);
+    agentHub.onMultiaiThinking(({ chatId, provider, who }) => {
+        if (chatId === multiaiState.currentChatId) multiaiSetThinking(provider, true, who);
     });
     agentHub.onMultiaiRoundStart(({ chatId, round, of }) => {
         if (chatId === multiaiState.currentChatId) {
@@ -706,7 +709,7 @@ function multiaiRenderOptionsSummary(chat) {
     const el = document.getElementById('multiai-options-summary-text');
     if (!el || !chat) return;
     if (multiaiState.mode === 'classic') {
-        const n = (chat.participants || []).length;
+        const n = multiaiEnsureAgents(chat).length;
         const rounds = chat.rounds || 1;
         const extras = [];
         if (chat.contextMode === 'full') extras.push('full transcript');
@@ -714,7 +717,9 @@ function multiaiRenderOptionsSummary(chat) {
         if (chat.independentFirstRound) extras.push('blind R1');
         if (chat.charterMode) extras.push('charter');
         if (chat.stopWhenAllAgree !== false) extras.push(`stop on ${chat.stopToken || 'DONE'}`);
-        if (chat.engines && chat.engines.gemini && chat.engines.gemini !== 'gemini') extras.push(chat.engines.gemini);
+        const routes = multiaiState.routes || {};
+        if (routes.apiMode) extras.push('API mode');
+        if ((chat.agents || []).some(a => MULTIAI_CLI_PROVIDERS[a.provider])) extras.push('CLI agents');
         el.textContent = `⚙ ${n} participant${n === 1 ? '' : 's'} · ${chat.discussMode === 'debate' ? 'Debate' : 'Discuss'} · ${rounds} round${rounds === 1 ? '' : 's'} · ${chat.brevity || 'max 4 sentences'}${extras.length ? ' · ' + extras.join(' · ') : ''}`;
     } else {
         const strategy = chat.strategy || 'crew';
@@ -790,7 +795,7 @@ function multiaiRenderChat() {
 function multiaiRenderStatusLine(chat) {
     const el = document.getElementById('multiai-status-line');
     if (!el) return;
-    const participants = (chat.participants || []).map(multiaiProviderLabel).join(', ');
+    const participants = multiaiEnsureAgents(chat).map(a => a.name).join(', ');
     const msgCount = (chat.messages || []).length;
     const roundBadge = multiaiState.currentRound
         ? ` · round ${multiaiState.currentRound}${multiaiState.totalRounds ? ' of ' + multiaiState.totalRounds : ''}`
@@ -872,113 +877,257 @@ function multiaiOnLedgerFilterChange() {
     if (chat) multiaiRenderLedger(chat);
 }
 
+// ---- Agents (participants) -------------------------------------------
+// A participant is an agent: name + route + provider + model + effort +
+// persona. Several agents may share a provider ("Opus · high" and
+// "Sonnet · low" through Claude Code; "GPT high"/"GPT low" through the
+// OpenAI API). Route 'auto' follows the app's general Settings: API mode on
+// with a key → API with the model chosen there (or the agent's own);
+// otherwise the browser tab. CLI agents run locally on your subscription.
+
+const MULTIAI_CLI_PROVIDERS = { 'claude-cli': 'Claude Code', 'codex-cli': 'Codex' };
+const MULTIAI_EFFORTS = ['', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+const MULTIAI_MODEL_HINTS = {
+    'claude-cli': ['fable', 'opus', 'sonnet', 'haiku', 'opus[1m]', 'sonnet[1m]'],
+    'codex-cli': ['gpt-5.5', 'gpt-5.5-codex', 'gpt-5.4'],
+    gemini: ['3.5-flash', '3.1-pro', '3.1-flash-lite', 'auto'],
+};
+
+function multiaiSlug(s) {
+    return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+function multiaiAgentCode(agent) {
+    const name = String(agent.name || '');
+    const base = String(agent.provider || '').split(':')[0];
+    if (name && multiaiProviderLabel(base) === name) return multiaiProviderCode(base);
+    const words = name.split(/[^A-Za-z0-9]+/).filter(Boolean);
+    if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+    if (words.length === 1 && words[0].length >= 2) return words[0].slice(0, 2).toUpperCase();
+    return multiaiProviderCode(base);
+}
+
+function multiaiDefaultAgentName(provider, model, effort) {
+    const label = MULTIAI_CLI_PROVIDERS[provider] || multiaiProviderLabel(provider);
+    const parts = [];
+    if (model && !(provider === 'gemini' && model === 'gemini')) parts.push(String(model).replace(/^gemini:/, ''));
+    if (effort) parts.push(effort);
+    return parts.length ? `${label} · ${parts.join(' · ')}` : label;
+}
+
+// Migrates a chat's legacy participants list into agents (once) and keeps
+// ids unique. Mirrors multiai-core.normalizeAgents.
+function multiaiEnsureAgents(chat) {
+    if (!chat) return [];
+    if (!Array.isArray(chat.agents)) chat.agents = [];
+    if (!chat.agents.length && (chat.participants || []).length) {
+        chat.agents = chat.participants.map(p => {
+            const base = String(p).split(':')[0];
+            const engine = String(p).includes(':') ? String(p) : ((chat.engines && chat.engines[base]) || '');
+            const a = { id: base, name: multiaiProviderLabel(base), route: 'auto', provider: base, model: engine && engine !== base ? engine.replace(/^gemini:/, '') : '', effort: '' };
+            const key = (chat.personaKeys || {})[base];
+            if (key) { a.personaKey = key; a.persona = multiaiAllPersonas()[key] || ''; }
+            return a;
+        });
+    }
+    const seen = new Set();
+    chat.agents.forEach(a => {
+        if (!a.provider) a.provider = 'chatgpt';
+        if (MULTIAI_CLI_PROVIDERS[a.provider]) a.route = 'cli';
+        if (!a.route) a.route = 'auto';
+        if (!a.name) a.name = multiaiDefaultAgentName(a.provider, a.model, a.effort);
+        if (!a.id) a.id = multiaiSlug(a.name) || a.provider;
+        let id = a.id, n = 2;
+        while (seen.has(id)) id = `${a.id}-${n++}`;
+        a.id = id; seen.add(id);
+    });
+    // Keep the legacy field in sync for anything that still reads it.
+    chat.participants = chat.agents.map(a => a.provider);
+    return chat.agents;
+}
+
+function multiaiRouteLabel(agent) {
+    const r = multiaiState.routes || { apiMode: false, providers: {}, cli: {} };
+    if (MULTIAI_CLI_PROVIDERS[agent.provider]) {
+        const ok = agent.provider === 'claude-cli' ? r.cli.claude : r.cli.codex;
+        return ok ? `→ ${MULTIAI_CLI_PROVIDERS[agent.provider]} (local, subscription)` : `⚠ ${MULTIAI_CLI_PROVIDERS[agent.provider]} CLI not found`;
+    }
+    const p = r.providers[agent.provider] || {};
+    const apiOk = r.apiMode && p.hasKey;
+    if (agent.route === 'browser') return '→ browser tab';
+    if (agent.route === 'api' && !apiOk) return `⚠ API mode is off or no ${multiaiProviderLabel(agent.provider)} key in Settings — will use the browser tab`;
+    if (apiOk) return `→ API · ${agent.model || (p.model ? p.model + ' (Settings)' : 'model from Settings')}`;
+    return '→ browser tab' + (agent.effort ? ' (effort ignored — API mode is off in Settings)' : '');
+}
+
 function multiaiRenderParticipants(chat) {
     const box = document.getElementById('multiai-participants');
     if (!box) return;
-    const providers = multiaiState.enabledProviders.length
-        ? multiaiState.enabledProviders
-        : ['chatgpt', 'claude', 'gemini', 'perplexity'];
-    const engines = chat.engines || {};
-    box.innerHTML = providers.map(p => {
-        const checked = (chat.participants || []).includes(p);
-        // Only Gemini honours an engine choice in the provider layer today
-        // (ChatGPT/Claude/Perplexity ignore it), so only Gemini gets a picker.
-        const enginePicker = p === 'gemini' ? `
-                <select title="Gemini model" onchange="multiaiSetEngine('gemini', this.value)" onclick="event.stopPropagation()" style="margin-left: 4px; background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 2px 4px; font-size: 0.72rem;">
-                    ${MULTIAI_GEMINI_ENGINES.map(e => `<option value="${e}" ${(engines.gemini || 'gemini') === e ? 'selected' : ''}>${e === 'gemini' ? 'default' : e.split(':')[1]}</option>`).join('')}
-                </select>` : '';
+    const agents = multiaiEnsureAgents(chat);
+    const routes = multiaiState.routes || { apiMode: false, providers: {}, cli: {} };
+    const personaNames = Object.keys(multiaiAllPersonas());
+    const providerOptions = ['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli'];
+    const inp = 'background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 4px 6px; font-size: 0.76rem; box-sizing: border-box;';
+    const cards = agents.map((a, i) => {
+        const isCli = !!MULTIAI_CLI_PROVIDERS[a.provider];
+        const apiOk = routes.apiMode && (routes.providers[a.provider] || {}).hasKey;
+        const hints = isCli ? MULTIAI_MODEL_HINTS[a.provider] : (apiOk ? ((routes.providers[a.provider] || {}).models || []) : (a.provider === 'gemini' ? MULTIAI_MODEL_HINTS.gemini : []));
+        const effortOn = isCli || apiOk || a.route === 'api';
         return `
-            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.82rem; color: #d1d5db; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 5px 10px; cursor: pointer;">
-                <input type="checkbox" ${checked ? 'checked' : ''} onchange="multiaiToggleParticipant('${p}', this.checked)">
-                ${multiaiProviderLabel(p)}${enginePicker}
-            </label>
-        `;
+            <div style="flex: 1 1 300px; min-width: 280px; max-width: 420px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span title="Label code" style="font-size: 0.66rem; font-weight: 700; color: #6b7280; width: 22px; flex-shrink: 0;">${multiaiEscape(multiaiAgentCode(a))}</span>
+                    <input value="${multiaiEscapeAttr(a.name)}" placeholder="Name" oninput="multiaiAgentField(${i}, 'name', this.value)" style="flex: 1; ${inp}">
+                    <button onclick="multiaiAgentDuplicate(${i})" title="Duplicate this agent" style="background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 0.9rem;">⧉</button>
+                    <button onclick="multiaiAgentRemove(${i})" title="Remove" style="background: none; border: none; color: #f87171; cursor: pointer; font-size: 0.9rem;">✕</button>
+                </div>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                    <select title="Provider" onchange="multiaiAgentField(${i}, 'provider', this.value)" style="flex: 1 1 110px; ${inp}">
+                        ${providerOptions.map(pv => `<option value="${pv}" ${a.provider === pv ? 'selected' : ''}>${MULTIAI_CLI_PROVIDERS[pv] || multiaiProviderLabel(pv)}</option>`).join('')}
+                    </select>
+                    <select title="Route: auto follows Settings (API mode on + key → API, else browser tab)" onchange="multiaiAgentField(${i}, 'route', this.value)" ${isCli ? 'disabled' : ''} style="flex: 1 1 90px; ${inp}">
+                        ${['auto', 'browser', 'api', 'cli'].map(rt => `<option value="${rt}" ${(isCli ? 'cli' : a.route) === rt ? 'selected' : ''} ${rt === 'cli' && !isCli ? 'disabled' : ''}>${rt}</option>`).join('')}
+                    </select>
+                </div>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                    <input list="multiai-models-${i}" value="${multiaiEscapeAttr(a.model || '')}" placeholder="${isCli ? 'model alias' : (apiOk ? 'model (blank = Settings)' : (a.provider === 'gemini' ? 'engine (blank = default)' : 'model n/a in browser tab'))}" oninput="multiaiAgentField(${i}, 'model', this.value)" style="flex: 2 1 120px; ${inp}">
+                    <datalist id="multiai-models-${i}">${hints.map(h => `<option value="${multiaiEscapeAttr(h)}">`).join('')}</datalist>
+                    <select title="Reasoning effort (API and CLI routes)" onchange="multiaiAgentField(${i}, 'effort', this.value)" ${effortOn ? '' : 'disabled'} style="flex: 1 1 80px; ${inp}">
+                        ${MULTIAI_EFFORTS.map(e => `<option value="${e}" ${(a.effort || '') === e ? 'selected' : ''}>${e || 'effort: default'}</option>`).join('')}
+                    </select>
+                </div>
+                <select title="Persona" onchange="multiaiAgentPersona(${i}, this.value)" style="${inp} color: #9ca3af;">
+                    <option value="">🎭 Persona: none</option>
+                    ${personaNames.map(n => `<option value="${multiaiEscapeAttr(n)}" ${a.personaKey === n ? 'selected' : ''}>${multiaiEscape(n)}</option>`).join('')}
+                </select>
+                <div style="font-size: 0.7rem; color: #6b7280;">${multiaiEscape(multiaiRouteLabel(a))}</div>
+            </div>`;
     }).join('');
+    const quick = ['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli'].map(pv => {
+        const cliOk = pv === 'claude-cli' ? routes.cli.claude : (pv === 'codex-cli' ? routes.cli.codex : true);
+        return `<button class="header-btn" onclick="multiaiAgentAdd('${pv}')" ${cliOk ? '' : 'disabled title="CLI not found on this machine"'} style="justify-content: center; font-size: 0.74rem; padding: 4px 8px; ${cliOk ? '' : 'opacity: 0.4;'}">+ ${MULTIAI_CLI_PROVIDERS[pv] || multiaiProviderLabel(pv)}</button>`;
+    }).join('');
+    const mode = routes.apiMode ? 'API mode ON in Settings — auto agents use API keys/models from there' : 'API mode OFF in Settings — auto agents use the browser tabs';
+    box.style.display = 'block';
+    box.innerHTML = `
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">${cards || '<div style="font-size: 0.76rem; color: #6b7280;">No agents yet — add one below.</div>'}</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">${quick}
+            <button class="header-btn" onclick="multiaiRefreshRoutes()" title="Re-read Settings (API mode, keys, models) and CLI availability" style="justify-content: center; font-size: 0.74rem; padding: 4px 8px;">↻</button>
+            <span style="font-size: 0.7rem; color: #6b7280;">${multiaiEscape(mode)}</span>
+        </div>`;
 }
 
-function multiaiSetEngine(provider, engine) {
+function multiaiAgentAdd(provider) {
     const chat = multiaiCurrentChat();
     if (!chat) return;
-    chat.engines = chat.engines || {};
-    if (!engine || engine === provider) delete chat.engines[provider]; else chat.engines[provider] = engine;
+    multiaiEnsureAgents(chat);
+    const isCli = !!MULTIAI_CLI_PROVIDERS[provider];
+    const model = provider === 'codex-cli' ? 'gpt-5.5' : (provider === 'claude-cli' ? 'sonnet' : '');
+    const a = { id: '', name: '', route: isCli ? 'cli' : 'auto', provider, model, effort: isCli ? 'high' : '' };
+    a.name = multiaiDefaultAgentName(provider, model, a.effort);
+    chat.agents.push(a);
+    multiaiEnsureAgents(chat);
     multiaiPersist();
+    multiaiRenderParticipants(chat);
+    multiaiRenderJudgeOptions(chat);
     multiaiRenderOptionsSummary(chat);
 }
 
+function multiaiAgentDuplicate(i) {
+    const chat = multiaiCurrentChat();
+    if (!chat || !chat.agents || !chat.agents[i]) return;
+    const src = chat.agents[i];
+    const copy = Object.assign({}, src, { id: '', name: `${src.name} 2` });
+    chat.agents.splice(i + 1, 0, copy);
+    multiaiEnsureAgents(chat);
+    multiaiPersist();
+    multiaiRenderParticipants(chat);
+    multiaiRenderJudgeOptions(chat);
+    multiaiRenderOptionsSummary(chat);
+}
+
+function multiaiAgentRemove(i) {
+    const chat = multiaiCurrentChat();
+    if (!chat || !chat.agents) return;
+    chat.agents.splice(i, 1);
+    multiaiEnsureAgents(chat);
+    multiaiPersist();
+    multiaiRenderParticipants(chat);
+    multiaiRenderJudgeOptions(chat);
+    multiaiRenderOptionsSummary(chat);
+}
+
+function multiaiAgentField(i, field, value) {
+    const chat = multiaiCurrentChat();
+    if (!chat || !chat.agents || !chat.agents[i]) return;
+    const a = chat.agents[i];
+    const autoNamed = !a.name || a.name === multiaiDefaultAgentName(a.provider, a.model, a.effort);
+    a[field] = value;
+    if (field === 'provider') {
+        const isCli = !!MULTIAI_CLI_PROVIDERS[value];
+        a.route = isCli ? 'cli' : (a.route === 'cli' ? 'auto' : a.route);
+        if (isCli) { a.model = value === 'codex-cli' ? 'gpt-5.5' : 'sonnet'; a.effort = a.effort || 'high'; }
+        else if (value !== 'gemini') a.model = '';
+    }
+    if (field !== 'name' && autoNamed) { a.name = multiaiDefaultAgentName(a.provider, a.model, a.effort); a.id = ''; }
+    if (field === 'name') a.id = '';   // re-slug from the new name (so @mentions follow the label)
+    multiaiEnsureAgents(chat);
+    if (field === 'name') multiaiPersistSoon(); else multiaiPersist();
+    if (field !== 'name' && field !== 'model') { multiaiRenderParticipants(chat); multiaiRenderJudgeOptions(chat); }
+    multiaiRenderOptionsSummary(chat);
+}
+
+function multiaiAgentPersona(i, personaName) {
+    const chat = multiaiCurrentChat();
+    if (!chat || !chat.agents || !chat.agents[i]) return;
+    const a = chat.agents[i];
+    if (!personaName) { delete a.personaKey; delete a.persona; }
+    else { a.personaKey = personaName; a.persona = multiaiAllPersonas()[personaName] || ''; }
+    multiaiPersist();
+}
+
+async function multiaiRefreshRoutes() {
+    try { multiaiState.routes = await agentHub.multiaiRoutes(); } catch { /* older main */ }
+    const chat = multiaiCurrentChat();
+    if (chat) { multiaiRenderParticipants(chat); multiaiRenderOptionsSummary(chat); }
+}
+
 function multiaiProviderLabel(p) {
-    const names = { chatgpt: 'ChatGPT', claude: 'Claude', gemini: 'Gemini', perplexity: 'Perplexity', codex: 'Codex', 'claude-code': 'Claude Code', human: 'You', external: 'External' };
+    const names = { chatgpt: 'ChatGPT', claude: 'Claude', gemini: 'Gemini', perplexity: 'Perplexity', codex: 'Codex', 'claude-code': 'Claude Code', 'claude-cli': 'Claude Code', 'codex-cli': 'Codex', human: 'You', external: 'External' };
     const base = String(p || '').split(':')[0];
     return names[base] || base;
 }
 
+// Legacy entry points kept for older call sites; agents carry personas now.
 function multiaiToggleParticipant(provider, on) {
     const chat = multiaiCurrentChat();
     if (!chat) return;
-    chat.participants = chat.participants || [];
-    if (on && !chat.participants.includes(provider)) chat.participants.push(provider);
-    if (!on) chat.participants = chat.participants.filter(p => p !== provider);
-    multiaiPersist();
-    multiaiRenderOptionsSummary(chat);
-    multiaiRenderPersonaAssignment(chat);
+    multiaiEnsureAgents(chat);
+    if (on) multiaiAgentAdd(provider);
+    else { chat.agents = chat.agents.filter(a => a.provider !== provider); multiaiEnsureAgents(chat); multiaiPersist(); multiaiRenderParticipants(chat); }
 }
 
-// ---- Persona assignment (Classic mode) -------------------------------
-// A separate settings block, same idea as the crew role editor below:
-// pick a persona per selected participant from the shared built-in +
-// custom-folder library. chat.personaKeys remembers the picked name (for
-// re-rendering the dropdown correctly); chat.personas holds the resolved
-// text actually sent to the backend prompt builder.
-
-function multiaiRenderPersonaAssignment(chat) {
-    const box = document.getElementById('multiai-persona-assign');
-    if (!box || !chat) return;
-    const participants = chat.participants || [];
-    if (!participants.length) {
-        box.innerHTML = '<div style="font-size: 0.76rem; color: #6b7280;">Select participants above to assign personas.</div>';
-        return;
-    }
-    const personas = multiaiAllPersonas();
-    const personaNames = Object.keys(personas);
-    chat.personas = chat.personas || {};
-    chat.personaKeys = chat.personaKeys || {};
-    box.innerHTML = participants.map(p => {
-        const current = chat.personaKeys[p] || '';
-        const options = ['<option value="">None</option>']
-            .concat(personaNames.map(name => `<option value="${multiaiEscapeAttr(name)}" ${current === name ? 'selected' : ''}>${multiaiEscape(name)}</option>`));
-        return `
-            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: #9ca3af; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 5px 10px;">
-                ${multiaiProviderLabel(p)}
-                <select onchange="multiaiSetParticipantPersona('${p}', this.value)" style="background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 3px 6px; font-size: 0.76rem;">
-                    ${options.join('')}
-                </select>
-            </label>
-        `;
-    }).join('');
-}
-
-function multiaiSetParticipantPersona(provider, personaName) {
+function multiaiRenderPersonaAssignment() { /* personas live on the agent cards now */ }
+function multiaiSetParticipantPersona() { /* see multiaiAgentPersona */ }
+function multiaiSetEngine(provider, engine) {
     const chat = multiaiCurrentChat();
     if (!chat) return;
-    chat.personaKeys = chat.personaKeys || {};
-    chat.personas = chat.personas || {};
-    if (!personaName) {
-        delete chat.personaKeys[provider];
-        delete chat.personas[provider];
-    } else {
-        chat.personaKeys[provider] = personaName;
-        chat.personas[provider] = multiaiAllPersonas()[personaName] || '';
-    }
-    multiaiPersist();
+    multiaiEnsureAgents(chat);
+    const a = chat.agents.find(x => x.provider === provider);
+    if (a) { a.model = engine && engine !== provider ? String(engine).replace(/^gemini:/, '') : ''; multiaiPersist(); multiaiRenderParticipants(chat); }
 }
 
 function multiaiRenderJudgeOptions(chat) {
     const sel = document.getElementById('multiai-judge-provider');
     if (!sel) return;
+    const agents = multiaiEnsureAgents(chat);
     const providers = multiaiState.enabledProviders.length
         ? multiaiState.enabledProviders
         : ['chatgpt', 'claude', 'gemini', 'perplexity'];
-    sel.innerHTML = providers.map(p => `<option value="${p}">${multiaiProviderLabel(p)}</option>`).join('');
-    if (chat.judgeProvider) sel.value = chat.judgeProvider;
+    const opts = agents.map(a => `<option value="${multiaiEscapeAttr(a.id)}">${multiaiEscape(a.name)}</option>`)
+        .concat(providers.filter(p => !agents.some(a => a.provider === p)).map(p => `<option value="${p}">${multiaiProviderLabel(p)} (tab)</option>`));
+    sel.innerHTML = opts.join('');
+    if (chat.judgeProvider && [...sel.options].some(o => o.value === chat.judgeProvider)) sel.value = chat.judgeProvider;
 }
 
 // Live-persists the classic-mode fields as they change (not just at Run
@@ -1093,9 +1242,9 @@ function multiaiAppendSystemNote(text) {
     feed.scrollTop = feed.scrollHeight;
 }
 
-function multiaiSetThinking(provider, on) {
+function multiaiSetThinking(provider, on, who) {
     if (!on) return;
-    multiaiAppendSystemNote(`${multiaiProviderLabel(provider)} is thinking…`);
+    multiaiAppendSystemNote(`${who || multiaiProviderLabel(provider)} is thinking…`);
 }
 
 function multiaiEscape(s) {
@@ -1163,8 +1312,8 @@ async function multiaiRunRound() {
         showToast('Enter a topic first.');
         return;
     }
-    if (!(chat.participants || []).length) {
-        showToast('Select at least one participant.');
+    if (!multiaiEnsureAgents(chat).length) {
+        showToast('Add at least one agent.');
         return;
     }
     const isFirstMessage = !(chat.messages || []).length;

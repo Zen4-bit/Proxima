@@ -1458,13 +1458,10 @@
                         <!-- Classic mode controls -->
                         <div id="multiai-classic-controls">
                             <div style="display: flex; flex-wrap: wrap; gap: 18px; margin-bottom: 10px;">
-                                <div style="min-width: 180px; flex: 1;">
-                                    <div style="font-size: 0.7rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px;">Participants</div>
-                                    <div id="multiai-participants" style="display: flex; flex-wrap: wrap; gap: 10px;"></div>
-                                </div>
-                                <div style="min-width: 180px; flex: 1;">
-                                    <div style="font-size: 0.7rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px;" title="A separate library of personas you can assign per participant — shared with the Orchestrated crew editor below.">🎭 Personas</div>
-                                    <div id="multiai-persona-assign" style="display: flex; flex-wrap: wrap; gap: 10px;"></div>
+                                <div style="flex-basis: 100%;">
+                                    <div style="font-size: 0.7rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px;" title="Each agent = name + route + provider + model + effort + persona. Add the same provider more than once with different models or efforts. Route 'auto' follows the app's Settings: API mode on with a key → the provider's API using the model chosen there (or this agent's); otherwise the browser tab. Claude Code / Codex agents run locally on your subscriptions.">Agents</div>
+                                    <div id="multiai-participants"></div>
+                                    <div id="multiai-persona-assign" style="display: none;"></div>
                                 </div>
                                 <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;">
                                     <label style="display: block; font-size: 0.78rem; color: #9ca3af;" title="Discuss: participants build on each other's points. Debate: they take opposing sides and argue.">Mode
@@ -1620,7 +1617,7 @@
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Charter mode</b> — turns the coworking charter's discipline into engine rules: participants must tag claims <code>VERIFIED [who/how/path]</code>, <code>UNVERIFIED</code> or <code>ASSUMED [basis]</code> (agreement never upgrades a claim); plain agreement counts as PASS; every message ends with <code>HANDOFF → &lt;participant&gt;: …</code>, <code>OPEN → …</code> or <code>COMPLETE → …</code>; a HANDOFF pulls the named participant forward (next in this round, or first in the next); and one participant per round holds a rotating red-team seat (marked in the feed) whose job is the strongest objection to the emerging consensus.</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Judge</b> — after a discussion, ask one provider to read the transcript and give a verdict. Judge scope: the whole chat, everything since your last message, or only the last round.</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Summarize state</b> — asks the Judge provider for a pinned summary (decisions, open questions, claims to verify, next step). It becomes the compaction point: later turns start from the summary instead of the older transcript. Use it whenever you'd otherwise ask “what is the state of the discussion”.</p>
-                        <p style="margin: 0 0 14px 0;"><b style="color:#fff;">Personas</b> — a shared library of a few built-ins (Skeptic, Optimist, Devil's Advocate, Pragmatist, Domain Expert, Concise Summarizer) plus any .md/.txt file you drop in the personas folder. Assign one per participant in the Personas block above (a separate setting from picking who's in the discussion); the same library also fills in a crew role's Instruction in Orchestrated mode, so you're not maintaining two systems.</p>
+                        <p style="margin: 0 0 14px 0;"><b style="color:#fff;">Personas</b> — a shared library of a few built-ins (Skeptic, Optimist, Devil's Advocate, Pragmatist, Domain Expert, Concise Summarizer) plus any .md/.txt file you drop in the personas folder. Pick one on each agent's card in the Agents block; the same library also fills in a crew role's Instruction in Orchestrated mode, so you're not maintaining two systems.</p>
 
                         <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: 0.8px;">Orchestrated mode</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Crew</b> — a fixed pipeline of roles (e.g. Researcher → Writer → Reviewer), each handing its output to the next. Edit roles, providers and instructions freely; pick providers whose strengths match the role (e.g. a search-grounded model for Researcher).</p>
@@ -4369,4 +4366,4 @@ Confirm when done</pre>
     <script src="multiai-renderer.js"></script>
 </body>
 
-</html>
+</html>

@@ -794,6 +794,7 @@ function initModules() {
         getFileReferenceEnabled: () => fileReferenceEnabled,
         setFileReferenceEnabled: (v) => { fileReferenceEnabled = !!v; },
         registerRouteExtension,
+        byok,
     };
     registerCoreHandlers(handlerDeps);
     registerSettingsHandlers(handlerDeps);

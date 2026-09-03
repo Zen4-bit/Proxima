@@ -78,3 +78,21 @@ test('multiai tools: IPC errors surface as tool errors', async () => {
     assert.equal(res.isError, true);
     assert.match(textOf(res), /Chat not found/);
 });
+
+test('multiai_create_chat: forwards agents (provider/route/model/effort) and reports them; read_chat shows resolved routes', async () => {
+    const agents = [
+        { id: 'opus-max', name: 'Opus · max', code: 'OM', provider: 'claude-cli', route: 'cli', model: 'opus', effort: 'max' },
+        { id: 'gpt-low', name: 'GPT low', code: 'GL', provider: 'chatgpt', route: 'api', model: 'gpt-5.4', effort: 'low' },
+    ];
+    const h = harness((action) => action === 'multiaiCreateChat'
+        ? { success: true, chat: { id: 'chat_9', title: 'Agents', agents } }
+        : { success: true, chat: Object.assign({}, chat, { agents, participants: undefined, messages: [] }) });
+    const created = textOf(await h.tools.get('multiai_create_chat').handler({
+        topic: 'x', agents: [{ provider: 'claude-cli', model: 'opus', effort: 'max', name: 'Opus · max' }, { provider: 'chatgpt', route: 'api', model: 'gpt-5.4', effort: 'low', name: 'GPT low' }],
+    }));
+    assert.deepEqual(h.ipcCalls[0][2].agents.map(a => a.provider), ['claude-cli', 'chatgpt']);
+    assert.match(created, /"id": "opus-max"/);
+    assert.match(created, /"effort": "low"/);
+    const read = textOf(await h.tools.get('multiai_read_chat').handler({ chatId: 'chat_9' }));
+    assert.match(read, /agents: Opus · max \[opus-max: cli opus max\], GPT low \[gpt-low: api gpt-5\.4 low\]/);
+});

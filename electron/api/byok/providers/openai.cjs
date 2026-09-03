@@ -27,9 +27,19 @@ async function call(apiKey, messageOrMessages, options = {}) {
     const payload = {
         model,
         messages,
-        max_completion_tokens: MAX_TOKENS.chatgpt,
+        max_completion_tokens: options.maxTokens || MAX_TOKENS.chatgpt,
         store: false,
     };
+
+    // Reasoning effort (o-series / GPT-5 family). Reasoning tokens count
+    // against the completion budget, so give it room when effort is set.
+    if (options.reasoningEffort) {
+        const eff = { minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'high', max: 'high' }[options.reasoningEffort];
+        if (eff) {
+            payload.reasoning_effort = eff;
+            if (!options.maxTokens) payload.max_completion_tokens = Math.max(MAX_TOKENS.chatgpt, 16000);
+        }
+    }
 
     if (tools && tools.length > 0) {
         payload.tools = tools;

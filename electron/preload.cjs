@@ -92,6 +92,7 @@ contextBridge.exposeInMainWorld('agentHub', {
     multiaiSave: (data) => ipcRenderer.invoke('multiai-save', data),
     multiaiDeleteChat: (opts) => ipcRenderer.invoke('multiai-delete-chat', opts),
     multiaiRunning: () => ipcRenderer.invoke('multiai-running'),
+    multiaiRoutes: () => ipcRenderer.invoke('multiai-routes'),
     multiaiSummarize: (opts) => ipcRenderer.invoke('multiai-summarize', opts),
     multiaiListPersonas: () => ipcRenderer.invoke('multiai-list-personas'),
     multiaiOpenPersonasFolder: () => ipcRenderer.invoke('multiai-open-personas-folder'),
