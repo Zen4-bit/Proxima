@@ -205,9 +205,12 @@ async function chatWithProvider(providerName, message) {
     return await smartChat(message, p, {});
 }
 
+let PKG_VERSION = '5.0.0';
+try { PKG_VERSION = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', '..', 'package.json'), 'utf8')).version || PKG_VERSION; } catch { /* keep fallback */ }
+
 const server = new McpServer({
     name: 'agent-hub',
-    version: '5.0.0',
+    version: PKG_VERSION,
     description: 'Proxima MCP Server v5.0 — Modular Architecture',
 });
 
@@ -256,7 +259,7 @@ server.resource(
                 mimeType: 'application/json',
                 text: JSON.stringify({
                     server: 'Proxima MCP Server',
-                    version: '5.0.0',
+                    version: PKG_VERSION,
                     architecture: 'modular',
                     modules: ['ipc-bridge', 'helpers', 'pipeline', 'tools-chat', 'tools-code', 'tools-search', 'tools-content', 'tools-utility', 'tools-workflow'],
                     enabledProviders: Array.from(enabled),

@@ -18,7 +18,8 @@ const { getCLIDocsPage } = require('./pages/cli.cjs');
 const { getWSDocsPage } = require('./pages/ws.cjs');
 
 const REST_PORT = parseInt(process.env.PROXIMA_REST_PORT) || 3210;
-const VERSION = '5.0.0';
+let VERSION = '5.0.0';
+try { VERSION = require('../../package.json').version || VERSION; } catch { /* keep fallback */ }
 const API_PREFIX = '/v1';
 
 const MODEL_ALIASES = {

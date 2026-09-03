@@ -62,6 +62,7 @@ function multiaiDefaultChat() {
         stopToken: 'DONE',      // convergence token; a round where everyone says it (or passes) ends the run early.
         stopWhenAllAgree: true,
         independentFirstRound: false, // round 1 of each Send runs in parallel, blind to the others' replies.
+        charterMode: false,     // claim-status tags, HANDOFF → routing, rotating red-team seat (MULTI_AI_COWORKING_CHARTER).
     };
 }
 
@@ -711,6 +712,7 @@ function multiaiRenderOptionsSummary(chat) {
         if (chat.contextMode === 'full') extras.push('full transcript');
         else if (chat.contextMode === 'delta') extras.push(`delta${parseInt(chat.autoSummaryEvery, 10) > 0 ? ' + rolling summary' : ''}`);
         if (chat.independentFirstRound) extras.push('blind R1');
+        if (chat.charterMode) extras.push('charter');
         if (chat.stopWhenAllAgree !== false) extras.push(`stop on ${chat.stopToken || 'DONE'}`);
         if (chat.engines && chat.engines.gemini && chat.engines.gemini !== 'gemini') extras.push(chat.engines.gemini);
         el.textContent = `⚙ ${n} participant${n === 1 ? '' : 's'} · ${chat.discussMode === 'debate' ? 'Debate' : 'Discuss'} · ${rounds} round${rounds === 1 ? '' : 's'} · ${chat.brevity || 'max 4 sentences'}${extras.length ? ' · ' + extras.join(' · ') : ''}`;
@@ -764,6 +766,8 @@ function multiaiRenderChat() {
     if (sa) sa.checked = chat.stopWhenAllAgree !== false;
     const ind = document.getElementById('multiai-independent-first');
     if (ind) ind.checked = !!chat.independentFirstRound;
+    const ch = document.getElementById('multiai-charter-mode');
+    if (ch) ch.checked = !!chat.charterMode;
 
     multiaiRenderParticipants(chat);
     multiaiRenderPersonaAssignment(chat);
@@ -1070,7 +1074,7 @@ function multiaiAppendFeedItem(message, skipScroll) {
     const attach = message.attachmentsText ? `<details style="margin-top: 6px; font-size: 0.76rem; color: #9ca3af;"><summary style="cursor: pointer;">📎 attached context (${message.attachmentsText.length.toLocaleString()} chars)</summary><pre style="white-space: pre-wrap; margin: 6px 0 0 0; font-family: inherit;">${multiaiEscape(message.attachmentsText)}</pre></details>` : '';
     item.innerHTML = `
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
-            <div style="font-size: 0.72rem; font-weight: 700; color: ${color}; text-transform: uppercase; letter-spacing: 0.5px;">${multiaiEscape(message.who || message.provider || '')}</div>
+            <div style="font-size: 0.72rem; font-weight: 700; color: ${color}; text-transform: uppercase; letter-spacing: 0.5px;">${multiaiEscape(message.who || message.provider || '')}${message.redTeam ? ' <span title="Held the red-team seat this round" style="color:#f87171; font-weight:600; letter-spacing:0;">· red team</span>' : ''}</div>
             <div title="Reference label — right-click this message for options" style="font-size: 0.62rem; color: #4b4b60; font-weight: 600; letter-spacing: 0.5px; flex-shrink: 0;">${multiaiRefLabel(message)}</div>
         </div>
         <div style="font-size: 0.87rem; color: #e5e7eb; white-space: pre-wrap; line-height: 1.5;">${multiaiEscape(message.text || '')}</div>${attach}
@@ -1237,6 +1241,8 @@ function multiaiReadClassicFields(chat) {
     if (sa) chat.stopWhenAllAgree = !!sa.checked;
     const ind = document.getElementById('multiai-independent-first');
     if (ind) chat.independentFirstRound = !!ind.checked;
+    const ch = document.getElementById('multiai-charter-mode');
+    if (ch) chat.charterMode = !!ch.checked;
     const js = document.getElementById('multiai-judge-scope');
     if (js) chat.judgeScope = js.value;
     const jp = document.getElementById('multiai-judge-provider');

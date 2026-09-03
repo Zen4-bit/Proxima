@@ -86,6 +86,12 @@ export function register(server, deps) {
             discussMode: z.enum(['discuss', 'debate']).optional(),
             contextMode: z.enum(['bounded', 'delta', 'full']).optional(),
             brevity: z.string().optional().describe('e.g. "max 4 sentences" or "as long as needed"'),
+            rounds: z.number().int().min(1).max(30).optional().describe('Default rounds per run'),
+            charterMode: z.boolean().optional().describe('Coworking-charter rules: claim tags, HANDOFF → routing, rotating red-team seat'),
+            independentFirstRound: z.boolean().optional().describe('Round 1 of each run is parallel and blind'),
+            stopWhenAllAgree: z.boolean().optional(),
+            stopToken: z.string().optional().describe('Convergence token (default DONE)'),
+            autoSummaryEvery: z.number().int().min(0).max(200).optional().describe('Delta mode: refresh the rolling summary every N messages'),
         },
         annotations: Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
     }, async (args) => {

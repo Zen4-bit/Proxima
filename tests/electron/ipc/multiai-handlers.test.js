@@ -404,3 +404,36 @@ test('stop: aborts the in-flight provider call and skips queued ones', async () 
     release('late');
     delete fakeSender.abortActive; delete fakeSender.aborted;
 });
+
+test('charter mode: HANDOFF → reorders the round, carries into the next round, and the red-team seat rotates', async () => {
+    providerCalls.length = 0;
+    replyFn = async (p, prompt) => {
+        if (p === 'chatgpt' && !prompt.includes('gemini said')) return 'Proposal X. UNVERIFIED.\n\nHANDOFF → Gemini: check it';
+        if (p === 'gemini') return 'gemini said: checked, VERIFIED [ran test].\n\nHANDOFF → Claude: your view';
+        if (p === 'claude') return 'claude view.\n\nHANDOFF → Gemini: verify again';
+        return `${p} view.\n\nOPEN → next?`;
+    };
+    const chat = newChat({ participants: ['chatgpt', 'claude', 'gemini'], charterMode: true, stopWhenAllAgree: false });
+    userMsg(chat.id, 'charter test');
+    await invoke('multiai-run-round', { chatId: chat.id, rounds: 2 });
+    const order = providerCalls.map(c => c.provider);
+    assert.deepEqual(order.slice(0, 3), ['chatgpt', 'gemini', 'claude'], 'gemini pulled forward by the handoff');
+    assert.deepEqual(order.slice(3), ['gemini', 'claude', 'chatgpt'], 'round 2 starts with the participant handed off to at the end of round 1 (who had already spoken)');
+    const msgs = messagesOf(chat.id);
+    assert.ok(msgs.some(m => m.role === 'system' && /handed off to Gemini/.test(m.text)));
+    assert.ok(msgs.some(m => m.role === 'system' && /Round 1: ChatGPT holds the red-team seat/.test(m.text)));
+    assert.ok(msgs.some(m => m.role === 'system' && /Round 2: Claude holds the red-team seat/.test(m.text)));
+    const redTeamPrompts = providerCalls.filter(c => c.message.includes('RED-TEAM seat'));
+    assert.equal(redTeamPrompts.length, 2, 'exactly one red-team prompt per round');
+    assert.ok(providerCalls.every(c => c.message.includes('VERIFIED [who/how/path]')));
+});
+
+test('charter mode: a HANDOFF → in a local agent\'s posted message picks who speaks first', async () => {
+    providerCalls.length = 0;
+    replyFn = async (p) => `${p} reply.\n\nOPEN → next?`;
+    const chat = newChat({ participants: ['chatgpt', 'claude', 'gemini'], charterMode: true, stopWhenAllAgree: false });
+    userMsg(chat.id, 'brief');
+    store.appendMessage(chat.id, { who: 'Codex', provider: 'codex', role: 'assistant', text: 'VERIFIED [ran it]: numbers attached.\n\nHANDOFF → Gemini: sanity-check them', cycle: 1, round: 0 });
+    await invoke('multiai-run-round', { chatId: chat.id, rounds: 1 });
+    assert.deepEqual(providerCalls.map(c => c.provider), ['gemini', 'chatgpt', 'claude']);
+});

@@ -317,10 +317,16 @@
         }
 
         var replyText = '';
+        // Diagnostics for the "stitched reply" problem seen in Multi-AI chats:
+        // record each frame's best candidate length so a restart (length drop)
+        // or a concatenated frame is visible in the log. Read via
+        // window.__proximaGeminiFrames after a send.
+        var _frameLens = [];
 
         for (var i = 0; i < allItems.length; i++) {
             var item = allItems[i];
             var idx = dataIndices[i] || 2;
+            var _frameBest = 0;
             try {
                 var inner = JSON.parse(item[idx]);
                 var paths = [
@@ -336,11 +342,13 @@
                 for (var pi = 0; pi < paths.length; pi++) {
                     try {
                         var candidate = paths[pi]();
-                        if (typeof candidate === 'string' && candidate.length > 0 && candidate.length > replyText.length && !/^[rc]_[a-f0-9]{16,}$/.test(candidate) && !/^(https?:)?\/\/[^\s]+$/.test(candidate.trim())) {
-                            replyText = candidate;
+                        if (typeof candidate === 'string' && candidate.length > 0 && !/^[rc]_[a-f0-9]{16,}$/.test(candidate) && !/^(https?:)?\/\/[^\s]+$/.test(candidate.trim())) {
+                            if (candidate.length > _frameBest) _frameBest = candidate.length;
+                            if (candidate.length > replyText.length) replyText = candidate;
                         }
                     } catch (e) { }
                 }
+                _frameLens.push(_frameBest);
 
                 if (!replyText) {
                     function findLongest(obj, depth) {
@@ -366,6 +374,15 @@
                 console.error('[Proxima API] Parse error: ReplyText empty. Raw response: ' + rawText.substring(0, 500));
             }
             throw new Error('Could not extract reply from Gemini');
+        }
+        if (commitIds) {
+            try {
+                var _drops = 0;
+                for (var fi = 1; fi < _frameLens.length; fi++) if (_frameLens[fi] && _frameLens[fi - 1] && _frameLens[fi] < _frameLens[fi - 1]) _drops++;
+                var _join = /[a-z,;][A-Z][a-z]+ (am|will|would|think|agree|disagree|propose)\b/.test(replyText) ? 'suspect-join' : 'ok';
+                window.__proximaGeminiFrames = { lens: _frameLens, final: replyText.length, drops: _drops, join: _join };
+                console.log('[Proxima API] frames=' + _frameLens.length + ' lens=' + _frameLens.join(',') + ' final=' + replyText.length + ' drops=' + _drops + ' ' + _join);
+            } catch (e) { }
         }
         return replyText;
     }

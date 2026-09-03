@@ -324,6 +324,8 @@ function registerMultiAiHandlers(deps) {
             contextMode: cmode,
             // A fresh/rotated thread has no memory: force the catch-up prompt.
             delta: { sinceId: (st.rotated || st.turns === 0) ? null : st.lastId, provider: base },
+            charter: !!chat.charterMode,
+            redTeam: !!(chat.charterMode && opts.redTeam && String(opts.redTeam).split(':')[0] === base),
         });
         const raced = await sendOnChatThread(chat, provider, built.prompt, st, cmode === 'delta' ? built.meta.lastId : null);
         const label = core.providerLabel(base);
@@ -340,8 +342,8 @@ function registerMultiAiHandlers(deps) {
             record(chatId, { who: label, text: 'PASS', provider: base, role: 'pass', cycle, round });
             return { pass: true };
         }
-        record(chatId, { who: label, text, provider: base, role: 'assistant', cycle, round });
-        return { ok: true };
+        record(chatId, { who: label, text, provider: base, role: 'assistant', cycle, round, redTeam: built.meta.redTeam || undefined });
+        return { ok: true, handoff: chat.charterMode ? core.parseHandoff(text, opts.participants) : null };
     }
 
     // Rolling summary (delta mode's "Topic block"): once more than
@@ -407,25 +409,57 @@ function registerMultiAiHandlers(deps) {
                 }
             };
             const active = () => order.filter(p => !benched.has(String(p).split(':')[0]));
+            // Charter mode: a HANDOFF → trailer can pull the named participant
+            // forward — next within this round if they haven't spoken yet,
+            // otherwise first in the next round.
+            let nextFirst = null;
+            // A HANDOFF → in the message that triggered this run (the human's,
+            // or a local agent's posted via REST/MCP) picks who speaks first.
+            if (chat0.charterMode) {
+                const readableMsgs = core.readable(chat0.messages);
+                const lastMsg = readableMsgs[readableMsgs.length - 1];
+                const target = lastMsg ? core.parseHandoff(lastMsg.text, order) : null;
+                if (target) nextFirst = target;
+            }
 
             outer:
             for (let r = 1; r <= n; r++) {
                 if (sig.cancelled) break;
                 emit('multiai-round-start', { chatId, round: r, of: n });
-                const turnOrder = active();
+                let turnOrder = active();
                 if (!turnOrder.length) { note(chatId, 'No participants left to take a turn.'); break; }
+                if (nextFirst && turnOrder.includes(nextFirst)) turnOrder = [nextFirst].concat(turnOrder.filter(p => p !== nextFirst));
+                nextFirst = null;
+                // Seat rotates over the stable participant order, not the
+                // handoff-reordered turn order, so everyone gets it in turn.
+                const redTeam = chat0.charterMode ? core.redTeamFor(active(), r) : null;
+                if (redTeam) note(chatId, `Round ${r}: ${core.providerLabel(redTeam)} holds the red-team seat.`);
                 const independent = r === 1 && !!chat0.independentFirstRound && turnOrder.length > 1;
                 if (independent) {
-                    const results = await Promise.all(turnOrder.map(p => takeTurn(chatId, p, r, { participants: order, independent: true })
+                    const results = await Promise.all(turnOrder.map(p => takeTurn(chatId, p, r, { participants: order, independent: true, redTeam })
                         .catch(e => ({ error: e.message }))));
                     results.forEach((res, i) => noteFailure(turnOrder[i], res));
                     if (results.some(x => x && x.cancelled) || sig.cancelled) break outer;
+                    const lastHandoff = results.map(x => x && x.handoff).filter(Boolean).pop();
+                    if (lastHandoff) nextFirst = lastHandoff;
                 } else {
-                    for (const provider of turnOrder) {
+                    const remaining = turnOrder.slice();
+                    while (remaining.length) {
                         if (sig.cancelled) break outer;
-                        const res = await takeTurn(chatId, provider, r, { participants: order }).catch(e => ({ error: e.message }));
+                        const provider = remaining.shift();
+                        const res = await takeTurn(chatId, provider, r, { participants: order, redTeam }).catch(e => ({ error: e.message }));
                         noteFailure(provider, res);
                         if (res && res.cancelled) break outer;
+                        if (res && res.handoff) {
+                            const target = res.handoff;
+                            if (remaining.includes(target)) {
+                                remaining.splice(remaining.indexOf(target), 1);
+                                remaining.unshift(target);
+                                note(chatId, `${core.providerLabel(provider)} handed off to ${core.providerLabel(target)} — they go next.`);
+                            } else if (target !== provider) {
+                                nextFirst = target;
+                            }
+                        }
                     }
                 }
                 const after = store.getChat(chatId);
@@ -845,6 +879,14 @@ function registerMultiAiHandlers(deps) {
             if (body.discussMode === 'discuss' || body.discussMode === 'debate') fields.discussMode = body.discussMode;
             if (body.brevity) fields.brevity = String(body.brevity);
             if (core.CONTEXT_MODES.includes(body.contextMode)) fields.contextMode = body.contextMode;
+            if (body.charterMode != null) fields.charterMode = !!body.charterMode;
+            if (body.independentFirstRound != null) fields.independentFirstRound = !!body.independentFirstRound;
+            if (body.stopWhenAllAgree != null) fields.stopWhenAllAgree = !!body.stopWhenAllAgree;
+            if (body.stopToken) fields.stopToken = String(body.stopToken).trim().split(/\s+/)[0].slice(0, 20);
+            if (body.rounds != null) fields.rounds = Math.max(1, Math.min(30, parseInt(body.rounds, 10) || 1));
+            if (body.contextWindow != null) fields.contextWindow = Math.max(0, parseInt(body.contextWindow, 10) || 0);
+            if (body.autoSummaryEvery != null) fields.autoSummaryEvery = Math.max(0, parseInt(body.autoSummaryEvery, 10) || 0);
+            if (body.engines && typeof body.engines === 'object') fields.engines = body.engines;
             if (body.topic) fields.topic = String(body.topic);
             const created = store.createChat(fields);
             if (body.topic) {

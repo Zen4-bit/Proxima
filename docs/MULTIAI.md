@@ -58,6 +58,12 @@ bleed into each other or into the MCP tools' `mcp-session` thread.
   (resolved by cycle *and* round).
 - **Summarize state** pins a `DECISIONS / OPEN QUESTIONS / CLAIMS TO VERIFY /
   NEXT STEP` summary; later turns start from it.
+- **Charter mode** (per chat) enforces the coworking charter in the engine:
+  claim tags `VERIFIED [who/how/path]` / `UNVERIFIED` / `ASSUMED [basis]`
+  (agreement never upgrades a claim), plain agreement = PASS, a mandatory
+  `HANDOFF → <participant>: …` / `OPEN → …` / `COMPLETE → …` trailer, HANDOFF
+  routing (named participant goes next, or first next round), and a rotating
+  red-team seat (one participant per round, marked in the feed).
 - Titles are local and instant; ✨ asks the judge provider for a better one.
 
 ## Orchestrated mode

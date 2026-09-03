@@ -233,3 +233,22 @@ test('context modes: full sends everything; delta sends only unseen messages fro
     assert.ok(withMeta.prompt.includes('continuing an ongoing thread'));
     assert.equal(core.messagesSinceSummary(messages).length, 2);
 });
+
+test('charter mode: claim-tag rules and red-team block appear only when asked; handoff parsing reads the trailer', () => {
+    const parts = ['chatgpt', 'claude', 'gemini'];
+    const plain = core.buildClassicPrompt({ topic: 'T', mode: 'discuss', participants: parts, provider: 'claude', messages: [] });
+    assert.ok(!plain.includes('VERIFIED [who/how/path]'));
+    const charter = core.buildClassicPromptWithMeta({ topic: 'T', mode: 'discuss', participants: parts, provider: 'claude', messages: [], charter: true, redTeam: true });
+    assert.ok(charter.prompt.includes('VERIFIED [who/how/path]'));
+    assert.ok(charter.prompt.includes('HANDOFF →'));
+    assert.ok(charter.prompt.includes('RED-TEAM seat'));
+    assert.equal(charter.meta.redTeam, true);
+    assert.equal(core.parseHandoff('Good point.\n\nHANDOFF → Gemini: run the numbers', parts), 'gemini');
+    assert.equal(core.parseHandoff('HANDOFF -> @chatgpt', parts), 'chatgpt');
+    assert.equal(core.parseHandoff('Earlier someone wrote HANDOFF → claude but I disagree.\n\nline\nline\nline\nOPEN → what now?', parts), null, 'only the trailer counts');
+    assert.equal(core.parseHandoff('COMPLETE → settled', parts), null);
+    assert.equal(core.redTeamFor(parts, 1), 'chatgpt');
+    assert.equal(core.redTeamFor(parts, 4), 'chatgpt');
+    assert.equal(core.redTeamFor(parts, 2), 'claude');
+    assert.equal(core.redTeamFor(['solo'], 1), null);
+});

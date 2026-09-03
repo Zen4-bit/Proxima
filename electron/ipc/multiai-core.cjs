@@ -422,12 +422,25 @@ function buildClassicPrompt(args) {
 // Same, plus meta: which context mode was used, whether a delta turn fell back
 // to a full catch-up, and the id of the last message included (the delta
 // anchor to store for this provider).
-function buildClassicPromptWithMeta({ chatTitle, topic, latestUserMessage, mode, brevity, persona, participants, provider, messages, contextOpts, stopToken, independent, contextMode, delta }) {
+// Charter mode (MULTI_AI_COWORKING_CHARTER §2, §4, §7): claim-status tags,
+// an explicit handoff/open/complete trailer on every message, "agreement
+// needs a reason", and a rotating red-team seat. Enforced by prompt plus the
+// HANDOFF → routing in the run loop.
+const CHARTER_RULES = [
+    'Tag every factual or empirical claim you make: VERIFIED [who/how/path] only when you or a local agent actually ran or checked it; UNVERIFIED when it comes from memory or reasoning; ASSUMED [basis] when it is a working assumption. Agreement never upgrades a claim\'s status.',
+    'Plain agreement is not a contribution: if you agree, add a distinct reason, a caveat, or a test that would settle it — otherwise reply PASS.',
+    'End your message with exactly one trailer line: "HANDOFF → <participant>: <what you want from them>", or "OPEN → <question for the group>", or "COMPLETE → <what is now settled>".',
+];
+
+const RED_TEAM_BLOCK = 'This round you hold the RED-TEAM seat: your job is to find the strongest objection to the emerging consensus — a missing assumption, a test that would falsify it, a cheaper alternative — and state it plainly, even if you privately agree. Do not soften it.';
+
+function buildClassicPromptWithMeta({ chatTitle, topic, latestUserMessage, mode, brevity, persona, participants, provider, messages, contextOpts, stopToken, independent, contextMode, delta, charter, redTeam }) {
     const base = String(provider).split(':')[0];
     const idx = Math.max(0, participants.indexOf(provider), participants.indexOf(base));
     const others = participants.filter(p => p !== provider && p !== base).map(providerLabel);
     const side = stanceFor(mode, idx, participants.length);
-    const personaBlock = persona ? `[Your assigned persona / instructions — stay in character]\n${persona}\n\n` : '';
+    const personaText = [persona, redTeam ? RED_TEAM_BLOCK : ''].filter(Boolean).join('\n\n');
+    const personaBlock = personaText ? `[Your assigned persona / instructions — stay in character]\n${personaText}\n\n` : '';
     const visible = independent ? messages.filter(m => m.role !== 'assistant' || m.cycle !== independent.cycle) : messages;
     const cmode = CONTEXT_MODES.includes(contextMode) ? contextMode : DEFAULTS.contextMode;
     const ctx = buildContextByMode(visible, { mode: cmode, contextOpts, delta: Object.assign({ provider: base }, delta || {}) });
@@ -439,6 +452,7 @@ function buildClassicPromptWithMeta({ chatTitle, topic, latestUserMessage, mode,
     ];
     if (independent) rules.push('This is an independent first round: you have NOT been shown the other participants\' replies to the latest message. Commit to your own position; do not guess at theirs.');
     if (cmode === 'delta' && !ctx.catchUp) rules.push('You are continuing an ongoing thread: earlier messages are already in this conversation above — only the new ones are shown here.');
+    if (charter) rules.push(...CHARTER_RULES);
     const prompt = `${personaBlock}You are ${providerLabel(provider)}, one participant in a multi-AI conversation` +
         `${others.length ? ` with ${others.join(', ')}` : ''}${chatTitle ? ` titled "${chatTitle}"` : ''}.\n` +
         `Topic / brief: ${topic || '(see conversation)'}\n` +
@@ -446,7 +460,25 @@ function buildClassicPromptWithMeta({ chatTitle, topic, latestUserMessage, mode,
         `${side ? side + '\n' : ''}\n` +
         `${ctx.text}\n\n` +
         rules.join('\n');
-    return { prompt, meta: { contextMode: cmode, catchUp: !!ctx.catchUp, lastId: ctx.lastId || null } };
+    return { prompt, meta: { contextMode: cmode, catchUp: !!ctx.catchUp, lastId: ctx.lastId || null, redTeam: !!redTeam } };
+}
+
+// "HANDOFF → Claude: run the test" / "HANDOFF -> @gemini" → the named
+// participant, or null. Only the trailer counts (last non-empty lines), so a
+// quoted handoff earlier in the message doesn't reroute the round.
+function parseHandoff(text, participants) {
+    const lines = String(text || '').trim().split('\n').map(l => l.trim()).filter(Boolean);
+    const tail = lines.slice(-3).join('\n');
+    const m = /HANDOFF\s*(?:→|->|=>)\s*@?([A-Za-z][\w-]*)/i.exec(tail);
+    if (!m) return null;
+    const name = m[1].toLowerCase();
+    return participants.find(p => p.split(':')[0] === name || providerLabel(p).toLowerCase().replace(/\s+/g, '') === name) || null;
+}
+
+// Which participant holds the red-team seat in a given round (rotates).
+function redTeamFor(order, round) {
+    if (!order || order.length < 2) return null;
+    return order[(round - 1) % order.length];
 }
 
 // Messages (readable) since the last pinned summary — the trigger for the
@@ -566,6 +598,6 @@ module.exports = {
     CONTEXT_MODES, READABLE_ROLES, readable, buildContext, buildFullContext, buildDeltaContext, buildContextByMode,
     renderFullTranscript, briefAndLatest, messagesSinceSummary, stanceFor,
     buildClassicPrompt, buildClassicPromptWithMeta, buildJudgePrompt, buildSummaryPrompt, buildTitlePrompt,
-    localTitle, cleanTitle, parseMentions, isPass, startsWithToken, roundOutcome,
+    localTitle, cleanTitle, parseMentions, parseHandoff, redTeamFor, CHARTER_RULES, RED_TEAM_BLOCK, isPass, startsWithToken, roundOutcome,
     sessionFor, auxSessionFor, parseToolCall, parseWorkflowLine,
 };
