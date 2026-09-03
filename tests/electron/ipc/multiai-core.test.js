@@ -268,8 +268,11 @@ test('normalizeAgents: legacy participants migrate, ids are unique slugs, CLI pr
     assert.deepEqual(agents.map(a => a.id), ['claude-code-opus-max', 'bull', 'bull-2', 'perplexity']);
     assert.equal(agents[0].route, 'cli');
     assert.equal(agents[0].name, 'Claude Code · opus · max');
-    assert.equal(agents[0].code, 'CC');
-    assert.equal(agents[1].code, 'BU');
+    assert.deepEqual(agents.map(a => a.code), ['CC', 'BU', 'BU2', 'PX'], 'default names keep provider codes; duplicates get a suffix');
+    const two = core.normalizeAgents({ agents: [{ provider: 'chatgpt', effort: 'high' }, { provider: 'chatgpt', effort: 'low' }, { provider: 'codex-cli', model: 'gpt-5.5' }] });
+    assert.deepEqual(two.map(a => a.code), ['CG', 'CG2', 'CX']);
+    assert.equal(core.refLabel({ role: 'assistant', provider: 'chatgpt', code: 'CG2', cycle: 1, round: 2 }), '0102CG2', 'labels use the agent code');
+    assert.equal(core.refLabel({ role: 'pass', provider: 'claude-cli', cycle: 1, round: 1 }), '0101CC');
     assert.deepEqual([agents[2].route, agents[2].effort], ['auto', '']);
 });
 

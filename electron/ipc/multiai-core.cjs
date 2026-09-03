@@ -56,7 +56,9 @@ function slugify(s) {
 function agentCode(agent) {
     const name = String(agent.name || '');
     const base = String(agent.provider || '').split(':')[0];
-    if (name && PROVIDER_LABELS[base] && name === PROVIDER_LABELS[base]) return PROVIDER_CODES[base];
+    const label = PROVIDER_LABELS[base];
+    // "ChatGPT", "ChatGPT · high", "Codex · gpt-5.5 · medium" → the provider's code
+    if (name && label && (name === label || name.startsWith(label + ' ') || name.startsWith(label + '·'))) return PROVIDER_CODES[base];
     const words = name.split(/[^A-Za-z0-9]+/).filter(Boolean);
     if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
     if (words.length === 1 && words[0].length >= 2) return words[0].slice(0, 2).toUpperCase();
@@ -102,6 +104,13 @@ function normalizeAgents(chat) {
         a.code = agentCode(a);
         out.push(a);
     }
+    // Label codes must tell agents apart: a second "CG" becomes "CG2".
+    const codes = new Set();
+    for (const a of out) {
+        let code = a.code; let n = 2;
+        while (codes.has(code)) code = `${a.code}${n++}`;
+        a.code = code; codes.add(code);
+    }
     return out;
 }
 
@@ -126,12 +135,12 @@ const KNOWN_PROVIDERS = ['chatgpt', 'claude', 'gemini', 'perplexity'];
 
 const PROVIDER_LABELS = {
     chatgpt: 'ChatGPT', claude: 'Claude', gemini: 'Gemini', perplexity: 'Perplexity',
-    codex: 'Codex', 'claude-code': 'Claude Code', human: 'You',
+    codex: 'Codex', 'claude-code': 'Claude Code', 'claude-cli': 'Claude Code', 'codex-cli': 'Codex', human: 'You',
 };
 
 const PROVIDER_CODES = {
     chatgpt: 'CG', claude: 'CL', gemini: 'GM', perplexity: 'PX',
-    codex: 'CX', 'claude-code': 'CC', human: 'US', external: 'EX',
+    codex: 'CX', 'claude-code': 'CC', 'claude-cli': 'CC', 'codex-cli': 'CX', human: 'US', external: 'EX',
 };
 
 function providerLabel(p) {
@@ -164,8 +173,7 @@ function refLabel(msg) {
     else if (msg.role === 'summary') code = 'SM';
     else if (msg.role === 'system') code = 'SY';
     else if (msg.role === 'error') code = 'ER';
-    else if (msg.role === 'pass') code = providerCode(msg.provider);
-    else code = providerCode(msg.provider);
+    else code = msg.code || providerCode(msg.provider);
     return `${String(c).padStart(2, '0')}${String(r).padStart(2, '0')}${code}`;
 }
 

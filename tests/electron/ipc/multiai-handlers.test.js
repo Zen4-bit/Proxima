@@ -496,7 +496,7 @@ test('agents: same provider twice with different models/efforts, API route when 
     assert.equal(providerCalls[0].provider, 'claude');
     const msgs = messagesOf(chat.id).filter(m => m.role === 'assistant');
     assert.deepEqual(msgs.map(m => m.who), ['GPT low', 'GPT high', 'Claude tab']);
-    assert.deepEqual(msgs.map(m => m.code), ['GL', 'GH', 'CT']);
+    assert.deepEqual(msgs.map(m => m.code), ['GL', 'GH', 'CL']);
     assert.ok(msgs[0].agentId && msgs[0].route === 'api' && msgs[2].route === 'browser');
     assert.ok(byokCalls[1].messages[0].content.includes('GPT low'), 'the second agent sees the first by name');
     byokState.enabled = false;
@@ -522,7 +522,7 @@ test('agents: CLI agents run through the local CLI with model + effort; Stop kil
     assert.deepEqual(cliCalls.map(c => [c.provider, c.opts.model, c.opts.effort]), [['claude-cli', 'opus', 'high'], ['codex-cli', 'gpt-5.5', 'medium']]);
     const msgs = messagesOf(chat.id).filter(m => m.role === 'assistant');
     assert.deepEqual(msgs.map(m => m.who), ['Opus · high', 'Codex 5.5']);
-    assert.deepEqual(msgs.map(m => m.code), ['OH', 'C5']);
+    assert.deepEqual(msgs.map(m => m.code), ['OH', 'CX']);
     assert.ok(cliCalls[1].opts.prompt.includes('Opus · high'), 'second CLI agent sees the first');
 
     // Stop mid-call

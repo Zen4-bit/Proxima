@@ -76,7 +76,7 @@ function multiaiDefaultChat() {
 // the ledger's R# filter key; the raw id itself is never shown as its own
 // column, per design.
 
-const MULTIAI_PROVIDER_CODE = { chatgpt: 'CG', claude: 'CL', gemini: 'GM', perplexity: 'PX', codex: 'CX', 'claude-code': 'CC', human: 'US', external: 'EX' };
+const MULTIAI_PROVIDER_CODE = { chatgpt: 'CG', claude: 'CL', gemini: 'GM', perplexity: 'PX', codex: 'CX', 'claude-code': 'CC', 'claude-cli': 'CC', 'codex-cli': 'CX', human: 'US', external: 'EX' };
 
 function multiaiGenMsgId() {
     return 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -897,14 +897,20 @@ function multiaiSlug(s) {
     return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
-function multiaiAgentCode(agent) {
+function multiaiAgentCode(agent, taken) {
     const name = String(agent.name || '');
     const base = String(agent.provider || '').split(':')[0];
-    if (name && multiaiProviderLabel(base) === name) return multiaiProviderCode(base);
-    const words = name.split(/[^A-Za-z0-9]+/).filter(Boolean);
-    if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
-    if (words.length === 1 && words[0].length >= 2) return words[0].slice(0, 2).toUpperCase();
-    return multiaiProviderCode(base);
+    const label = multiaiProviderLabel(base);
+    let code;
+    if (name && (name === label || name.startsWith(label + ' ') || name.startsWith(label + '·'))) code = multiaiProviderCode(base);
+    else {
+        const words = name.split(/[^A-Za-z0-9]+/).filter(Boolean);
+        if (words.length >= 2) code = (words[0][0] + words[1][0]).toUpperCase();
+        else if (words.length === 1 && words[0].length >= 2) code = words[0].slice(0, 2).toUpperCase();
+        else code = multiaiProviderCode(base);
+    }
+    if (taken) { let c = code, n = 2; while (taken.has(c)) c = `${code}${n++}`; taken.add(c); return c; }
+    return code;
 }
 
 function multiaiDefaultAgentName(provider, model, effort) {
@@ -968,6 +974,7 @@ function multiaiRenderParticipants(chat) {
     const personaNames = Object.keys(multiaiAllPersonas());
     const providerOptions = ['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli'];
     const inp = 'background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 4px 6px; font-size: 0.76rem; box-sizing: border-box;';
+    const takenCodes = new Set();
     const cards = agents.map((a, i) => {
         const isCli = !!MULTIAI_CLI_PROVIDERS[a.provider];
         const apiOk = routes.apiMode && (routes.providers[a.provider] || {}).hasKey;
@@ -976,7 +983,7 @@ function multiaiRenderParticipants(chat) {
         return `
             <div style="flex: 1 1 300px; min-width: 280px; max-width: 420px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px;">
                 <div style="display: flex; align-items: center; gap: 6px;">
-                    <span title="Label code" style="font-size: 0.66rem; font-weight: 700; color: #6b7280; width: 22px; flex-shrink: 0;">${multiaiEscape(multiaiAgentCode(a))}</span>
+                    <span title="Label code" style="font-size: 0.66rem; font-weight: 700; color: #6b7280; width: 26px; flex-shrink: 0;">${multiaiEscape(multiaiAgentCode(a, takenCodes))}</span>
                     <input value="${multiaiEscapeAttr(a.name)}" placeholder="Name" oninput="multiaiAgentField(${i}, 'name', this.value)" style="flex: 1; ${inp}">
                     <button onclick="multiaiAgentDuplicate(${i})" title="Duplicate this agent" style="background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 0.9rem;">⧉</button>
                     <button onclick="multiaiAgentRemove(${i})" title="Remove" style="background: none; border: none; color: #f87171; cursor: pointer; font-size: 0.9rem;">✕</button>
@@ -1031,6 +1038,7 @@ function multiaiAgentAdd(provider) {
     multiaiRenderParticipants(chat);
     multiaiRenderJudgeOptions(chat);
     multiaiRenderOptionsSummary(chat);
+    multiaiRenderStatusLine(chat);
 }
 
 function multiaiAgentDuplicate(i) {
@@ -1044,6 +1052,7 @@ function multiaiAgentDuplicate(i) {
     multiaiRenderParticipants(chat);
     multiaiRenderJudgeOptions(chat);
     multiaiRenderOptionsSummary(chat);
+    multiaiRenderStatusLine(chat);
 }
 
 function multiaiAgentRemove(i) {
@@ -1055,6 +1064,7 @@ function multiaiAgentRemove(i) {
     multiaiRenderParticipants(chat);
     multiaiRenderJudgeOptions(chat);
     multiaiRenderOptionsSummary(chat);
+    multiaiRenderStatusLine(chat);
 }
 
 function multiaiAgentField(i, field, value) {
@@ -1075,6 +1085,7 @@ function multiaiAgentField(i, field, value) {
     if (field === 'name') multiaiPersistSoon(); else multiaiPersist();
     if (field !== 'name' && field !== 'model') { multiaiRenderParticipants(chat); multiaiRenderJudgeOptions(chat); }
     multiaiRenderOptionsSummary(chat);
+    multiaiRenderStatusLine(chat);
 }
 
 function multiaiAgentPersona(i, personaName) {
