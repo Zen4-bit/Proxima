@@ -24,7 +24,7 @@ HANDOFFs, the judge picker and the provider-side thread key on.
 
 | Route | What runs the turn | Model / effort |
 |---|---|---|
-| `auto` (default) | Follows **Settings → API mode**: on, with a key for that provider → the provider's API; otherwise the browser tab | API: the agent's model or, blank, the model selected in Settings; effort honoured. Browser: model ignored except Gemini's engine picker; effort ignored |
+| `auto` (default) | Follows **Settings → API mode**: on, with a key for that provider → the provider's API; otherwise the browser tab | API: the agent's model when Settings lists it (a browser-side name like the Gemini engine `3.1-pro` is ignored), else the model selected in Settings; effort honoured. Browser: model ignored except Gemini's engine picker; effort ignored |
 | `browser` | Always the logged-in browser tab | as above |
 | `api` | The provider's API; falls back to the browser tab (with a ⚠ in the editor) if API mode is off or no key | model + effort |
 | `cli` (implied for `claude-cli`, `codex-cli`) | `claude -p` / `codex exec` on this machine, one-shot, tool-less, in an empty scratch folder, ≤2 in parallel per CLI | Claude Code aliases `opus` `sonnet` `haiku` `fable` (+ `[1m]`), `--effort low…max`; Codex `gpt-5.5` etc., `model_reasoning_effort` (`max` → `xhigh`) |

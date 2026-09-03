@@ -278,6 +278,20 @@ function registerMultiAiHandlers(deps) {
         return result;
     }
 
+    // Which model an API call should name. An agent on the `auto` route may
+    // carry a browser-side model (a Gemini engine like "3.1-pro") that the API
+    // would reject, so on `auto` the agent's model is only used when Settings
+    // lists it; otherwise the model selected in Settings applies. An explicit
+    // `api` route trusts what was typed.
+    function apiModelFor(agent) {
+        if (!agent.model) return undefined;
+        if (agent.route === 'api') return agent.model;
+        try {
+            const known = (byok.keys.getModels(agent.provider) || []).map(m => m.id);
+            return known.length && !known.includes(agent.model) ? undefined : agent.model;
+        } catch { return agent.model; }
+    }
+
     // API route: the provider's API with the key from Settings. Model = the
     // agent's, else the model selected in Settings (resolveModel handles it).
     async function sendApi(chat, agent, prompt) {
@@ -286,7 +300,7 @@ function registerMultiAiHandlers(deps) {
         const untrack = trackInFlight(chat.id, { kind: 'api', base: agent.provider });
         try {
             const p = byok.callProvider(agent.provider, key, [{ role: 'user', content: prompt }], {
-                modelId: agent.model || undefined,
+                modelId: apiModelFor(agent),
                 reasoningEffort: agent.effort || undefined,
             }).then(r => ({ response: r.text, model: r.model || agent.model || null, route: 'api' }));
             return await raceProvider(chat.id, p);

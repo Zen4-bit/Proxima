@@ -502,6 +502,22 @@ test('agents: same provider twice with different models/efforts, API route when 
     byokState.enabled = false;
 });
 
+test('agents: on the auto route a browser-only model (Gemini engine) is not sent to the API; an explicit api route trusts the typed model', async () => {
+    providerCalls.length = 0; byokCalls.length = 0;
+    byokState.enabled = true;
+    byokState.keys.gemini = 'AIza'; byokState.selected.gemini = 'gemini-3.1-pro';
+    const chat = newChat({ participants: [], agents: [
+        { name: 'Gem auto', provider: 'gemini', model: '3.1-pro' },
+        { name: 'Gem api', provider: 'gemini', route: 'api', model: 'gemini-3.1-flash' },
+        { name: 'GPT listed', provider: 'chatgpt', model: 'gpt-5.5' },
+    ], stopWhenAllAgree: false });
+    userMsg(chat.id, 'go');
+    await invoke('multiai-run-round', { chatId: chat.id, rounds: 1 });
+    assert.deepEqual(byokCalls.map(c => c.options.modelId), [undefined, 'gemini-3.1-flash', 'gpt-5.5']);
+    delete byokState.keys.gemini; delete byokState.selected.gemini;
+    byokState.enabled = false;
+});
+
 test('agents: with API mode off in Settings, auto agents fall back to the browser tab; model becomes the Gemini engine', async () => {
     providerCalls.length = 0; byokCalls.length = 0;
     byokState.enabled = false;
