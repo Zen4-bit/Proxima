@@ -85,5 +85,25 @@ contextBridge.exposeInMainWorld('agentHub', {
     onUpdaterStatus: (callback) => {
         ipcRenderer.removeAllListeners('updater-status');
         ipcRenderer.on('updater-status', (event, data) => callback(data));
-    }
+    },
+
+    // Multi-AI Chat (native tab).
+    multiaiLoad: () => ipcRenderer.invoke('multiai-load'),
+    multiaiSave: (data) => ipcRenderer.invoke('multiai-save', data),
+    multiaiListPersonas: () => ipcRenderer.invoke('multiai-list-personas'),
+    multiaiOpenPersonasFolder: () => ipcRenderer.invoke('multiai-open-personas-folder'),
+    multiaiEnabledProviders: () => ipcRenderer.invoke('multiai-enabled-providers'),
+    multiaiRunRound: (opts) => ipcRenderer.invoke('multiai-run-round', opts),
+    multiaiJudge: (opts) => ipcRenderer.invoke('multiai-judge', opts),
+    multiaiRunOrchestrated: (opts) => ipcRenderer.invoke('multiai-run-orchestrated', opts),
+    multiaiStopRun: (opts) => ipcRenderer.invoke('multiai-stop-run', opts),
+    multiaiExport: (opts) => ipcRenderer.invoke('multiai-export', opts),
+    multiaiGenerateTitle: (opts) => ipcRenderer.invoke('multiai-generate-title', opts),
+    multiaiPickToolsFolder: () => ipcRenderer.invoke('multiai-tools-pick-folder'),
+    onMultiaiMessage: (cb) => { ipcRenderer.removeAllListeners('multiai-message'); ipcRenderer.on('multiai-message', (e, d) => cb(d)); },
+    onMultiaiThinking: (cb) => { ipcRenderer.removeAllListeners('multiai-thinking'); ipcRenderer.on('multiai-thinking', (e, d) => cb(d)); },
+    onMultiaiRoundStart: (cb) => { ipcRenderer.removeAllListeners('multiai-round-start'); ipcRenderer.on('multiai-round-start', (e, d) => cb(d)); },
+    onMultiaiDone: (cb) => { ipcRenderer.removeAllListeners('multiai-done'); ipcRenderer.on('multiai-done', (e, d) => cb(d)); },
+    onMultiaiOrchStep: (cb) => { ipcRenderer.removeAllListeners('multiai-orch-step'); ipcRenderer.on('multiai-orch-step', (e, d) => cb(d)); },
+    onMultiaiOrchDone: (cb) => { ipcRenderer.removeAllListeners('multiai-orch-done'); ipcRenderer.on('multiai-orch-done', (e, d) => cb(d)); }
 });

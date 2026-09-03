@@ -24,6 +24,7 @@ const providerSender = require('./providers/sender.cjs');
 const { registerCoreHandlers } = require('./ipc/core.cjs');
 const { registerSettingsHandlers } = require('./ipc/settings.cjs');
 const { registerCLIHandlers } = require('./ipc/cli.cjs');
+const { registerMultiAiHandlers } = require('./ipc/multiai.cjs');
 const pythonEnv = require('./python-env.cjs');
 const envCheck = require('./env-check.cjs');
 
@@ -743,6 +744,7 @@ function initModules() {
     registerCoreHandlers(handlerDeps);
     registerSettingsHandlers(handlerDeps);
     registerCLIHandlers(handlerDeps);
+    registerMultiAiHandlers(handlerDeps);
 }
 
 const { sendMessageToProvider } = providerSender;

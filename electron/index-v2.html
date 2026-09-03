@@ -84,6 +84,14 @@
             background: rgba(255, 255, 255, 0.2);
             transform: translateY(-1px);
         }
+        #multiai-panel select {
+            background: #1a1a2e;
+            color: #fff;
+        }
+        #multiai-panel select option {
+            background: #1a1a2e;
+            color: #fff;
+        }
 
         .tab-nav {
             display: flex;
@@ -1308,6 +1316,10 @@
     </div>
 
     <div class="tab-nav">
+        <div class="tab" data-tab="multiai" onclick="switchTab('multiai')">
+            <img src="../assets/multiai-icon.svg" class="tab-icon-img" alt="Multi-AI Chat">
+            <span class="tab-name">Multi-AI Chat</span>
+        </div>
         <div class="tab" data-provider="perplexity" onclick="switchTab('perplexity')">
             <img src="../assets/perplexity.png" class="tab-icon-img" alt="Perplexity">
             <span class="tab-name">Perplexity</span>
@@ -1328,7 +1340,7 @@
             <span class="tab-name">Gemini</span>
             <div class="tab-status offline" id="status-dot-gemini"></div>
         </div>
-        <div class="tab-spacer"></div>
+                        <div class="tab-spacer"></div>
         <div class="tab" id="header-clear-cache-btn" onclick="triggerClearCache()" title="Clear cache and session data for this provider"
             style="display: none;">
             <div class="tab-icon clear-cache">🧹</div>
@@ -1394,7 +1406,214 @@
             </div>
         </div>
 
-        <div class="settings-panel" id="settings-panel">
+        <style>
+            #multiai-chat-list .multiai-chat-actions { opacity: 0; transition: opacity 0.12s ease; }
+            #multiai-chat-list .sidebar-item:hover .multiai-chat-actions { opacity: 1; }
+            #multiai-chat-list .multiai-chat-actions button:hover { color: #fff !important; }
+        </style>
+        <style>
+            #multiai-chat-list .multiai-chat-actions { opacity: 0; transition: opacity 0.12s ease; }
+            #multiai-chat-list .sidebar-item:hover .multiai-chat-actions { opacity: 1; }
+            #multiai-chat-list .multiai-chat-actions button:hover { color: #fff !important; }
+            #multiai-ctx-menu button:hover { background: rgba(255,255,255,0.08); }
+        </style>
+        <style>
+            #multiai-chat-list .multiai-chat-actions { opacity: 0; transition: opacity 0.12s ease; }
+            #multiai-chat-list .sidebar-item:hover .multiai-chat-actions { opacity: 1; }
+            #multiai-chat-list .multiai-chat-actions button:hover { color: #fff !important; }
+            #multiai-ctx-menu button:hover { background: rgba(255,255,255,0.08); }
+        </style>
+        <div class="settings-panel" id="multiai-panel" style="position: relative;">
+            <div class="multiai-rail" id="multiai-sidebar-rail" onclick="multiaiToggleChatListCollapsed()" title="Show chats" style="display: none; flex-direction: column; align-items: center; justify-content: flex-start; gap: 8px; width: 30px; flex: 0 0 30px; padding-top: 14px; cursor: pointer; background: #07070d; border-right: 1px solid rgba(255,255,255,0.06);">
+                <span style="font-size: 1rem;">💬</span>
+                <span style="writing-mode: vertical-rl; text-orientation: mixed; font-size: 0.7rem; font-weight: 600; color: #9ca3af; letter-spacing: 0.5px;">Chats</span>
+            </div>
+            <div class="settings-sidebar" id="multiai-sidebar" style="width: 260px; flex: 0 0 260px; position: relative;">
+                <div style="padding: 10px 14px 10px 22px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-shrink: 0;">
+                    <span style="font-weight: 700; font-size: 0.95rem; color: #fff;">🧠 Multi-AI Chat</span>
+                    <button id="multiai-sidebar-collapse" onclick="multiaiToggleChatListCollapsed()" title="Collapse chat list" style="background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 0.9rem; padding: 2px 6px;">⟨</button>
+                </div>
+                <div style="padding: 0 12px 12px 12px; flex-shrink: 0;">
+                    <button onclick="multiaiNewChat()" style="width: 100%; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 8px; border-radius: 8px; cursor: pointer; font-size: 0.82rem; font-weight: 600;">+ New Chat</button>
+                </div>
+                <div id="multiai-chat-list" style="overflow-y: auto; flex: 1;"></div>
+                <div id="multiai-sidebar-resize" title="Drag to resize" style="position: absolute; right: -3px; top: 0; bottom: 0; width: 7px; cursor: col-resize; background: transparent; z-index: 5;"></div>
+            </div>
+            <div class="settings-content" id="multiai-content" style="display: flex; flex-direction: column; flex: 1; min-width: 0;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-shrink: 0;">
+                    <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
+                        <div id="multiai-chat-title" style="font-size: 1.1rem; font-weight: 700; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">New chat</div>
+                        <button onclick="multiaiRenameCurrentChat()" title="Rename this chat" style="background: none; border: none; color: #6b7280; cursor: pointer; font-size: 0.85rem; padding: 2px 4px; flex-shrink: 0;">✏</button>
+                    </div>
+                    <div style="display: flex; gap: 6px; flex-shrink: 0;">
+                        <button class="header-btn" id="multiai-mode-classic" onclick="multiaiSetMode('classic')" title="Round-robin discussion or debate across your chosen AIs" style="justify-content: center; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 0.78rem;">💬 Classic</button>
+                        <button class="header-btn" id="multiai-mode-orch" onclick="multiaiSetMode('orchestrated')" title="Automated multi-step pipelines: crew, workflow, or loop" style="justify-content: center; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 0.78rem;">🧩 Orchestrated</button>
+                        <button class="header-btn" onclick="multiaiOpenHelp()" title="Help &amp; documentation for Multi-AI Chat" style="justify-content: center; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 0.78rem;">❔</button>
+                    </div>
+                </div>
+
+                <div id="multiai-status-line" style="font-size: 0.7rem; color: #9ca3af; margin-bottom: 8px; flex-shrink: 0;"></div>
+
+                <!-- Expandable options panel -->
+                <div id="multiai-options-panel" style="border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; margin-bottom: 14px; flex-shrink: 0; background: rgba(255,255,255,0.03); overflow: hidden;">
+                    <button id="multiai-options-summary" onclick="multiaiToggleOptions()" aria-expanded="false" aria-controls="multiai-options-body" style="width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; background: none; border: none; color: #fff; cursor: pointer; padding: 10px 14px; font-family: inherit; text-align: left;">
+                        <span style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                            <span style="font-weight: 700; font-size: 0.82rem;">⚙ Options</span>
+                            <span id="multiai-options-summary-text" style="font-size: 0.74rem; color: #9ca3af; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></span>
+                        </span>
+                        <span id="multiai-options-chevron" style="color: #9ca3af; font-size: 0.75rem; transition: transform 0.15s ease; flex-shrink: 0;">▶</span>
+                    </button>
+                    <div id="multiai-options-body" style="display: none; padding: 4px 14px 14px 14px; border-top: 1px solid rgba(255,255,255,0.08);">
+                        <!-- Classic mode controls -->
+                        <div id="multiai-classic-controls">
+                            <div style="display: flex; flex-wrap: wrap; gap: 18px; margin-bottom: 10px;">
+                                <div style="min-width: 180px; flex: 1;">
+                                    <div style="font-size: 0.7rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px;">Participants</div>
+                                    <div id="multiai-participants" style="display: flex; flex-wrap: wrap; gap: 10px;"></div>
+                                </div>
+                                <div style="min-width: 180px; flex: 1;">
+                                    <div style="font-size: 0.7rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px;" title="A separate library of personas you can assign per participant — shared with the Orchestrated crew editor below.">🎭 Personas</div>
+                                    <div id="multiai-persona-assign" style="display: flex; flex-wrap: wrap; gap: 10px;"></div>
+                                </div>
+                                <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;">
+                                    <label style="display: block; font-size: 0.78rem; color: #9ca3af;" title="Discuss: participants build on each other's points. Debate: they take opposing sides and argue.">Mode
+                                        <select id="multiai-discuss-mode" onchange="multiaiOnClassicFieldChange()" style="display: block; margin-top: 4px; background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 5px 8px;">
+                                            <option value="discuss">Discuss</option>
+                                            <option value="debate">Debate</option>
+                                        </select>
+                                    </label>
+                                    <label style="display: block; font-size: 0.78rem; color: #9ca3af;" title="How many times each participant speaks, round-robin. More rounds = deeper but slower and pricier.">Rounds
+                                        <input id="multiai-rounds" type="number" min="1" max="30" value="1" onchange="multiaiOnClassicFieldChange()" style="display: block; width: 70px; margin-top: 4px; box-sizing: border-box; background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 5px 8px;">
+                                    </label>
+                                    <label style="display: block; font-size: 0.78rem; color: #9ca3af;" title="Caps how long each reply is asked to be.">Brevity
+                                        <select id="multiai-brevity" onchange="multiaiOnClassicFieldChange()" style="display: block; margin-top: 4px; background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 5px 8px;"><option value="max 4 sentences">max 4 sentences</option><option value="max 8 sentences">max 8 sentences</option><option value="as long as needed">as long as needed</option></select>
+                                    </label>
+                                    <label style="display: block; font-size: 0.78rem; color: #9ca3af;" title="What the Judge reads before giving its verdict: the whole transcript, or just the latest round.">Judge scope
+                                        <select id="multiai-judge-scope" style="display: block; margin-top: 4px; background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 5px 8px;">
+                                            <option value="all">All rounds</option>
+                                            <option value="last">Last round only</option>
+                                        </select>
+                                    </label>
+                                    <label style="display: block; font-size: 0.78rem; color: #9ca3af;" title="Which AI delivers the verdict when you click Judge.">Judge provider
+                                        <select id="multiai-judge-provider" style="display: block; margin-top: 4px; background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 5px 8px;"></select>
+                                    </label>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                <button class="header-btn" onclick="multiaiRunRound()" id="multiai-run-btn" title="Start the configured number of rounds among selected participants" style="justify-content: center;">▶ Run round</button>
+                                <button class="header-btn" onclick="multiaiStop()" id="multiai-stop-btn" style="display:none; justify-content: center;">■ Stop</button>
+                                <button class="header-btn" onclick="multiaiJudge()" title="Have the Judge provider summarize who made the stronger case" style="justify-content: center;">⚖ Judge</button>
+                                <button class="header-btn" onclick="multiaiOpenPersonasFolder()" title="Open the folder of persona .md/.txt files you can assign to participants" style="justify-content: center;">🎭 Personas</button>
+                                <button class="header-btn" onclick="multiaiExportMd()" title="Save this chat's transcript as a Markdown file" style="justify-content: center;">⬇ Export .md</button>
+                            </div>
+                        </div>
+
+                        <!-- Orchestrated mode controls -->
+                        <div id="multiai-orch-controls" style="display: none;">
+                            <div style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 10px;">
+                                <label style="display: block; font-size: 0.78rem; color: #9ca3af;" title="Crew: fixed roles hand off work in sequence. Workflow: your own list of steps. Loop: one AI generates, another reviews, repeat until it converges.">Strategy
+                                    <select id="multiai-strategy" onchange="multiaiRenderStrategyForm()" style="display: block; margin-top: 4px; background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 5px 8px;">
+                                        <option value="crew">Crew (role pipeline)</option>
+                                        <option value="workflow">Workflow (sequential steps)</option>
+                                        <option value="loop">Loop (generate to review to improve)</option>
+                                        <option value="agent">Agent (file tools)</option>
+                                    </select>
+                                </label>
+                                <button class="header-btn" onclick="multiaiRunOrchestrated()" id="multiai-orch-run-btn" title="Run the pipeline described in the task box below" style="justify-content: center;">▶ Run</button>
+                                <button class="header-btn" onclick="multiaiStop()" id="multiai-orch-stop-btn" style="display:none; justify-content: center;">■ Stop</button>
+                                <button class="header-btn" onclick="multiaiExportMd()" title="Save this chat's transcript as a Markdown file" style="justify-content: center;">⬇ Export .md</button>
+                            </div>
+                            <div id="multiai-strategy-form"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="multiai-feed" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; flex: 1; overflow-y: auto;"></div>
+
+                <div id="multiai-attachments-preview" style="display: none; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; flex-shrink: 0;"></div>
+                <div id="multiai-context-preview" style="display: none; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; flex-shrink: 0;"></div>
+
+                <div style="display: flex; gap: 8px; flex-shrink: 0; align-items: flex-end;">
+                    <input type="file" id="multiai-file-input" multiple style="display:none;" onchange="multiaiHandleFiles(this.files)">
+                    <textarea id="multiai-topic" rows="2" placeholder="Topic or task to send to the group..." style="flex: 1; background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 10px; font-family: inherit; font-size: 0.85rem; resize: vertical;"></textarea>
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <button class="header-btn" onclick="document.getElementById('multiai-file-input').click()" title="Attach files" style="justify-content: center; width: 38px; height: 32px; padding: 0; font-size: 1rem;">📎</button>
+                        <button class="header-btn" id="multiai-send-btn" onclick="multiaiSend()" title="Send" style="justify-content: center; width: 38px; height: 32px; padding: 0; font-size: 1rem;">➤</button>
+                    </div>
+                </div>
+            </div>
+            <div class="settings-sidebar" id="multiai-ledger-sidebar" style="width: 320px; flex: 0 0 320px; padding: 0; border-right: none; border-left: 1px solid rgba(255,255,255,0.06); position: relative;">
+                <div id="multiai-ledger-resize" title="Drag to resize" style="position: absolute; left: -3px; top: 0; bottom: 0; width: 7px; cursor: col-resize; background: transparent; z-index: 5;"></div>
+                <div style="padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;">
+                    <span style="font-weight: 700; font-size: 0.88rem; color: #fff;">📒 Ledger</span>
+                    <button id="multiai-ledger-collapse" onclick="multiaiToggleLedgerCollapsed()" title="Collapse ledger" style="background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 0.9rem; padding: 2px 6px;">⟩</button>
+                </div>
+                <div class="sidebar-divider"></div>
+                <div style="padding: 8px 10px; display: flex; gap: 6px; flex-shrink: 0;">
+                    <select id="multiai-ledger-filter-round" onchange="multiaiOnLedgerFilterChange()" title="Filter by cycle · round" style="flex: 1; min-width: 0; background: rgba(255,255,255,0.06); color: #d1d5db; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 4px 6px; font-size: 0.7rem;">
+                        <option value="">All rounds</option>
+                    </select>
+                    <select id="multiai-ledger-filter-agent" onchange="multiaiOnLedgerFilterChange()" title="Filter by agent" style="flex: 1; min-width: 0; background: rgba(255,255,255,0.06); color: #d1d5db; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 4px 6px; font-size: 0.7rem;">
+                        <option value="">All agents</option>
+                    </select>
+                </div>
+                <div style="overflow-y: auto; flex: 1; padding: 0 4px;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.72rem;">
+                        <thead>
+                            <tr style="position: sticky; top: 0; background: #07070d;">
+                                <th style="text-align: left; padding: 6px 8px; color: #6b7280; font-weight: 600;" title="Cycle (send) · Round">C·R</th>
+                                <th style="text-align: left; padding: 6px 8px; color: #6b7280; font-weight: 600;">Agent</th>
+                                <th style="text-align: left; padding: 6px 8px; color: #6b7280; font-weight: 600;">Time</th>
+                                <th style="text-align: left; padding: 6px 8px; color: #6b7280; font-weight: 600;">Message</th>
+                            </tr>
+                        </thead>
+                        <tbody id="multiai-ledger-body"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="multiai-rail" id="multiai-ledger-rail" onclick="multiaiToggleLedgerCollapsed()" title="Show ledger" style="display: none; flex-direction: column; align-items: center; justify-content: flex-start; gap: 8px; width: 30px; flex: 0 0 30px; padding-top: 14px; cursor: pointer; background: #07070d; border-left: 1px solid rgba(255,255,255,0.06);">
+                <span style="font-size: 1rem;">📒</span>
+                <span style="writing-mode: vertical-rl; text-orientation: mixed; font-size: 0.7rem; font-weight: 600; color: #9ca3af; letter-spacing: 0.5px;">Ledger</span>
+            </div>
+
+            <div id="multiai-ctx-menu" style="display: none; position: fixed; z-index: 200; background: #151521; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); padding: 4px; min-width: 190px;">
+                <button onclick="multiaiCtxAddContext()" style="display: block; width: 100%; text-align: left; background: none; border: none; color: #fff; padding: 8px 10px; cursor: pointer; font-size: 0.8rem; border-radius: 6px;">📌 Add as context for next message</button>
+                <button onclick="multiaiCtxCopyRef()" style="display: block; width: 100%; text-align: left; background: none; border: none; color: #fff; padding: 8px 10px; cursor: pointer; font-size: 0.8rem; border-radius: 6px;">🔗 Copy reference label</button>
+            </div>
+
+            <div id="multiai-help-modal" onclick="if(event.target===this) multiaiCloseHelp()" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center;">
+                <div style="width: min(640px, 90vw); max-height: 80vh; background: #0d0d16; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.5);">
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;">
+                        <span style="font-weight: 700; font-size: 1rem; color: #fff;">Multi-AI Chat — Help</span>
+                        <button onclick="multiaiCloseHelp()" style="background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 1rem; padding: 2px 6px;">✕</button>
+                    </div>
+                    <div style="overflow-y: auto; padding: 18px 22px; font-size: 0.83rem; line-height: 1.6; color: #d1d5db;">
+                        <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: 0.8px;">Classic mode</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Discuss vs. Debate</b> — Discuss has participants build on each other's points toward a shared answer. Debate assigns opposing sides and has them argue; with more than two participants each takes a distinct stance.</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Rounds</b> — how many times each participant speaks in turn. One round is usually enough for a quick comparison; use 2-4 for a discussion that needs to actually converge or a debate that needs rebuttals. More rounds costs more time and, if you're on metered API keys, more money.</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Brevity</b> — caps reply length. "max 4 sentences" keeps a multi-round discussion skimmable; switch to "as long as needed" for a single deep-dive round.</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Judge</b> — after a discussion, ask one provider to read the transcript and give a verdict. Judge scope picks whether it reads everything or just the final round (cheaper, and better once earlier rounds are just warm-up).</p>
+                        <p style="margin: 0 0 14px 0;"><b style="color:#fff;">Personas</b> — a shared library of a few built-ins (Skeptic, Optimist, Devil's Advocate, Pragmatist, Domain Expert, Concise Summarizer) plus any .md/.txt file you drop in the personas folder. Assign one per participant in the Personas block above (a separate setting from picking who's in the discussion); the same library also fills in a crew role's Instruction in Orchestrated mode, so you're not maintaining two systems.</p>
+
+                        <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: 0.8px;">Orchestrated mode</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Crew</b> — a fixed pipeline of roles (e.g. Researcher → Writer → Reviewer), each handing its output to the next. Edit roles, providers and instructions freely; pick providers whose strengths match the role (e.g. a search-grounded model for Researcher).</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Workflow</b> — your own ordered list of steps, one per line, as <code>provider: task</code> (provider is optional — omit it to use whichever is enabled first). Each step gets the previous step's output as input.</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Loop</b> — one provider generates, another reviews against the original task and either says CONVERGED or gives feedback; it keeps iterating up to Max turns. Good for "keep refining until it's actually right" tasks; pick a reviewer that's genuinely critical, not just agreeable.</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Agent (file tools)</b> — the only strategy that touches your actual filesystem. None of these providers have real API tool-calling wired up (they're browser chat, not tool-using APIs), so this is built as a loop: the model is told a small format for requesting a file operation, we execute it against the one folder you chose, and feed the result back for up to Max turns, until it replies with plain text instead of a tool request. That reply is the final answer. Reads, writes, and deletes all happen with no confirmation step — the only safety boundary is that it cannot reach anything outside the folder you pick. Point it at a scratch folder, not anything you'd mind losing.</p>
+                        <p style="margin: 0 0 14px 0;">Mode is locked once a chat has its first message, since Classic transcripts and Orchestrated pipeline runs don't mix well in one thread — start a new chat to switch.</p>
+
+                        <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: 0.8px;">General</p>
+                        <p style="margin: 0 0 10px 0;">Attachments (📎) fold text files into your prompt and note images/binaries by name only — none of these providers take image input through this tab.</p>
+                        <p style="margin: 0 0 10px 0;">Stop interrupts as soon as you click it — the AI in flight may keep replying in the background, but its answer is discarded rather than shown.</p>
+                        <p style="margin: 0 0 10px 0;">New chats are auto-titled from your first message once the first reply is underway; rename any chat any time via the ✏ next to its title, in the sidebar, or in the header.</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Message IDs & context</b> — every message has a hidden unique id and a short label like <code>0103CG</code>: cycle 01 (a cycle is one Send), round 03 (the turn within it), then a 2-letter agent code. Right-click any message, in the feed or the ledger, to add it as context for your next message (it's folded into the outgoing prompt and called out by label, even across chats) or to copy its reference label.</p>
+                        <p style="margin: 0 0 10px 0;">Click a ledger row to jump the transcript to that message. The ledger's two dropdowns filter by cycle·round and by agent.</p>
+                        <p style="margin: 0;">Outside of Agent mode, these providers only see text you send them — none can read or write files on this computer. The 📎 attach button is a one-way bridge: it reads a local file client-side and folds its text into your prompt (images/binaries are noted by name only).</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+<div class="settings-panel" id="settings-panel">
             <div class="settings-sidebar">
                 <!-- Branding Header -->
                 <div style="padding: 10px 14px 10px 22px; display: flex; align-items: center; gap: 10px;">
@@ -2909,12 +3128,29 @@ Confirm when done</pre>
                 if (clearCacheBtn) clearCacheBtn.style.display = 'none';
                 document.getElementById('browser-container').style.display = 'none';
                 document.getElementById('settings-panel').classList.add('active');
+                document.getElementById('multiai-panel')?.classList.remove('active');
                 document.getElementById('browser-controls').classList.remove('active');
                 await agentHub.hideBrowser();
 
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
                 document.querySelector('.tab[data-tab="settings"]').classList.add('active');
                 currentTab = 'settings';
+                return;
+            }
+
+            if (tabName === 'multiai') {
+                if (clearCacheBtn) clearCacheBtn.style.display = 'none';
+                document.getElementById('browser-container').style.display = 'none';
+                document.getElementById('welcome-panel').style.display = 'none';
+                document.getElementById('browser-controls').classList.remove('active');
+                document.getElementById('settings-panel').classList.remove('active');
+                document.getElementById('multiai-panel')?.classList.add('active');
+                await agentHub.hideBrowser();
+
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelector('.tab[data-tab="multiai"]').classList.add('active');
+                currentTab = 'multiai';
+                if (typeof multiaiInit === 'function') multiaiInit();
                 return;
             }
 
@@ -2926,6 +3162,7 @@ Confirm when done</pre>
             if (clearCacheBtn) clearCacheBtn.style.display = 'flex';
 
             document.getElementById('settings-panel').classList.remove('active');
+            document.getElementById('multiai-panel')?.classList.remove('active');
             document.getElementById('browser-container').style.display = 'block';
             document.getElementById('welcome-panel').style.display = 'none';
             document.getElementById('browser-controls').classList.add('active');
@@ -4100,6 +4337,7 @@ Confirm when done</pre>
             }
         }
     </script>
+    <script src="multiai-renderer.js"></script>
 </body>
 
 </html>
