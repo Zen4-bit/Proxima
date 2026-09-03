@@ -90,6 +90,9 @@ contextBridge.exposeInMainWorld('agentHub', {
     // Multi-AI Chat (native tab).
     multiaiLoad: () => ipcRenderer.invoke('multiai-load'),
     multiaiSave: (data) => ipcRenderer.invoke('multiai-save', data),
+    multiaiDeleteChat: (opts) => ipcRenderer.invoke('multiai-delete-chat', opts),
+    multiaiRunning: () => ipcRenderer.invoke('multiai-running'),
+    multiaiSummarize: (opts) => ipcRenderer.invoke('multiai-summarize', opts),
     multiaiListPersonas: () => ipcRenderer.invoke('multiai-list-personas'),
     multiaiOpenPersonasFolder: () => ipcRenderer.invoke('multiai-open-personas-folder'),
     multiaiEnabledProviders: () => ipcRenderer.invoke('multiai-enabled-providers'),
@@ -105,5 +108,6 @@ contextBridge.exposeInMainWorld('agentHub', {
     onMultiaiRoundStart: (cb) => { ipcRenderer.removeAllListeners('multiai-round-start'); ipcRenderer.on('multiai-round-start', (e, d) => cb(d)); },
     onMultiaiDone: (cb) => { ipcRenderer.removeAllListeners('multiai-done'); ipcRenderer.on('multiai-done', (e, d) => cb(d)); },
     onMultiaiOrchStep: (cb) => { ipcRenderer.removeAllListeners('multiai-orch-step'); ipcRenderer.on('multiai-orch-step', (e, d) => cb(d)); },
-    onMultiaiOrchDone: (cb) => { ipcRenderer.removeAllListeners('multiai-orch-done'); ipcRenderer.on('multiai-orch-done', (e, d) => cb(d)); }
+    onMultiaiOrchDone: (cb) => { ipcRenderer.removeAllListeners('multiai-orch-done'); ipcRenderer.on('multiai-orch-done', (e, d) => cb(d)); },
+    onMultiaiChatCreated: (cb) => { ipcRenderer.removeAllListeners('multiai-chat-created'); ipcRenderer.on('multiai-chat-created', (e, d) => cb(d)); }
 });

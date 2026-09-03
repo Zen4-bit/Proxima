@@ -464,6 +464,16 @@ function formatAllResponse(allResults) {
 }
 
 const { createRouteHandler } = require('./routes.cjs');
+
+// Route extensions: other main-process modules (e.g. Multi-AI Chat) can serve
+// their own /v1/... paths on this same server without editing routes.cjs.
+// An extension returns true when it handled the request. They run after the
+// origin / API-key checks and before the built-in routes.
+const _routeExtensions = [];
+function registerRouteExtension(fn) {
+    if (typeof fn === 'function') _routeExtensions.push(fn);
+}
+
 const handleRoute = createRouteHandler({
     API_PREFIX, VERSION, MODEL_ALIASES,
     sendJSON, sendError, getEnabled, resolveModel, resolveModels, pickBestProvider, extractMessage,
@@ -571,14 +581,22 @@ function startRestAPI() {
             return sendError(res, 401, 'Invalid or missing API key', 'authentication_error');
         }
         try {
-            const body = req.method === 'POST' ? await parseBody(req) : {};
+            const body = (req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE') ? await parseBody(req) : {};
             const providerKey = (req.headers['x-provider-key'] || '').trim();
             if (providerKey) body._byokKey = providerKey;
+            for (const ext of _routeExtensions) {
+                if (await ext(req.method, url, body, res, { sendJSON, sendError })) return;
+            }
             await handleRoute(req.method, url.pathname, body, res);
         } catch (err) { console.error('[API] Error:', err.message); if (!res.headersSent) sendError(res, err.statusCode || 500, err.message); }
     });
 
+    // Bound once: on a port-fallback retry `listen` is called again with this
+    // same callback, which used to initialise the WebSocket server twice.
+    let _listeningHandled = false;
     const onListening = () => {
+        if (_listeningHandled) return;
+        _listeningHandled = true;
         stats.startTime = new Date();
         const boundPort = (httpServer.address() && httpServer.address().port) || REST_PORT;
         console.log(`[API] Proxima API v${VERSION} at http://localhost:${boundPort}`);
@@ -623,4 +641,4 @@ function stopRestAPI() {
 }
 function isRestAPIRunning() { return httpServer !== null && httpServer.listening; }
 
-module.exports = { initRestAPI, startRestAPI, stopRestAPI, isRestAPIRunning, generateApiKey, revokeApiKey, loadApiKey, byok };
+module.exports = { initRestAPI, startRestAPI, stopRestAPI, isRestAPIRunning, generateApiKey, revokeApiKey, loadApiKey, byok, registerRouteExtension };

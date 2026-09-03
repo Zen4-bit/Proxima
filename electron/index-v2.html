@@ -1410,18 +1410,8 @@
             #multiai-chat-list .multiai-chat-actions { opacity: 0; transition: opacity 0.12s ease; }
             #multiai-chat-list .sidebar-item:hover .multiai-chat-actions { opacity: 1; }
             #multiai-chat-list .multiai-chat-actions button:hover { color: #fff !important; }
-        </style>
-        <style>
-            #multiai-chat-list .multiai-chat-actions { opacity: 0; transition: opacity 0.12s ease; }
-            #multiai-chat-list .sidebar-item:hover .multiai-chat-actions { opacity: 1; }
-            #multiai-chat-list .multiai-chat-actions button:hover { color: #fff !important; }
             #multiai-ctx-menu button:hover { background: rgba(255,255,255,0.08); }
-        </style>
-        <style>
-            #multiai-chat-list .multiai-chat-actions { opacity: 0; transition: opacity 0.12s ease; }
-            #multiai-chat-list .sidebar-item:hover .multiai-chat-actions { opacity: 1; }
-            #multiai-chat-list .multiai-chat-actions button:hover { color: #fff !important; }
-            #multiai-ctx-menu button:hover { background: rgba(255,255,255,0.08); }
+            #multiai-panel input[type="number"], #multiai-panel input[type="text"] { font-family: inherit; }
         </style>
         <div class="settings-panel" id="multiai-panel" style="position: relative;">
             <div class="multiai-rail" id="multiai-sidebar-rail" onclick="multiaiToggleChatListCollapsed()" title="Show chats" style="display: none; flex-direction: column; align-items: center; justify-content: flex-start; gap: 8px; width: 30px; flex: 0 0 30px; padding-top: 14px; cursor: pointer; background: #07070d; border-right: 1px solid rgba(255,255,255,0.06);">
@@ -1444,6 +1434,7 @@
                     <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
                         <div id="multiai-chat-title" style="font-size: 1.1rem; font-weight: 700; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">New chat</div>
                         <button onclick="multiaiRenameCurrentChat()" title="Rename this chat" style="background: none; border: none; color: #6b7280; cursor: pointer; font-size: 0.85rem; padding: 2px 4px; flex-shrink: 0;">✏</button>
+                        <button onclick="multiaiAiTitle()" title="Ask the Judge provider for a title (one provider call)" style="background: none; border: none; color: #6b7280; cursor: pointer; font-size: 0.85rem; padding: 2px 4px; flex-shrink: 0;">✨</button>
                     </div>
                     <div style="display: flex; gap: 6px; flex-shrink: 0;">
                         <button class="header-btn" id="multiai-mode-classic" onclick="multiaiSetMode('classic')" title="Round-robin discussion or debate across your chosen AIs" style="justify-content: center; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 0.78rem;">💬 Classic</button>
@@ -1489,13 +1480,28 @@
                                         <select id="multiai-brevity" onchange="multiaiOnClassicFieldChange()" style="display: block; margin-top: 4px; background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 5px 8px;"><option value="max 4 sentences">max 4 sentences</option><option value="max 8 sentences">max 8 sentences</option><option value="as long as needed">as long as needed</option></select>
                                     </label>
                                     <label style="display: block; font-size: 0.78rem; color: #9ca3af;" title="What the Judge reads before giving its verdict: the whole transcript, or just the latest round.">Judge scope
-                                        <select id="multiai-judge-scope" style="display: block; margin-top: 4px; background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 5px 8px;">
-                                            <option value="all">All rounds</option>
-                                            <option value="last">Last round only</option>
+                                        <select id="multiai-judge-scope" onchange="multiaiOnClassicFieldChange()" style="display: block; margin-top: 4px; background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 5px 8px;">
+                                            <option value="all">Whole chat</option>
+                                            <option value="cycle">Since my last message</option>
+                                            <option value="round">Last round only</option>
                                         </select>
                                     </label>
                                     <label style="display: block; font-size: 0.78rem; color: #9ca3af;" title="Which AI delivers the verdict when you click Judge.">Judge provider
-                                        <select id="multiai-judge-provider" style="display: block; margin-top: 4px; background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 5px 8px;"></select>
+                                        <select id="multiai-judge-provider" onchange="multiaiOnClassicFieldChange()" style="display: block; margin-top: 4px; background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 5px 8px;"></select>
+                                    </label>
+                                </div>
+                                <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; flex-basis: 100%;">
+                                    <label style="display: block; font-size: 0.78rem; color: #9ca3af;" title="How many recent messages each participant sees verbatim. Everything older is condensed (and anything before a pinned State summary is dropped), so long chats stop re-sending their whole history every turn.">Context window
+                                        <input id="multiai-context-window" type="number" min="0" max="60" value="10" onchange="multiaiOnClassicFieldChange()" style="display: block; width: 70px; margin-top: 4px; box-sizing: border-box; background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 5px 8px;">
+                                    </label>
+                                    <label style="display: block; font-size: 0.78rem; color: #9ca3af;" title="Participants are told to start a reply with this word when they believe the group has converged, and to reply PASS when they have nothing to add.">Stop token
+                                        <input id="multiai-stop-token" type="text" value="DONE" maxlength="20" onchange="multiaiOnClassicFieldChange()" style="display: block; width: 90px; margin-top: 4px; box-sizing: border-box; background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 5px 8px;">
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: #9ca3af; padding-bottom: 6px;" title="End the run early once every participant in a round says the stop token (or passes) — no more rounds of “Agreed, nothing further”.">
+                                        <input id="multiai-stop-when-agree" type="checkbox" checked onchange="multiaiOnClassicFieldChange()"> Stop early when all agree
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: #9ca3af; padding-bottom: 6px;" title="Round 1 of each Send runs all participants in parallel without showing them each other's replies — independent positions first, then discussion. Faster, and it breaks the “everyone agrees with whoever spoke first” pattern.">
+                                        <input id="multiai-independent-first" type="checkbox" onchange="multiaiOnClassicFieldChange()"> Independent first round
                                     </label>
                                 </div>
                             </div>
@@ -1503,6 +1509,7 @@
                                 <button class="header-btn" onclick="multiaiRunRound()" id="multiai-run-btn" title="Start the configured number of rounds among selected participants" style="justify-content: center;">▶ Run round</button>
                                 <button class="header-btn" onclick="multiaiStop()" id="multiai-stop-btn" style="display:none; justify-content: center;">■ Stop</button>
                                 <button class="header-btn" onclick="multiaiJudge()" title="Have the Judge provider summarize who made the stronger case" style="justify-content: center;">⚖ Judge</button>
+                                <button class="header-btn" onclick="multiaiSummarize()" title="Ask the Judge provider for a pinned state summary (decisions, open questions, claims to verify, next step). Later turns start from it instead of the older transcript." style="justify-content: center;">📝 Summarize state</button>
                                 <button class="header-btn" onclick="multiaiOpenPersonasFolder()" title="Open the folder of persona .md/.txt files you can assign to participants" style="justify-content: center;">🎭 Personas</button>
                                 <button class="header-btn" onclick="multiaiExportMd()" title="Save this chat's transcript as a Markdown file" style="justify-content: center;">⬇ Export .md</button>
                             </div>
@@ -1592,7 +1599,12 @@
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Discuss vs. Debate</b> — Discuss has participants build on each other's points toward a shared answer. Debate assigns opposing sides and has them argue; with more than two participants each takes a distinct stance.</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Rounds</b> — how many times each participant speaks in turn. One round is usually enough for a quick comparison; use 2-4 for a discussion that needs to actually converge or a debate that needs rebuttals. More rounds costs more time and, if you're on metered API keys, more money.</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Brevity</b> — caps reply length. "max 4 sentences" keeps a multi-round discussion skimmable; switch to "as long as needed" for a single deep-dive round.</p>
-                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Judge</b> — after a discussion, ask one provider to read the transcript and give a verdict. Judge scope picks whether it reads everything or just the final round (cheaper, and better once earlier rounds are just warm-up).</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Context window</b> — each participant is sent the last N messages verbatim, a condensed digest of older ones, and the pinned State summary if there is one. Long chats therefore stop re-sending their whole history every turn (the old behaviour hit provider limits after a few dozen long replies). Each chat also gets its own provider-side thread per AI, rotated every 12 turns, so chats never bleed into each other or into the MCP tools.</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Stop token / PASS</b> — participants are asked to begin a reply with the stop token (default <code>DONE</code>) when they think the group has converged, and to reply <code>PASS</code> when they have nothing new. With “Stop early when all agree” on, a round where everyone says the token or passes ends the run — no more rounds of “Agreed, nothing further”. Passes are shown dimmed and are not fed to the other AIs; neither are errors.</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Directed turns</b> — mention participants in your message to set this Send's order: <code>@claude kick off, others review</code> makes Claude speak first; <code>only @gemini and @chatgpt</code> restricts the round to those two. Names: @chatgpt, @claude, @gemini, @perplexity.</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Independent first round</b> — round 1 of each Send runs everyone in parallel, blind to each other's replies (positions are committed before anyone reads the others); later rounds are round-robin as usual. In Debate with three or more participants, stances are assigned (for / against / critical evaluator / third option) rather than left to chance.</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Judge</b> — after a discussion, ask one provider to read the transcript and give a verdict. Judge scope: the whole chat, everything since your last message, or only the last round.</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Summarize state</b> — asks the Judge provider for a pinned summary (decisions, open questions, claims to verify, next step). It becomes the compaction point: later turns start from the summary instead of the older transcript. Use it whenever you'd otherwise ask “what is the state of the discussion”.</p>
                         <p style="margin: 0 0 14px 0;"><b style="color:#fff;">Personas</b> — a shared library of a few built-ins (Skeptic, Optimist, Devil's Advocate, Pragmatist, Domain Expert, Concise Summarizer) plus any .md/.txt file you drop in the personas folder. Assign one per participant in the Personas block above (a separate setting from picking who's in the discussion); the same library also fills in a crew role's Instruction in Orchestrated mode, so you're not maintaining two systems.</p>
 
                         <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: 0.8px;">Orchestrated mode</p>
@@ -1605,7 +1617,9 @@
                         <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: 0.8px;">General</p>
                         <p style="margin: 0 0 10px 0;">Attachments (📎) fold text files into your prompt and note images/binaries by name only — none of these providers take image input through this tab.</p>
                         <p style="margin: 0 0 10px 0;">Stop interrupts as soon as you click it — the AI in flight may keep replying in the background, but its answer is discarded rather than shown.</p>
-                        <p style="margin: 0 0 10px 0;">New chats are auto-titled from your first message once the first reply is underway; rename any chat any time via the ✏ next to its title, in the sidebar, or in the header.</p>
+                        <p style="margin: 0 0 10px 0;">New chats are titled from the first words of your first message (free, instant); ✨ next to the title asks the Judge provider for a better one. Rename any time via ✏.</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Local agents</b> — Codex, Claude Code or any script can join a chat through the gateway API on this app's REST port (Settings → API, default <code>http://127.0.0.1:3210</code>): <code>GET /v1/multiai/chats</code>, <code>GET /v1/multiai/chats/&lt;id&gt;?since=&lt;messageId&gt;</code>, <code>POST /v1/multiai/chats/&lt;id&gt;/messages</code> <code>{"who":"Codex","provider":"codex","text":"…"}</code> to append a turn, <code>POST /v1/multiai/chats/&lt;id&gt;/run</code> <code>{"text":"…","rounds":1}</code> to post a message and run a round, <code>POST …/stop</code>. Appended turns show up here live and are part of the transcript the browser AIs see.</p>
+                        <p style="margin: 0 0 10px 0;">Runs belong to their chat, not to the screen: you can switch chats while one is running (● in the list), and its messages keep arriving and are saved. Each chat allows one run at a time. History is saved atomically with a rolling backup (<code>multiai/chats.backup.json</code> in the app's data folder); a damaged file is parked, never overwritten.</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Message IDs & context</b> — every message has a hidden unique id and a short label like <code>0103CG</code>: cycle 01 (a cycle is one Send), round 03 (the turn within it), then a 2-letter agent code. Right-click any message, in the feed or the ledger, to add it as context for your next message (it's folded into the outgoing prompt and called out by label, even across chats) or to copy its reference label.</p>
                         <p style="margin: 0 0 10px 0;">Click a ledger row to jump the transcript to that message. The ledger's two dropdowns filter by cycle·round and by agent.</p>
                         <p style="margin: 0;">Outside of Agent mode, these providers only see text you send them — none can read or write files on this computer. The 📎 attach button is a one-way bridge: it reads a local file client-side and folds its text into your prompt (images/binaries are noted by name only).</p>

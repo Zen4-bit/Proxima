@@ -5,7 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const net = require('net');
 const BrowserManager = require('./browser-manager.cjs');
-const { initRestAPI, startRestAPI, stopRestAPI, isRestAPIRunning, generateApiKey, revokeApiKey, loadApiKey } = require('./api/rest-api.cjs');
+const { initRestAPI, startRestAPI, stopRestAPI, isRestAPIRunning, generateApiKey, revokeApiKey, loadApiKey, registerRouteExtension } = require('./api/rest-api.cjs');
 const providerAPI = require('./providers/api.cjs');
 const byok = require('./api/byok/index.cjs');
 
@@ -27,6 +27,35 @@ const { registerCLIHandlers } = require('./ipc/cli.cjs');
 const { registerMultiAiHandlers } = require('./ipc/multiai.cjs');
 const pythonEnv = require('./python-env.cjs');
 const envCheck = require('./env-check.cjs');
+
+// ── Instance hygiene ────────────────────────────────────────────────
+// A dev checkout (`npm start`) must never share userData with an installed
+// Proxima: doing so produced Chromium cache/quota errors and, worse, let the
+// dev instance overwrite ipc-port.json / ipc-token.json / settings.ipcPort
+// that the installed app's MCP server and CLI rely on. Dev gets its own
+// profile ("proxima-dev") unless PROXIMA_SHARED_USERDATA=1 opts back in.
+if (!app.isPackaged && !process.env.PROXIMA_SHARED_USERDATA) {
+    app.setPath('userData', path.join(app.getPath('appData'), 'proxima-dev'));
+    console.log('[Instance] Dev mode — using userData', app.getPath('userData'));
+}
+
+// One running instance per profile (the lock is per userData path, so an
+// installed app and a dev checkout can still run side by side). A second
+// launch of the same profile focuses the existing window and exits.
+const _gotInstanceLock = app.requestSingleInstanceLock();
+if (!_gotInstanceLock) {
+    console.log('[Instance] Another Proxima instance owns this profile — exiting.');
+    app.quit();
+}
+app.on('second-instance', () => {
+    try {
+        if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
+        }
+    } catch { /* window may be gone */ }
+});
 
 const CHROME_VERSION = (process.versions && process.versions.chrome) || '130.0.6723.191';
 const CHROME_UA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VERSION} Safari/537.36`;
@@ -740,6 +769,7 @@ function initModules() {
         generateApiKey, revokeApiKey, loadApiKey,
         getFileReferenceEnabled: () => fileReferenceEnabled,
         setFileReferenceEnabled: (v) => { fileReferenceEnabled = !!v; },
+        registerRouteExtension,
     };
     registerCoreHandlers(handlerDeps);
     registerSettingsHandlers(handlerDeps);
@@ -760,6 +790,19 @@ function setupAutoUpdater() {
         console.log('[AutoUpdater] Skipping update check in dev mode.');
         return;
     }
+
+    // A fork build must not be silently replaced by the upstream release
+    // channel it inherited in package.json `build.publish`. package.json's
+    // `proximaFork` marker turns the updater off unless settings.autoUpdate
+    // is explicitly true.
+    try {
+        const pkg = require('../package.json');
+        const settings = loadSettings();
+        if (pkg.proximaFork && settings.autoUpdate !== true) {
+            console.log(`[AutoUpdater] Fork build (of ${pkg.proximaFork.of || 'upstream'}) — auto-update disabled (set settings.autoUpdate=true to opt in).`);
+            return;
+        }
+    } catch { /* no package.json marker */ }
 
     autoUpdater.on('checking-for-update', () => {
         console.log('[AutoUpdater] Checking for updates...');
@@ -962,7 +1005,7 @@ function getMimeType(filePath) {
     return mimeTypes[ext] || 'application/octet-stream';
 }
 
-app.whenReady().then(createWindow);
+if (_gotInstanceLock) app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
     if (ipcServer) {

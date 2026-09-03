@@ -185,5 +185,9 @@
         "electron": "^33.4.11",
         "electron-builder": "^25.1.8",
         "http-server": "^14.1.1"
+    },
+    "proximaFork": {
+        "of": "Zen4-bit/Proxima",
+        "note": "Fork with the native Multi-AI Chat tab. Auto-update from upstream is disabled unless settings.autoUpdate is true."
     }
 }

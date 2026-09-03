@@ -13,7 +13,11 @@ let multiaiState = {
     enabledProviders: [],
     personas: {},
     pendingAttachments: [], // [{name, text, isImage, dataUrl}] queued for the next send
+    runningChats: new Set(), // chat ids with a run in flight (main process is the source of truth)
 };
+
+const MULTIAI_GEMINI_ENGINES = ['gemini', 'gemini:3.5-flash', 'gemini:3.1-pro', 'gemini:3.1-flash-lite', 'gemini:auto'];
+const MULTIAI_KNOWN_PROVIDERS = ['chatgpt', 'claude', 'gemini', 'perplexity'];
 
 // Attachments over this size are truncated before being folded into a prompt,
 // so one large file can't blow out the request to a provider.
@@ -51,6 +55,11 @@ function multiaiDefaultChat() {
         personaKeys: {},        // provider -> persona name picked in the assignment UI (chat.personas holds the resolved text sent to the backend).
         pendingContextRefs: [], // message ids queued via "Add as context", folded into the next outgoing prompt then cleared.
         agentConfig: { provider: '', root: '', maxTurns: 6 }, // Orchestrated "Agent (file tools)" strategy settings.
+        engines: {},            // provider -> engine string (e.g. gemini -> 'gemini:3.1-pro'); only Gemini honours it today.
+        contextWindow: 10,      // recent messages each participant sees verbatim; older ones are condensed (see multiai-core).
+        stopToken: 'DONE',      // convergence token; a round where everyone says it (or passes) ends the run early.
+        stopWhenAllAgree: true,
+        independentFirstRound: false, // round 1 of each Send runs in parallel, blind to the others' replies.
     };
 }
 
@@ -63,7 +72,7 @@ function multiaiDefaultChat() {
 // the ledger's R# filter key; the raw id itself is never shown as its own
 // column, per design.
 
-const MULTIAI_PROVIDER_CODE = { chatgpt: 'CG', claude: 'CL', gemini: 'GM', perplexity: 'PX' };
+const MULTIAI_PROVIDER_CODE = { chatgpt: 'CG', claude: 'CL', gemini: 'GM', perplexity: 'PX', codex: 'CX', 'claude-code': 'CC', human: 'US', external: 'EX' };
 
 function multiaiGenMsgId() {
     return 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -71,7 +80,8 @@ function multiaiGenMsgId() {
 
 function multiaiProviderCode(p) {
     if (!p) return '--';
-    return MULTIAI_PROVIDER_CODE[p] || String(p).slice(0, 2).toUpperCase();
+    const base = String(p).split(':')[0];
+    return MULTIAI_PROVIDER_CODE[base] || base.slice(0, 2).toUpperCase();
 }
 
 function multiaiRefLabel(msg) {
@@ -80,6 +90,8 @@ function multiaiRefLabel(msg) {
     let code;
     if (msg.role === 'user') code = 'US';
     else if (msg.role === 'judge') code = 'JD';
+    else if (msg.role === 'summary') code = 'SM';
+    else if (msg.role === 'system') code = 'SY';
     else if (msg.role === 'error') code = 'ER';
     else code = multiaiProviderCode(msg.provider);
     return `${String(c).padStart(2, '0')}${String(r).padStart(2, '0')}${code}`;
@@ -142,19 +154,28 @@ async function multiaiInit() {
     multiaiState.personas = personas || {};
 
     // Wire up live event streams from the main process.
+    // Every message the main process produces (turns, judge, summary, REST
+    // appends, system notes) arrives here, whichever chat is on screen. It is
+    // already persisted by main; we mirror it into memory and dedupe by id.
     agentHub.onMultiaiMessage(({ chatId, message }) => {
         const chat = multiaiFindChat(chatId);
-        if (chat) {
-            message.id = message.id || multiaiGenMsgId();
-            message.cycle = message.cycle || chat.cycle || 1;
-            chat.messages.push(message);
-            multiaiPersist();
-            if (chatId === multiaiState.currentChatId) {
-                multiaiAppendFeedItem(message);
-                multiaiRenderStatusLine(chat);
-                multiaiRenderLedger(chat);
-            }
+        if (!chat) return;
+        message.id = message.id || multiaiGenMsgId();
+        message.cycle = message.cycle || chat.cycle || 1;
+        if ((chat.messages || []).some(m => m.id === message.id)) return;
+        chat.messages = chat.messages || [];
+        chat.messages.push(message);
+        if (message.role === 'user' && (message.cycle || 0) > (chat.cycle || 0)) chat.cycle = message.cycle;
+        if (chatId === multiaiState.currentChatId) {
+            multiaiAppendFeedItem(message);
+            multiaiRenderStatusLine(chat);
+            multiaiRenderLedger(chat);
         }
+    });
+    agentHub.onMultiaiChatCreated(({ chat }) => {
+        if (!chat || multiaiFindChat(chat.id)) return;
+        multiaiState.data.projects[0].chats.push(chat);
+        multiaiRenderChatList();
     });
     agentHub.onMultiaiThinking(({ chatId, provider }) => {
         if (chatId === multiaiState.currentChatId) multiaiSetThinking(provider, true);
@@ -168,15 +189,18 @@ async function multiaiInit() {
             if (chat) multiaiRenderStatusLine(chat);
         }
     });
-    agentHub.onMultiaiDone(({ chatId }) => {
-        if (chatId === multiaiState.currentChatId) multiaiSetRunning(false);
-    });
+    agentHub.onMultiaiDone(({ chatId }) => multiaiSetRunning(chatId, false));
     agentHub.onMultiaiOrchStep((step) => {
         if (step.chatId === multiaiState.currentChatId) multiaiRenderOrchStep(step);
     });
-    agentHub.onMultiaiOrchDone(({ chatId }) => {
-        if (chatId === multiaiState.currentChatId) multiaiSetRunning(false);
-    });
+    agentHub.onMultiaiOrchDone(({ chatId }) => multiaiSetRunning(chatId, false));
+
+    // Runs started before this renderer loaded (or from the REST API) are
+    // still owned by the main process — pick up their state.
+    try {
+        const running = await agentHub.multiaiRunning();
+        (running || []).forEach(id => multiaiState.runningChats.add(id));
+    } catch { /* older main without the handler */ }
 
     if (!multiaiState.currentChatId) {
         const firstChat = multiaiState.data.projects[0]?.chats[0];
@@ -209,9 +233,29 @@ async function multiaiInit() {
 // whichever mode is active, and always reads the live Rounds field so a
 // submitted message runs the configured number of rounds, not just one.
 function multiaiSend() {
-    if (multiaiState.running) return;
+    const chat = multiaiCurrentChat();
+    if (chat && multiaiIsRunning(chat.id)) return;
     if (multiaiState.mode === 'classic') multiaiRunRound();
     else multiaiRunOrchestrated();
+}
+
+function multiaiIsRunning(chatId) {
+    return !!chatId && multiaiState.runningChats.has(chatId);
+}
+
+// Debounced persist for typed fields (crew instructions, workflow steps),
+// so each keystroke doesn't rewrite the store.
+let _multiaiPersistTimer = null;
+function multiaiPersistSoon() {
+    if (_multiaiPersistTimer) clearTimeout(_multiaiPersistTimer);
+    _multiaiPersistTimer = setTimeout(() => { _multiaiPersistTimer = null; multiaiPersist(); }, 400);
+}
+
+function multiaiLocalTitle(text, maxLen = 60) {
+    const words = String(text || '').replace(/(^|\s)@[\w-]+/g, ' ').replace(/^[\s,:;-]+/, '').replace(/[*#>`_\[\]]/g, '').split(/\s+/).filter(Boolean);
+    let name = words.slice(0, 8).join(' ') || 'New chat';
+    if (name.length > maxLen) name = name.slice(0, maxLen - 1).trimEnd() + '…';
+    return name;
 }
 
 function multiaiFindChat(chatId) {
@@ -385,7 +429,7 @@ function multiaiRenderChatList() {
                  style="display: flex; align-items: center; gap: 4px; padding: 9px 10px 9px 22px; font-size: 0.83rem; background: ${c.id === multiaiState.currentChatId ? 'rgba(255,255,255,0.06)' : 'transparent'};">
                 <span onclick="multiaiOpenChat('${c.id}')"
                     style="flex: 1; min-width: 0; cursor: pointer; color: ${c.id === multiaiState.currentChatId ? '#fff' : '#9ca3af'}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                    ${c.mode === 'orchestrated' ? '🧩' : '💬'} ${multiaiEscape(c.title || 'Untitled')}
+                    ${multiaiIsRunning(c.id) ? '<span title="Running" style="color:#34d399;">●</span> ' : ''}${c.mode === 'orchestrated' ? '🧩' : '💬'} ${multiaiEscape(c.title || 'Untitled')}
                 </span>
                 <span class="multiai-chat-actions" style="display: flex; gap: 2px; flex-shrink: 0;">
                     <button onclick="event.stopPropagation(); multiaiRenameChat('${c.id}')" title="Rename chat" style="background: none; border: none; color: #6b7280; cursor: pointer; font-size: 0.78rem; padding: 2px 4px;">✏</button>
@@ -420,10 +464,14 @@ function multiaiDeleteChat(chatId) {
     if (!chat) return;
     const ok = window.confirm(`Delete "${chat.title || 'this chat'}"? This can't be undone.`);
     if (!ok) return;
+    if (multiaiIsRunning(chatId)) agentHub.multiaiStopRun({ chatId });
     for (const project of multiaiState.data.projects) {
         const idx = project.chats.findIndex(c => c.id === chatId);
         if (idx !== -1) { project.chats.splice(idx, 1); break; }
     }
+    // Snapshot saves are upsert-only (so a stale snapshot can never wipe a
+    // chat); deletion is an explicit call.
+    agentHub.multiaiDeleteChat({ chatId });
     multiaiPersist();
     if (chatId === multiaiState.currentChatId) {
         const remaining = multiaiState.data.projects.flatMap(p => p.chats).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -481,14 +529,33 @@ function multiaiPickTitleProvider(chat) {
     return candidates[0];
 }
 
-async function multiaiMaybeAutoTitle(chat, firstPrompt) {
+// Titles are local and free by default (first words of the first message —
+// what the old ProximaChatApp did). An AI title is on demand via the ✨
+// button: it costs a provider round trip and used to fire on every first
+// send, into the provider's shared thread, while round 1 was queued behind it.
+function multiaiMaybeAutoTitle(chat, firstPrompt) {
     if (!chat || chat.titleGenerated) return;
     chat.titleGenerated = true;
-    const provider = multiaiPickTitleProvider(chat);
+    if (chat.title === 'New chat' || !chat.title) {
+        chat.title = multiaiLocalTitle(firstPrompt);
+        multiaiPersist();
+        multiaiRenderChatList();
+        if (chat.id === multiaiState.currentChatId) document.getElementById('multiai-chat-title').textContent = chat.title;
+    }
+}
+
+async function multiaiAiTitle() {
+    const chat = multiaiCurrentChat();
+    if (!chat) return;
+    const firstUser = (chat.messages || []).find(m => m.role === 'user');
+    const firstPrompt = (firstUser && firstUser.text) || chat.topic;
+    if (!firstPrompt) { showToast('Send a message first.'); return; }
+    const provider = document.getElementById('multiai-judge-provider')?.value || multiaiPickTitleProvider(chat);
     if (!provider) return;
-    const prompt = `Reply with ONLY a short descriptive title (max 6 words, no quotes, no trailing punctuation) for a conversation that begins with this message:\n\n"${firstPrompt}"`;
+    showToast(`Asking ${multiaiProviderLabel(provider)} for a title…`);
+    const prompt = `Reply with ONLY a short descriptive title (max 6 words, no quotes, no trailing punctuation) for a conversation that begins with this message:\n\n"${firstPrompt.slice(0, 1500)}"`;
     try {
-        const result = await agentHub.multiaiGenerateTitle({ provider, prompt });
+        const result = await agentHub.multiaiGenerateTitle({ chatId: chat.id, provider, prompt });
         if (result && result.success && result.title) {
             let title = result.title.trim().replace(/^["'“”]+|["'“”]+$/g, '').replace(/[.!?]+$/, '');
             if (title.length > 60) title = title.slice(0, 60);
@@ -502,7 +569,7 @@ async function multiaiMaybeAutoTitle(chat, firstPrompt) {
             }
         }
     } catch (e) {
-        // Silent — the interim truncated-topic title set at send time stands.
+        showToast('Could not generate a title.');
     }
 }
 
@@ -638,7 +705,11 @@ function multiaiRenderOptionsSummary(chat) {
     if (multiaiState.mode === 'classic') {
         const n = (chat.participants || []).length;
         const rounds = chat.rounds || 1;
-        el.textContent = `⚙ ${n} participant${n === 1 ? '' : 's'} · ${chat.discussMode === 'debate' ? 'Debate' : 'Discuss'} · ${rounds} round${rounds === 1 ? '' : 's'} · ${chat.brevity || 'max 4 sentences'}`;
+        const extras = [];
+        if (chat.independentFirstRound) extras.push('blind R1');
+        if (chat.stopWhenAllAgree !== false) extras.push(`stop on ${chat.stopToken || 'DONE'}`);
+        if (chat.engines && chat.engines.gemini && chat.engines.gemini !== 'gemini') extras.push(chat.engines.gemini);
+        el.textContent = `⚙ ${n} participant${n === 1 ? '' : 's'} · ${chat.discussMode === 'debate' ? 'Debate' : 'Discuss'} · ${rounds} round${rounds === 1 ? '' : 's'} · ${chat.brevity || 'max 4 sentences'}${extras.length ? ' · ' + extras.join(' · ') : ''}`;
     } else {
         const strategy = chat.strategy || 'crew';
         let label = 'Crew';
@@ -676,7 +747,15 @@ function multiaiRenderChat() {
     document.getElementById('multiai-brevity').value = chat.brevity || 'max 4 sentences';
     document.getElementById('multiai-strategy').value = chat.strategy || 'crew';
     const judgeScopeEl = document.getElementById('multiai-judge-scope');
-    if (judgeScopeEl) judgeScopeEl.value = chat.judgeScope || 'all';
+    if (judgeScopeEl) judgeScopeEl.value = (chat.judgeScope === 'last') ? 'round' : (chat.judgeScope || 'all');
+    const cw = document.getElementById('multiai-context-window');
+    if (cw) cw.value = chat.contextWindow != null ? chat.contextWindow : 10;
+    const st = document.getElementById('multiai-stop-token');
+    if (st) st.value = chat.stopToken || 'DONE';
+    const sa = document.getElementById('multiai-stop-when-agree');
+    if (sa) sa.checked = chat.stopWhenAllAgree !== false;
+    const ind = document.getElementById('multiai-independent-first');
+    if (ind) ind.checked = !!chat.independentFirstRound;
 
     multiaiRenderParticipants(chat);
     multiaiRenderPersonaAssignment(chat);
@@ -688,7 +767,7 @@ function multiaiRenderChat() {
     multiaiRenderOptionsSummary(chat);
     multiaiApplyOptionsState();
     multiaiApplyModeLock(chat);
-    multiaiSetRunning(false);
+    multiaiApplyRunningUi();
     multiaiState.pendingAttachments = [];
     multiaiRenderAttachmentsPreview();
     multiaiRenderContextPreview();
@@ -787,20 +866,37 @@ function multiaiRenderParticipants(chat) {
     const providers = multiaiState.enabledProviders.length
         ? multiaiState.enabledProviders
         : ['chatgpt', 'claude', 'gemini', 'perplexity'];
+    const engines = chat.engines || {};
     box.innerHTML = providers.map(p => {
         const checked = (chat.participants || []).includes(p);
+        // Only Gemini honours an engine choice in the provider layer today
+        // (ChatGPT/Claude/Perplexity ignore it), so only Gemini gets a picker.
+        const enginePicker = p === 'gemini' ? `
+                <select title="Gemini model" onchange="multiaiSetEngine('gemini', this.value)" onclick="event.stopPropagation()" style="margin-left: 4px; background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 2px 4px; font-size: 0.72rem;">
+                    ${MULTIAI_GEMINI_ENGINES.map(e => `<option value="${e}" ${(engines.gemini || 'gemini') === e ? 'selected' : ''}>${e === 'gemini' ? 'default' : e.split(':')[1]}</option>`).join('')}
+                </select>` : '';
         return `
             <label style="display: flex; align-items: center; gap: 6px; font-size: 0.82rem; color: #d1d5db; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 5px 10px; cursor: pointer;">
                 <input type="checkbox" ${checked ? 'checked' : ''} onchange="multiaiToggleParticipant('${p}', this.checked)">
-                ${multiaiProviderLabel(p)}
+                ${multiaiProviderLabel(p)}${enginePicker}
             </label>
         `;
     }).join('');
 }
 
+function multiaiSetEngine(provider, engine) {
+    const chat = multiaiCurrentChat();
+    if (!chat) return;
+    chat.engines = chat.engines || {};
+    if (!engine || engine === provider) delete chat.engines[provider]; else chat.engines[provider] = engine;
+    multiaiPersist();
+    multiaiRenderOptionsSummary(chat);
+}
+
 function multiaiProviderLabel(p) {
-    const names = { chatgpt: 'ChatGPT', claude: 'Claude', gemini: 'Gemini', perplexity: 'Perplexity' };
-    return names[p] || p;
+    const names = { chatgpt: 'ChatGPT', claude: 'Claude', gemini: 'Gemini', perplexity: 'Perplexity', codex: 'Codex', 'claude-code': 'Claude Code', human: 'You', external: 'External' };
+    const base = String(p || '').split(':')[0];
+    return names[base] || base;
 }
 
 function multiaiToggleParticipant(provider, on) {
@@ -879,9 +975,7 @@ function multiaiRenderJudgeOptions(chat) {
 function multiaiOnClassicFieldChange() {
     const chat = multiaiCurrentChat();
     if (!chat) return;
-    chat.discussMode = document.getElementById('multiai-discuss-mode').value;
-    chat.rounds = parseInt(document.getElementById('multiai-rounds').value, 10) || 1;
-    chat.brevity = document.getElementById('multiai-brevity').value;
+    multiaiReadClassicFields(chat);
     multiaiPersist();
     multiaiRenderOptionsSummary(chat);
 }
@@ -942,16 +1036,36 @@ function multiaiAppendFeedItem(message, skipScroll) {
     const isError = message.role === 'error';
     const isJudge = message.role === 'judge';
     const isUser = message.role === 'user';
+    const isSummary = message.role === 'summary';
+    const isPass = message.role === 'pass';
+    if (message.role === 'system') {
+        // Persisted note (converged / stopped / directed turn): compact, centered.
+        const note = document.createElement('div');
+        note.id = 'multiai-msg-' + message.id;
+        note.style.cssText = 'text-align: center; font-size: 0.72rem; color: #9ca3af; margin: 4px 0;';
+        note.textContent = message.text || '';
+        feed.appendChild(note);
+        if (!skipScroll) feed.scrollTop = feed.scrollHeight;
+        return;
+    }
     const item = document.createElement('div');
     item.id = 'multiai-msg-' + message.id;
     item.oncontextmenu = (e) => multiaiShowMsgMenu(e, message.id);
-    item.style.cssText = `border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px 14px; ${isError ? 'border-color: rgba(239,68,68,0.4); background: rgba(239,68,68,0.06);' : isJudge ? 'border-color: rgba(168,85,247,0.4); background: rgba(168,85,247,0.06);' : isUser ? 'border-color: rgba(99,102,241,0.35); background: rgba(99,102,241,0.08);' : 'background: rgba(255,255,255,0.03);'}`;
+    const border = isError ? 'border-color: rgba(239,68,68,0.4); background: rgba(239,68,68,0.06);'
+        : isJudge ? 'border-color: rgba(168,85,247,0.4); background: rgba(168,85,247,0.06);'
+        : isSummary ? 'border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.06);'
+        : isUser ? 'border-color: rgba(99,102,241,0.35); background: rgba(99,102,241,0.08);'
+        : isPass ? 'opacity: 0.55; background: rgba(255,255,255,0.02);'
+        : 'background: rgba(255,255,255,0.03);';
+    const color = isError ? '#f87171' : isJudge ? '#c084fc' : isSummary ? '#34d399' : isUser ? '#a5b4fc' : '#93c5fd';
+    item.style.cssText = `border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px 14px; ${border}`;
+    const attach = message.attachmentsText ? `<details style="margin-top: 6px; font-size: 0.76rem; color: #9ca3af;"><summary style="cursor: pointer;">📎 attached context (${message.attachmentsText.length.toLocaleString()} chars)</summary><pre style="white-space: pre-wrap; margin: 6px 0 0 0; font-family: inherit;">${multiaiEscape(message.attachmentsText)}</pre></details>` : '';
     item.innerHTML = `
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
-            <div style="font-size: 0.72rem; font-weight: 700; color: ${isError ? '#f87171' : isJudge ? '#c084fc' : isUser ? '#a5b4fc' : '#93c5fd'}; text-transform: uppercase; letter-spacing: 0.5px;">${multiaiEscape(message.who || message.provider || '')}</div>
+            <div style="font-size: 0.72rem; font-weight: 700; color: ${color}; text-transform: uppercase; letter-spacing: 0.5px;">${multiaiEscape(message.who || message.provider || '')}</div>
             <div title="Reference label — right-click this message for options" style="font-size: 0.62rem; color: #4b4b60; font-weight: 600; letter-spacing: 0.5px; flex-shrink: 0;">${multiaiRefLabel(message)}</div>
         </div>
-        <div style="font-size: 0.87rem; color: #e5e7eb; white-space: pre-wrap; line-height: 1.5;">${multiaiEscape(message.text || '')}</div>
+        <div style="font-size: 0.87rem; color: #e5e7eb; white-space: pre-wrap; line-height: 1.5;">${multiaiEscape(message.text || '')}</div>${attach}
     `;
     feed.appendChild(item);
     if (!skipScroll) feed.scrollTop = feed.scrollHeight;
@@ -978,7 +1092,19 @@ function multiaiEscape(s) {
     return div.innerHTML;
 }
 
-function multiaiSetRunning(on) {
+// Running state is per chat (the main process owns it); this updates the
+// set and, if that chat is on screen, the controls. Switching chats never
+// clears it — it used to, which let a second run start in the same thread.
+function multiaiSetRunning(chatId, on) {
+    if (!chatId) return;
+    if (on) multiaiState.runningChats.add(chatId); else multiaiState.runningChats.delete(chatId);
+    multiaiRenderChatList();
+    if (chatId === multiaiState.currentChatId) multiaiApplyRunningUi();
+}
+
+function multiaiApplyRunningUi() {
+    const chat = multiaiCurrentChat();
+    const on = !!(chat && multiaiIsRunning(chat.id));
     multiaiState.running = on;
     const runBtn = document.getElementById('multiai-run-btn');
     const stopBtn = document.getElementById('multiai-stop-btn');
@@ -1030,24 +1156,30 @@ async function multiaiRunRound() {
         return;
     }
     const isFirstMessage = !(chat.messages || []).length;
-    if (topic) chat.topic = topic;
-    chat.discussMode = document.getElementById('multiai-discuss-mode').value;
-    chat.rounds = parseInt(document.getElementById('multiai-rounds').value, 10) || 1;
-    chat.brevity = document.getElementById('multiai-brevity').value;
-    if (chat.title === 'New chat' && topic) chat.title = topic.slice(0, 60);
+    if (topic && !chat.topic) chat.topic = topic;   // the brief = first message; later sends are instructions
+    multiaiReadClassicFields(chat);
 
     chat.cycle = (chat.cycle || 0) + 1;
 
+    // Attachments and referenced messages ride along with the human message
+    // (kept verbatim while it's in the context window, condensed after).
+    const attachmentsBlock = multiaiConsumeAttachments(chat);
+    const contextBlock = multiaiConsumeContextRefs(chat);
+    const attachmentsText = (attachmentsBlock + contextBlock).trim();
+
     // Show what was actually sent, right away — inline in the feed and
     // ledger, the same as every participant's turn.
-    if (topic) {
+    if (topic || attachmentsText) {
         chat.messages = chat.messages || [];
-        const userMsg = { id: multiaiGenMsgId(), who: 'You', text: topic, role: 'user', ts: Date.now(), cycle: chat.cycle, round: 0 };
+        const userMsg = { id: multiaiGenMsgId(), who: 'You', text: topic || '(attachments only)', role: 'user', ts: Date.now(), cycle: chat.cycle, round: 0 };
+        if (attachmentsText) userMsg.attachmentsText = attachmentsText;
         chat.messages.push(userMsg);
         multiaiAppendFeedItem(userMsg);
         multiaiRenderLedger(chat);
     }
     topicEl.value = '';
+
+    if (isFirstMessage && topic) multiaiMaybeAutoTitle(chat, topic);
 
     multiaiPersist();
     multiaiRenderChatList();
@@ -1055,25 +1187,39 @@ async function multiaiRunRound() {
     multiaiRenderOptionsSummary(chat);
     multiaiApplyModeLock(chat);
 
-    if (isFirstMessage && topic) multiaiMaybeAutoTitle(chat, topic);
-
-    const attachmentsBlock = multiaiConsumeAttachments(chat);
-    const contextBlock = multiaiConsumeContextRefs(chat);
-
     multiaiState.currentRound = null;
     multiaiState.totalRounds = chat.rounds;
-    multiaiSetRunning(true);
-    await agentHub.multiaiRunRound({
-        chatId: chat.id,
-        topic: chat.topic + attachmentsBlock + contextBlock,
-        mode: chat.discussMode,
-        brevity: chat.brevity,
-        personas: chat.personas || {},
-        participants: chat.participants,
-        messages: chat.messages || [],
-        rounds: chat.rounds,
-    });
-    multiaiPersist();
+    multiaiSetRunning(chat.id, true);
+    try {
+        // The main process reads participants/mode/brevity/personas/engines/
+        // context settings from the store (persisted just above) and records
+        // every produced message itself; `latestText` is only for @mentions.
+        const result = await agentHub.multiaiRunRound({ chatId: chat.id, rounds: chat.rounds, latestText: topic });
+        if (result && result.success === false && result.error) showToast(result.error);
+    } catch (e) {
+        showToast('Run failed: ' + (e.message || e));
+    } finally {
+        multiaiSetRunning(chat.id, false);
+    }
+}
+
+// Reads every Classic option control into the chat (persisted by callers).
+function multiaiReadClassicFields(chat) {
+    chat.discussMode = document.getElementById('multiai-discuss-mode').value;
+    chat.rounds = parseInt(document.getElementById('multiai-rounds').value, 10) || 1;
+    chat.brevity = document.getElementById('multiai-brevity').value;
+    const cw = document.getElementById('multiai-context-window');
+    if (cw) chat.contextWindow = Math.max(0, parseInt(cw.value, 10) || 0);
+    const st = document.getElementById('multiai-stop-token');
+    if (st) chat.stopToken = (st.value || 'DONE').trim().split(/\s+/)[0] || 'DONE';
+    const sa = document.getElementById('multiai-stop-when-agree');
+    if (sa) chat.stopWhenAllAgree = !!sa.checked;
+    const ind = document.getElementById('multiai-independent-first');
+    if (ind) chat.independentFirstRound = !!ind.checked;
+    const js = document.getElementById('multiai-judge-scope');
+    if (js) chat.judgeScope = js.value;
+    const jp = document.getElementById('multiai-judge-provider');
+    if (jp && jp.value) chat.judgeProvider = jp.value;
 }
 
 async function multiaiJudge() {
@@ -1084,26 +1230,43 @@ async function multiaiJudge() {
         showToast('No provider available to judge.');
         return;
     }
+    if (multiaiIsRunning(chat.id)) { showToast('Wait for the current run to finish.'); return; }
     const scopeEl = document.getElementById('multiai-judge-scope');
     const scope = scopeEl ? scopeEl.value : 'all';
     chat.judgeProvider = judgeProvider;
     chat.judgeScope = scope;
     multiaiPersist();
 
-    let messages = chat.messages || [];
-    if (scope === 'last') {
-        const maxRound = messages.reduce((mx, m) => (m.round ? Math.max(mx, m.round) : mx), 0);
-        if (maxRound) messages = messages.filter(m => m.round === maxRound);
+    // Scope is resolved by the main process against (cycle, round) — "last
+    // round" used to match by round number alone, which picked messages from
+    // an earlier Send because rounds restart at 1 every cycle.
+    multiaiSetRunning(chat.id, true);
+    try {
+        const result = await agentHub.multiaiJudge({ chatId: chat.id, judgeProvider, scope });
+        if (result && result.success === false && result.error) showToast('Judge failed: ' + result.error);
+    } finally {
+        multiaiSetRunning(chat.id, false);
     }
+}
 
-    multiaiSetRunning(true);
-    await agentHub.multiaiJudge({
-        chatId: chat.id,
-        topic: chat.topic,
-        messages,
-        judgeProvider,
-    });
-    multiaiPersist();
+// Pinned state summary: asks the judge provider for DECISIONS / OPEN
+// QUESTIONS / CLAIMS TO VERIFY / NEXT STEP, stores it as a 'summary' message,
+// and from then on every participant's prompt starts from it instead of the
+// older transcript — the answer to "what is the state of the discussion".
+async function multiaiSummarize() {
+    const chat = multiaiCurrentChat();
+    if (!chat) return;
+    if (!(chat.messages || []).some(m => m.role === 'assistant')) { showToast('Nothing to summarize yet.'); return; }
+    if (multiaiIsRunning(chat.id)) { showToast('Wait for the current run to finish.'); return; }
+    const provider = document.getElementById('multiai-judge-provider')?.value;
+    if (!provider) { showToast('No provider available to summarize.'); return; }
+    multiaiSetRunning(chat.id, true);
+    try {
+        const result = await agentHub.multiaiSummarize({ chatId: chat.id, provider });
+        if (result && result.success === false && result.error) showToast('Summary failed: ' + result.error);
+    } finally {
+        multiaiSetRunning(chat.id, false);
+    }
 }
 
 function multiaiOpenPersonasFolder() {
@@ -1211,11 +1374,14 @@ function multiaiConsumeAttachments(chat) {
 async function multiaiExportMd() {
     const chat = multiaiCurrentChat();
     if (!chat) return;
-    const lines = [`# ${chat.title || 'Multi-AI Chat'}`, '', `Mode: ${chat.mode}`, `Created: ${new Date(chat.createdAt || Date.now()).toLocaleString()}`, ''];
+    const lines = [`# ${chat.title || 'Multi-AI Chat'}`, '', `Mode: ${chat.mode}`, `Created: ${new Date(chat.createdAt || Date.now()).toLocaleString()}`,
+        `Participants: ${(chat.participants || []).map(multiaiProviderLabel).join(', ') || '—'}`, ''];
     (chat.messages || []).forEach(m => {
         const time = m.ts ? new Date(m.ts).toLocaleString() : '';
-        const heading = `${m.who || m.provider || 'Message'}${m.round ? ` (Round ${m.round})` : ''}${time ? ' — ' + time : ''}`;
+        if (m.role === 'system') { lines.push(`> _${m.text || ''}_`, ''); return; }
+        const heading = `${m.who || m.provider || 'Message'}  ·  ${multiaiRefLabel(m)}${time ? '  ·  ' + time : ''}`;
         lines.push(`## ${heading}`, '', m.text || '', '');
+        if (m.attachmentsText) lines.push('<details><summary>Attached context</summary>', '', m.attachmentsText, '', '</details>', '');
     });
     const markdown = lines.join('\n');
     const result = await agentHub.multiaiExport({ title: chat.title, markdown });
@@ -1328,7 +1494,7 @@ function multiaiPersistWorkflowSteps(value) {
     const chat = multiaiCurrentChat();
     if (!chat) return;
     chat.workflowStepsText = value;
-    multiaiPersist();
+    multiaiPersistSoon();
 }
 
 function multiaiPersistLoopConfig() {
@@ -1398,7 +1564,7 @@ function multiaiCrewUpdateField(index, field, value) {
     const chat = multiaiCurrentChat();
     if (!chat || !chat.crewAgents || !chat.crewAgents[index]) return;
     chat.crewAgents[index][field] = value;
-    multiaiPersist();
+    multiaiPersistSoon();
 }
 
 function multiaiCrewAddRole() {
@@ -1428,31 +1594,32 @@ async function multiaiRunOrchestrated() {
         showToast('Describe the task first.');
         return;
     }
+    if (multiaiIsRunning(chat.id)) { showToast('A run is already in progress for this chat.'); return; }
     const isFirstMessage = !(chat.messages || []).length;
-    if (chat.title === 'New chat') chat.title = task.slice(0, 60);
-    chat.topic = task;
+    if (!chat.topic) chat.topic = task;
     const strategy = document.getElementById('multiai-strategy').value;
     chat.strategy = strategy;
 
     chat.cycle = (chat.cycle || 0) + 1;
-    multiaiState.orchStepCounter = 0;
 
+    const attachmentsBlock = multiaiConsumeAttachments(chat);
+    const contextBlock = multiaiConsumeContextRefs(chat);
+    const attachmentsText = (attachmentsBlock + contextBlock).trim();
     chat.messages = chat.messages || [];
     const userMsg = { id: multiaiGenMsgId(), who: 'You', text: task, role: 'user', ts: Date.now(), cycle: chat.cycle, round: 0 };
+    if (attachmentsText) userMsg.attachmentsText = attachmentsText;
     chat.messages.push(userMsg);
     multiaiAppendFeedItem(userMsg);
     multiaiRenderLedger(chat);
     topicEl.value = '';
+
+    if (isFirstMessage) multiaiMaybeAutoTitle(chat, task);
 
     multiaiPersist();
     multiaiRenderChatList();
     document.getElementById('multiai-chat-title').textContent = chat.title;
     multiaiApplyModeLock(chat);
 
-    if (isFirstMessage) multiaiMaybeAutoTitle(chat, task);
-
-    const attachmentsBlock = multiaiConsumeAttachments(chat);
-    const contextBlock = multiaiConsumeContextRefs(chat);
     const effectiveTask = task + attachmentsBlock + contextBlock;
     const opts = { chatId: chat.id, strategy };
 
@@ -1463,10 +1630,12 @@ async function multiaiRunOrchestrated() {
         const raw = (document.getElementById('multiai-workflow-steps')?.value || '').trim();
         chat.workflowStepsText = document.getElementById('multiai-workflow-steps')?.value || '';
         multiaiPersist();
+        // "provider: task" only when the prefix is a real provider name —
+        // "Summarize: the key points" is a task for the default provider.
         const steps = raw.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
-            const m = line.match(/^([a-z]*)\s*:\s*(.+)$/i);
-            if (m && m[1]) return { provider: m[1].toLowerCase(), task: m[2] };
-            return { task: m ? m[2] : line };
+            const m = line.match(/^([a-z][\w-]*(?::[\w.-]+)?)\s*:\s*(.+)$/i);
+            if (m && MULTIAI_KNOWN_PROVIDERS.includes(m[1].toLowerCase().split(':')[0])) return { provider: m[1].toLowerCase(), task: m[2].trim() };
+            return { task: line };
         });
         if (!steps.length) { showToast('Add at least one workflow step.'); return; }
         opts.input = effectiveTask;
@@ -1489,72 +1658,36 @@ async function multiaiRunOrchestrated() {
     }
 
     multiaiAppendSystemNote(`Running ${strategy}…`);
-    multiaiSetRunning(true);
-    const result = await agentHub.multiaiRunOrchestrated(opts);
-    multiaiSetRunning(false);
+    multiaiSetRunning(chat.id, true);
+    let result;
+    try {
+        result = await agentHub.multiaiRunOrchestrated(opts);
+    } catch (e) {
+        result = { success: false, error: e.message || String(e) };
+    } finally {
+        multiaiSetRunning(chat.id, false);
+    }
 
     if (!result || result.success === false) {
         multiaiAppendFeedItem({ id: multiaiGenMsgId(), who: 'Orchestration error', text: (result && result.error) || 'Unknown error', role: 'error', cycle: chat.cycle, round: 0 });
     }
-    // Each step's own 'done'/'error'/'cancelled' event already persisted and
-    // rendered its message via multiaiRenderOrchStep, so the final step IS
-    // the result — no separate "Result · strategy" message needed here.
+    // Every step's output/error is recorded by the main process and arrives
+    // through onMultiaiMessage (for whichever chat it belongs to), so a run
+    // in a background chat is no longer lost when you switch away.
 }
 
-// Orchestrated steps now persist into chat.messages/the ledger too, not
-// just the final output — so a crew/workflow/loop run leaves a full,
-// filterable, referenceable trail like Classic mode does. Round numbering
-// reuses the step's own index when the backend provides one (workflow's
-// step, loop's turn); crew doesn't emit an index, so a per-run counter
-// fills in, giving 1, 2, 3... in the order roles actually ran.
+// Orchestrated progress: only the transient "running…" notes are rendered
+// here; the step results themselves are persisted messages from main.
 function multiaiRenderOrchStep(step) {
-    const label = step.role
+    if (step.status !== 'running') return;
+    const label = step.label || (step.role
         ? `${step.role}${step.provider ? ' · ' + multiaiProviderLabel(step.provider) : ''}`
         : step.step
             ? `Step ${step.step}${step.provider ? ' · ' + multiaiProviderLabel(step.provider) : ''}`
             : step.turn
                 ? `Turn ${step.turn}${step.phase ? ' · ' + step.phase : ''}`
-                : 'Step';
-
-    if (step.status === 'running') {
-        multiaiAppendSystemNote(`${label} — running…`);
-        return;
-    }
-
-    let role = 'assistant';
-    let text;
-    if (step.status === 'done') {
-        text = step.output || step.feedback || '(done)';
-    } else if (step.status === 'cancelled') {
-        text = 'Stopped before this step finished.';
-        role = 'error';
-    } else if (step.status === 'error') {
-        text = step.error || 'Error';
-        role = 'error';
-    } else {
-        return;
-    }
-
-    const chat = multiaiCurrentChat();
-    multiaiState.orchStepCounter = (multiaiState.orchStepCounter || 0) + 1;
-    const roundNum = step.step || step.turn || multiaiState.orchStepCounter;
-    const msg = {
-        id: multiaiGenMsgId(),
-        who: label,
-        text,
-        role,
-        provider: step.provider,
-        ts: Date.now(),
-        cycle: chat ? (chat.cycle || 1) : 1,
-        round: roundNum,
-    };
-    if (chat) {
-        chat.messages = chat.messages || [];
-        chat.messages.push(msg);
-        multiaiPersist();
-        multiaiRenderLedger(chat);
-    }
-    multiaiAppendFeedItem(msg);
+                : 'Step');
+    multiaiAppendSystemNote(`${label} — running…`);
 }
 
 // ---- Help modal -----------------------------------------------------------
