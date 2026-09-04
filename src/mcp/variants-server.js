@@ -59,8 +59,11 @@ function toolError(err) {
 }
 
 export function createServer(backend = createBackend()) {
-    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-    const server = new McpServer({ name: 'proxima-variants', version: pkg.version || '0.0.0' });
+    // package.json is inside the asar in the installed app (only src/, cli/,
+    // the CLI modules and node_modules are unpacked), so the version is best-effort.
+    let version = '0.0.0';
+    try { version = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version || version; } catch { /* packaged */ }
+    const server = new McpServer({ name: 'proxima-variants', version });
     registerCliTools(server, { z, toolResponse, toolError, ipcClient: null, variantsBackend: backend });
     return server;
 }
