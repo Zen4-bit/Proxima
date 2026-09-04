@@ -262,15 +262,17 @@ function codexEffortFor(model, effort) {
 
 // ---- concurrency ----------------------------------------------------------
 
-const _running = { claude: 0, codex: 0 };
-const _waiters = { claude: [], codex: [] };
+const _running = {};
+const _waiters = {};
 
 function acquire(kind) {
+    if (_running[kind] === undefined) { _running[kind] = 0; _waiters[kind] = []; }
     if (_running[kind] < (MAX_PARALLEL[kind] || 2)) { _running[kind]++; return Promise.resolve(); }
     return new Promise(res => _waiters[kind].push(res)).then(() => { _running[kind]++; });
 }
 
 function release(kind) {
+    if (_running[kind] === undefined) return;
     _running[kind] = Math.max(0, _running[kind] - 1);
     const next = _waiters[kind].shift();
     if (next) next();
@@ -425,10 +427,17 @@ function runGemini({ model, prompt, systemPrompt, cwd, timeoutMs }) {
     const promise = run.promise.then(({ code, stdout, stderr }) => {
         const text = stdout.trim();
         let parsed = null;
-        const i = text.indexOf('{');
-        if (i !== -1) { try { parsed = JSON.parse(text.slice(i)); } catch { /* not JSON */ } }
+        // The JSON envelope may be preceded by warnings, and on failure it can
+        // land on stderr instead of stdout.
+        for (const src of [text, stderr.trim()]) {
+            const i = src.indexOf('{');
+            if (i !== -1) { try { parsed = JSON.parse(src.slice(i)); break; } catch { /* not JSON */ } }
+        }
         if (parsed && typeof parsed === 'object') {
-            if (parsed.error) throw new Error(`Gemini CLI: ${parsed.error.message || parsed.error.type || 'error'}`);
+            if (parsed.error) {
+                const msg = parsed.error.message || parsed.error.type || 'error';
+                throw new Error(`Gemini CLI: ${/auth method/i.test(msg) ? 'not logged in — run `gemini` once and choose a login method (Google account or API key)' : msg}`);
+            }
             const response = typeof parsed.response === 'string' ? parsed.response : '';
             if (!response.trim()) throw new Error('Gemini CLI returned no text');
             return { text: response, model: (parsed.stats && parsed.stats.models && Object.keys(parsed.stats.models)[0]) || model || null };

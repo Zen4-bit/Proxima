@@ -1011,10 +1011,76 @@ function registerMultiAiHandlers(deps) {
         return (messages || []).map(x => Object.assign({ label: core.refLabel(x) }, x));
     }
 
+    // ---- Variants: the library's CLI agents + what the CLIs offer ----------
+    // A "variant" is a model × effort seat on a local CLI. The library rows
+    // on CLI routes are the named ones; anything the CLI lists can be used
+    // ad hoc as provider + model + effort.
+
+    const ONE_SHOT_SYSTEM_PROMPT =
+        'You are answering one question from another program through a local CLI. You have no tools and no filesystem; ' +
+        'reply in plain text (light Markdown is fine). Answer directly and completely; do not narrate what you would do with tools.';
+
+    function agentLibrary() {
+        const data = store.load();
+        const lib = data && data.uiPrefs && Array.isArray(data.uiPrefs.agentLibrary) ? data.uiPrefs.agentLibrary : [];
+        return core.normalizeAgents({ agents: lib.map(a => Object.assign({}, a, { enabled: true })) }, { includeDisabled: true })
+            .map((a, i) => Object.assign(a, { uid: lib[i] && lib[i].uid }));
+    }
+
+    async function variants({ probe = false } = {}) {
+        const info = await cli.discover({ force: probe });
+        const library = agentLibrary().filter(a => core.CLI_PROVIDERS[a.provider]).map(a => ({
+            id: a.id, name: a.name, provider: a.provider, model: a.model || '', effort: a.effort || '', persona: a.persona ? true : false,
+        }));
+        return { cli: info, library };
+    }
+
+    // Resolve { variant | provider, model, effort } to a runnable CLI seat.
+    function resolveVariant(body) {
+        body = body || {};
+        let agent = null;
+        if (body.variant) {
+            const lib = agentLibrary().filter(a => core.CLI_PROVIDERS[a.provider]);
+            agent = core.findAgent(lib, String(body.variant));
+            if (!agent) {
+                // "opus:max" / "sonnet:low" shorthand → Claude Code; "gpt-5.5:high" → Codex
+                const m = /^([a-z0-9.\-\[\]]+)(?::([a-z]+))?$/i.exec(String(body.variant).trim());
+                if (m) {
+                    const provider = /^gpt|^o\d|codex/i.test(m[1]) ? 'codex-cli' : (/^gemini/i.test(m[1]) ? 'gemini-cli' : 'claude-cli');
+                    agent = core.normalizeAgents({ agents: [{ provider, model: m[1], effort: m[2] || '' }] })[0];
+                } else throw apiError(404, `Unknown variant "${body.variant}" — see cli_variants`);
+            }
+        } else {
+            const provider = String(body.provider || 'claude-cli');
+            if (!core.CLI_PROVIDERS[provider]) throw apiError(400, `provider must be one of ${Object.keys(core.CLI_PROVIDERS).join(', ')}`);
+            agent = core.normalizeAgents({ agents: [{ provider, model: body.model || '', effort: body.effort || '' }] })[0];
+        }
+        if (body.model) agent.model = String(body.model);
+        if (body.effort !== undefined && body.effort !== null && body.effort !== '') agent.effort = String(body.effort);
+        return agent;
+    }
+
+    async function askVariant(body) {
+        const agent = resolveVariant(body);
+        const message = String((body && body.message) || '').trim();
+        if (!message) throw apiError(400, 'message is required');
+        const avail = cli.availability();
+        const kind = core.CLI_PROVIDERS[agent.provider].bin;
+        if (!avail[kind]) throw apiError(503, `${core.providerLabel(agent.provider)} is not installed (no \`${kind}\` on PATH)`);
+        const system = [body.system || ONE_SHOT_SYSTEM_PROMPT, agent.persona ? `\n[Persona]\n${agent.persona}` : ''].join('');
+        const started = Date.now();
+        const handle = cli.run(agent.provider, { model: agent.model || undefined, effort: agent.effort || undefined, prompt: message, systemPrompt: system, cwd: dataDir(), timeoutMs: Math.max(30000, Math.min(20 * 60 * 1000, Number(body.timeoutMs) || 10 * 60 * 1000)) });
+        const r = await handle.promise;
+        return { variant: agent.name, id: agent.id, provider: agent.provider, model: r.model || agent.model || null, effort: agent.effort || null, text: r.text, ms: Date.now() - started, costUsd: r.costUsd || null };
+    }
+
     const api = {
         running() { return Array.from(runSignals.keys()); },
 
         listChats() { return store.listChats(); },
+
+        variants,
+        askVariant,
 
         createChat(body) {
             body = body || {};

@@ -88,7 +88,7 @@ const { registerMultiAiHandlers } = require('../../../electron/ipc/multiai.cjs')
 Module._load = origLoad;
 
 const routeExtensions = [];
-registerMultiAiHandlers({
+const multiaiApi = registerMultiAiHandlers({
     mainWindow: () => ({ isDestroyed: () => false, webContents: { send: (ch, p) => sent.push({ ch, p }) } }),
     loadSettings: () => ({ providers: { chatgpt: { enabled: true }, claude: { enabled: true }, gemini: { enabled: true }, perplexity: { enabled: false } } }),
     registerRouteExtension: (fn) => routeExtensions.push(fn),
@@ -611,4 +611,37 @@ test('legacy participants still work and judge can be an agent id', async () => 
     await invoke('multiai-judge', { chatId: chat.id, judgeProvider: 'claude', scope: 'all' });
     const j = messagesOf(chat.id).find(m => m.role === 'judge');
     assert.ok(j && j.who === 'Judge · Claude');
+});
+
+test('variants: library CLI agents + discovery; askVariant resolves names, shorthand and overrides, and runs one-shot through the CLI', async () => {
+    cliCalls.length = 0;
+    cliReplyFn = async (p, o) => `${p} ${o.model || 'default'}/${o.effort || 'none'}`;
+    // seed a library with one CLI agent and one browser agent
+    const data = store.load();
+    data.uiPrefs = { agentLibrary: [
+        { uid: 'u1', name: 'Opus max', provider: 'claude-cli', model: 'opus', effort: 'max', persona: 'Be terse.' },
+        { uid: 'u2', name: 'Claude tab', provider: 'claude', route: 'browser' },
+    ] };
+    store.save(data);
+    const v = await multiaiApi.variants();
+    assert.deepEqual(v.library.map(x => [x.id, x.provider, x.model, x.effort, x.persona]), [['opus-max', 'claude-cli', 'opus', 'max', true]], 'only CLI agents are variants');
+    assert.equal(v.cli.codex.version, '0.142.5');
+
+    const byName = await multiaiApi.askVariant({ variant: 'Opus max', message: 'hi' });
+    assert.deepEqual([byName.variant, byName.provider, byName.model, byName.effort], ['Opus max', 'claude-cli', 'opus', 'max']);
+    assert.ok(cliCalls[0].opts.systemPrompt.includes('[Persona]') && cliCalls[0].opts.systemPrompt.includes('Be terse.'), 'the library persona rides along as system prompt');
+    assert.equal(cliCalls[0].opts.prompt, 'hi');
+
+    const short = await multiaiApi.askVariant({ variant: 'gpt-5.5:high', message: 'hi' });
+    assert.deepEqual([short.provider, short.model, short.effort], ['codex-cli', 'gpt-5.5', 'high'], 'gpt* shorthand → Codex');
+    await assert.rejects(multiaiApi.askVariant({ variant: 'gemini-3.1-pro', message: 'hi' }), /Gemini CLI is not installed/, 'gemini* shorthand → Gemini CLI, which this harness reports as absent');
+    const over = await multiaiApi.askVariant({ variant: 'sonnet:low', effort: 'xhigh', system: 'Custom system.', message: 'hi' });
+    assert.deepEqual([over.provider, over.model, over.effort], ['claude-cli', 'sonnet', 'xhigh'], 'explicit effort overrides the shorthand');
+    assert.ok(cliCalls[cliCalls.length - 1].opts.systemPrompt.startsWith('Custom system.'));
+    const plain = await multiaiApi.askVariant({ provider: 'codex-cli', model: 'gpt-5.4', message: 'hi' });
+    assert.equal(plain.model, 'gpt-5.4');
+
+    await assert.rejects(multiaiApi.askVariant({ variant: 'nope such thing', message: 'hi' }), /Unknown variant/);
+    await assert.rejects(multiaiApi.askVariant({ provider: 'chatgpt', message: 'hi' }), /provider must be/);
+    await assert.rejects(multiaiApi.askVariant({ variant: 'opus', message: '' }), /message is required/);
 });

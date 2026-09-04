@@ -43,6 +43,7 @@ import { register as registerContentTools } from './tools-content.js';
 import { register as registerUtilityTools } from './tools-utility.js';
 import { register as registerWorkflowTools } from './tools-workflow.js';
 import { register as registerMultiAiTools } from './tools-multiai.js';
+import { register as registerCliTools } from './tools-cli.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -246,8 +247,9 @@ registerContentTools(server, deps);
 registerUtilityTools(server, deps);
 registerWorkflowTools(server, deps);
 registerMultiAiTools(server, deps);
+registerCliTools(server, deps);
 
-console.error(`[MCP] 47 tools registered across 7 modules`);
+console.error(`[MCP] 50 tools registered across 8 modules`);
 
 server.resource(
     'status', 'proxima://status',

@@ -229,3 +229,21 @@ Agent Hub IPC bridge, so they work even with the REST API disabled:
 Typical local-agent loop: `multiai_read_chat` → do the verifiable work →
 `multiai_post_message` with `VERIFIED [how/path]` → `multiai_run_round` →
 `multiai_wait_for_run` → repeat.
+
+## MCP tools for local CLI variants
+
+Three more tools on the same server (`src/mcp/tools-cli.js`) expose the CLI
+route directly, so any MCP client can ask a model × effort seat on your
+subscriptions without an API key or a chat:
+
+| Tool | What it does |
+|---|---|
+| `cli_variants {probe?}` | What the installed CLIs offer (versions, models, effort levels, defaults, login state — the discovery above) plus the named variants in the agent library |
+| `ask_variant {message, variant? \| provider?+model?+effort?, system?, timeoutSeconds?}` | One question through one CLI seat. `variant` is a library agent's name/id or shorthand `model[:effort]` — `opus:max`, `sonnet:low` (Claude Code), `gpt-5.5:high` (Codex), `gemini-3.1-pro` (Gemini CLI). A library agent's persona rides along as the system prompt. |
+| `ask_variants {message, variants[], …}` | The same question to up to 8 variants in parallel (each CLI's concurrency cap applies), answers side by side; a failing variant is reported, the rest still return |
+
+They go through the Agent Hub IPC bridge (`multiaiVariants`, `multiaiAskVariant`),
+so the app must be running; that is what gives them the app's discovery cache,
+library and concurrency caps. Note that calling `ask_variant` *from* Claude Code
+runs Claude Code inside Claude Code — allowed, but both turns count against the
+same subscription window.

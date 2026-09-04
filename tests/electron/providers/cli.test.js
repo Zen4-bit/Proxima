@@ -90,3 +90,10 @@ test('run: unknown provider rejects; gemini-cli is a known kind', async () => {
     assert.equal(cli.KINDS['gemini-cli'], 'gemini');
     assert.deepEqual(Object.keys(cli.availability()).sort(), ['claude', 'codex', 'gemini']);
 });
+
+test('runGemini: reaches the process layer for the gemini kind (concurrency slot exists) and reports a missing binary cleanly', async () => {
+    // With no `gemini` on PATH the spawn fails; the point is that it fails as a
+    // normal error, not a crash in the concurrency bookkeeping.
+    const h = cli.runGemini({ model: 'gemini-2.5-flash', prompt: 'hi', cwd: undefined, timeoutMs: 5000 });
+    await assert.rejects(h.promise, (e) => e instanceof Error);
+});

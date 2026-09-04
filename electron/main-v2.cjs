@@ -540,6 +540,8 @@ async function handleMCPRequest(request) {
                     case 'multiaiRun': return Object.assign({ success: true }, await multiaiApi.run(d.chatId, d));
                     case 'multiaiWait': return Object.assign({ success: true }, await multiaiApi.waitForRun(d.chatId, { since: d.since, maxMs: d.maxMs }));
                     case 'multiaiStop': return Object.assign({ success: true }, multiaiApi.stop(d.chatId));
+                    case 'multiaiVariants': return Object.assign({ success: true }, await multiaiApi.variants({ probe: !!d.probe }));
+                    case 'multiaiAskVariant': return Object.assign({ success: true }, await multiaiApi.askVariant(d));
                     default: return { success: false, error: `Unknown action: ${action}` };
                 }
             } catch (e) {
