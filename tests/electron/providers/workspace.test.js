@@ -115,3 +115,54 @@ test('commitAll: commits everything under the Proxima identity and reports files
     assert.ok(text.includes('```diff\n') && text.trimEnd().endsWith('```'));
     assert.equal(ws.describeChange('Writer', { committed: false }), null);
 });
+
+test('fresh start: a new chat branch is cut from the base branch, never from another chat\'s branch; inspect() says so up front', { skip: !gitOk && 'git not installed' }, async () => {
+    const root = repo();
+    // chat A works and leaves the folder on its branch with an extra file
+    assert.equal((await ws.prepare(root, 'multiai/chat-a')).ok, true);
+    fs.writeFileSync(path.join(root, 'a.txt'), 'from chat A\n');
+    assert.equal((await ws.commitAll(root, 'A [0101AA]')).committed, true);
+    assert.equal(await ws.currentBranch(root), 'multiai/chat-a');
+
+    // what chat B would see before running
+    const before = await ws.inspect(root, 'multiai/chat-b');
+    assert.deepEqual([before.ok, before.isRepo, before.branch, before.dirty, before.chatBranchExists, before.base], [true, true, 'multiai/chat-a', false, false, 'main']);
+    assert.equal(await ws.baseBranch(root), 'main');
+
+    // chat B starts from main: no a.txt
+    const r = await ws.prepare(root, 'multiai/chat-b');
+    assert.deepEqual([r.ok, r.created, r.from], [true, true, 'main']);
+    assert.equal(await ws.currentBranch(root), 'multiai/chat-b');
+    assert.equal(fs.existsSync(path.join(root, 'a.txt')), false, 'chat A\'s work is not carried over');
+    assert.equal(git(root, ['rev-parse', 'multiai/chat-b']), git(root, ['rev-parse', 'main']));
+
+    // a folder parked on a user branch (not multiai/*) is the base itself
+    git(root, ['checkout', '-q', '-b', 'feature-x', 'main']);
+    fs.writeFileSync(path.join(root, 'f.txt'), 'feature\n'); git(root, ['add', '-A']); git(root, ['commit', '-q', '-m', 'feature', '--no-verify']);
+    assert.equal(await ws.baseBranch(root), 'feature-x');
+    const c = await ws.prepare(root, 'multiai/chat-c');
+    assert.deepEqual([c.created, c.from], [true, 'feature-x']);
+    assert.ok(fs.existsSync(path.join(root, 'f.txt')));
+
+    // inspect: existing chat branch, dirty folder elsewhere → warning, no base needed
+    git(root, ['checkout', '-q', 'main']);
+    fs.writeFileSync(path.join(root, 'dirty.txt'), 'x\n');
+    const insp = await ws.inspect(root, 'multiai/chat-a');
+    assert.deepEqual([insp.branch, insp.dirty, insp.chatBranchExists, insp.base], ['main', true, true, null]);
+    assert.match(insp.warning, /Uncommitted changes on "main"/);
+    assert.equal((await ws.inspect(path.join(os.tmpdir(), 'nope-' + Date.now()), 'multiai/x')).exists, false);
+    const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'multiai-plain-'));
+    assert.deepEqual([(await ws.inspect(plain, 'multiai/x')).isRepo, (await ws.inspect(plain, 'multiai/x')).ok], [false, false]);
+});
+
+test('baseBranch: master and "first non-chat branch" fallbacks; a repo whose only branch is a chat branch', { skip: !gitOk && 'git not installed' }, async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'multiai-ws-'));
+    git(root, ['init', '-q']); git(root, ['checkout', '-q', '-b', 'master']);
+    fs.writeFileSync(path.join(root, 'README.md'), 'hi\n'); git(root, ['add', '-A']); git(root, ['commit', '-q', '-m', 'init', '--no-verify']);
+    git(root, ['checkout', '-q', '-b', 'multiai/old']);
+    assert.equal(await ws.baseBranch(root), 'master');
+    git(root, ['branch', '-m', 'master', 'trunk']);
+    assert.equal(await ws.baseBranch(root), 'trunk', 'no main/master → the first branch that is not a chat branch');
+    git(root, ['branch', '-D', 'trunk']);
+    assert.equal(await ws.baseBranch(root), 'multiai/old', 'nothing else exists → the current branch, rather than failing');
+});

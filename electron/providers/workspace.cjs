@@ -48,11 +48,52 @@ async function isDirty(root) {
     return r.ok && r.stdout.trim().length > 0;
 }
 
+const CHAT_BRANCH_RE = /^multiai\//;
+
+async function branchExists(root, name) {
+    return (await git(root, ['rev-parse', '--verify', '--quiet', `refs/heads/${name}`])).ok;
+}
+
+// The branch a *new* chat branch starts from — a fresh start every time:
+// the folder's own branch if it is on one (main, master, feature-x…), else,
+// when it is parked on another chat's multiai/* branch, the repo's base
+// branch: origin's default, then main, then master, then the first local
+// branch that is not a chat branch. Never another chat's branch.
+async function baseBranch(root) {
+    const cur = await currentBranch(root);
+    if (cur && cur !== 'HEAD' && !CHAT_BRANCH_RE.test(cur)) return cur;
+    const origin = await git(root, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
+    if (origin.ok) {
+        const name = origin.stdout.trim().replace(/^origin\//, '');
+        if (name && await branchExists(root, name)) return name;
+    }
+    for (const name of ['main', 'master']) if (await branchExists(root, name)) return name;
+    const list = await git(root, ['for-each-ref', '--format=%(refname:short)', '--sort=-committerdate', 'refs/heads/']);
+    const first = list.ok ? list.stdout.split(/\r?\n/).map(x => x.trim()).filter(x => x && !CHAT_BRANCH_RE.test(x))[0] : null;
+    return first || cur || 'HEAD';
+}
+
+// What the Workspace tab shows before any run: is it a repo, where is it,
+// is it clean, and where would this chat's branch start.
+async function inspect(root, branch) {
+    if (!root) return { ok: false, error: 'No workspace folder chosen.' };
+    if (!fs.existsSync(root)) return { ok: false, exists: false, error: `Folder does not exist: ${root}` };
+    if (!(await isRepo(root))) return { ok: false, exists: true, isRepo: false, error: 'Not a git repository — run `git init` there first.' };
+    const cur = await currentBranch(root);
+    const dirty = await isDirty(root);
+    const exists = branch ? await branchExists(root, branch) : false;
+    const base = exists ? null : await baseBranch(root);
+    const out = { ok: true, exists: true, isRepo: true, branch: cur, dirty, chatBranch: branch || null, chatBranchExists: exists, base, head: await head(root) };
+    if (dirty && cur !== branch) out.warning = `Uncommitted changes on "${cur}" — commit or stash them before running, Proxima will not touch them.`;
+    return out;
+}
+
 // Make the workspace ready for a run: must be a git repo; switches to the
-// chat's branch (created from the current HEAD the first time). Uncommitted
-// changes on another branch are the user's — refuse rather than sweep them
-// into the chat's branch; leftovers on our own branch (an interrupted writer
-// turn) are committed as WIP.
+// chat's branch, created from the base branch (see baseBranch) the first
+// time — a fresh start, never another chat's leftovers. Uncommitted changes
+// on another branch are the user's — refuse rather than sweep them into the
+// chat's branch; leftovers on our own branch (an interrupted writer turn)
+// are committed as WIP.
 async function prepare(root, branch) {
     if (!root) return { ok: false, error: 'No workspace folder chosen.' };
     if (!fs.existsSync(root)) return { ok: false, error: `Workspace folder does not exist: ${root}` };
@@ -66,10 +107,11 @@ async function prepare(root, branch) {
     const dirty = await isDirty(root);
     if (cur !== branch) {
         if (dirty) return { ok: false, error: `Workspace has uncommitted changes on branch "${cur}". Commit or stash them first — Proxima only edits on its own branch (${branch}).` };
-        const exists = (await git(root, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`])).ok;
-        const r = await git(root, exists ? ['checkout', branch] : ['checkout', '-b', branch]);
+        const exists = await branchExists(root, branch);
+        const from = exists ? cur : await baseBranch(root);
+        const r = await git(root, exists ? ['checkout', branch] : ['checkout', '-b', branch, from]);
         if (!r.ok) return { ok: false, error: `Could not switch to branch ${branch}: ${r.error}` };
-        return { ok: true, branch, created: !exists, from: cur, head: await head(root) };
+        return { ok: true, branch, created: !exists, from, head: await head(root) };
     }
     let wip = null;
     if (dirty) {
@@ -103,4 +145,4 @@ function describeChange(agentName, change) {
     return `${head}\n\n\`\`\`diff\n${change.patch.trim()}\n\`\`\``;
 }
 
-module.exports = { TOOLS_LEVELS, DIFF_LIMIT, git, branchFor, isRepo, head, currentBranch, isDirty, prepare, commitAll, describeChange };
+module.exports = { TOOLS_LEVELS, DIFF_LIMIT, git, branchFor, isRepo, head, currentBranch, isDirty, branchExists, baseBranch, inspect, prepare, commitAll, describeChange };

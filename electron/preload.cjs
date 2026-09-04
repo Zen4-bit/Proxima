@@ -104,6 +104,7 @@ contextBridge.exposeInMainWorld('agentHub', {
     multiaiExport: (opts) => ipcRenderer.invoke('multiai-export', opts),
     multiaiGenerateTitle: (opts) => ipcRenderer.invoke('multiai-generate-title', opts),
     multiaiPickToolsFolder: () => ipcRenderer.invoke('multiai-tools-pick-folder'),
+    multiaiWorkspaceInfo: (payload) => ipcRenderer.invoke('multiai-workspace-info', payload),
     onMultiaiMessage: (cb) => { ipcRenderer.removeAllListeners('multiai-message'); ipcRenderer.on('multiai-message', (e, d) => cb(d)); },
     onMultiaiThinking: (cb) => { ipcRenderer.removeAllListeners('multiai-thinking'); ipcRenderer.on('multiai-thinking', (e, d) => cb(d)); },
     onMultiaiRoundStart: (cb) => { ipcRenderer.removeAllListeners('multiai-round-start'); ipcRenderer.on('multiai-round-start', (e, d) => cb(d)); },

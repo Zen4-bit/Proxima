@@ -978,6 +978,17 @@ function registerMultiAiHandlers(deps) {
     // replies with plain text. Reads AND writes/deletes, no confirmation —
     // the folder scope is the only safety boundary, per explicit user choice.
 
+    // What the Workspace tab shows for a folder before any run: repo or not,
+    // current branch, dirty, and where this chat's branch would start.
+    ipcMain.handle('multiai-workspace-info', async (event, { root, chatId } = {}) => {
+        try {
+            const branch = chatId ? workspace.branchFor(chatId) : null;
+            return await workspace.inspect(root, branch);
+        } catch (e) {
+            return { ok: false, error: e.message };
+        }
+    });
+
     ipcMain.handle('multiai-tools-pick-folder', async () => {
         const w = win();
         try {

@@ -99,9 +99,19 @@ where it is and what it may do (`core.workspaceBlock`). Before a run that has
 tool seats, `workspace.prepare()` checks the folder: it must be a git repo (an
 empty one gets an initial commit); if the folder is on another branch it must
 be clean — Proxima refuses to sweep your uncommitted work into its branch —
-and is switched to the chat's branch (created from the current HEAD the first
-time); leftovers on the chat's own branch (an interrupted turn) are committed as
-WIP. After every **write/full** turn the folder is committed (`git add -A`,
+and is switched to the chat's branch; leftovers on the chat's own branch (an
+interrupted turn) are committed as WIP.
+
+**Every chat is a fresh start.** A chat's branch is created the first time
+from the *base branch* (`workspace.baseBranch`): the branch the folder is on
+if that is one of yours (`main`, `feature-x`…); if the folder is parked on
+another chat's `multiai/*` branch, origin's default branch, then `main`, then
+`master`, then the first local branch that is not a chat branch. It is never
+cut from another chat's branch, so chat B does not inherit chat A's edits —
+merge A's branch into your base when you want to keep them. The Workspace tab
+previews all this before any run (`multiai-workspace-info` →
+`workspace.inspect`): repo or not, current branch, dirty or clean, and where
+this chat's branch would start. After every **write/full** turn the folder is committed (`git add -A`,
 author *Proxima Multi-AI*, message `<seat> [<label>]`) and the result is recorded
 as a `role: 'change'` message — file list, `--stat`, and the patch (≤12 kB) —
 which the other participants read like any other turn and the feed shows as a

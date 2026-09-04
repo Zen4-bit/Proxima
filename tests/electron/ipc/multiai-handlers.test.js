@@ -880,3 +880,29 @@ test('REST/MCP: create-chat accepts workspace + per-agent tools and readers see 
     assert.deepEqual(got.agents.map(a => a.tools), ['write', 'none']);
     assert.deepEqual(got.workspace, { root: 'C:\\repo' });
 });
+
+test('workspace seats: a second chat on the same folder starts fresh from the base branch; multiai-workspace-info previews it', { skip: !gitOk && 'git not installed' }, async () => {
+    cliCalls.length = 0;
+    const root = tempRepo();
+    cliReplyFn = async (p, o) => { if (o.workspace && o.workspace.tools === 'write') fs.writeFileSync(path.join(o.workspace.root, `${o.model}.txt`), `${o.model}\n`); return `${o.model} wrote a file`; };
+    const a = newChat({ participants: [], agents: [{ name: 'A', provider: 'claude-cli', model: 'alpha', tools: 'write' }], workspace: { root }, stopWhenAllAgree: false });
+    userMsg(a.id, 'go');
+    assert.equal((await invoke('multiai-run-round', { chatId: a.id, rounds: 1 })).success, true);
+    assert.ok(fs.existsSync(path.join(root, 'alpha.txt')));
+    assert.equal(gitIn(root, ['rev-parse', '--abbrev-ref', 'HEAD']), wsmod.branchFor(a.id), 'the folder is left on chat A\'s branch');
+
+    const b = newChat({ participants: [], agents: [{ name: 'B', provider: 'claude-cli', model: 'beta', tools: 'write' }], workspace: { root }, stopWhenAllAgree: false });
+    const info = await invoke('multiai-workspace-info', { root, chatId: b.id });
+    assert.deepEqual([info.ok, info.branch, info.dirty, info.chatBranchExists, info.base], [true, wsmod.branchFor(a.id), false, false, 'main']);
+    userMsg(b.id, 'go');
+    assert.equal((await invoke('multiai-run-round', { chatId: b.id, rounds: 1 })).success, true);
+    assert.equal(gitIn(root, ['rev-parse', '--abbrev-ref', 'HEAD']), wsmod.branchFor(b.id));
+    assert.equal(fs.existsSync(path.join(root, 'alpha.txt')), false, 'chat B does not see chat A\'s file');
+    assert.ok(fs.existsSync(path.join(root, 'beta.txt')));
+    assert.equal(gitIn(root, ['merge-base', wsmod.branchFor(b.id), 'main']), gitIn(root, ['rev-parse', 'main']), 'B branched from main');
+    assert.ok(messagesOf(b.id).some(m => m.role === 'system' && m.text.includes('(created from main)')));
+    assert.equal(gitIn(root, ['rev-list', '--count', 'main']), '1', 'main itself never moves');
+
+    const bad = await invoke('multiai-workspace-info', { root: path.join(os.tmpdir(), 'nope-' + Date.now()), chatId: b.id });
+    assert.equal(bad.ok, false);
+});

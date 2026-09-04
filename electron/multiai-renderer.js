@@ -1337,11 +1337,36 @@ function multiaiRenderWorkspace(chat) {
                 </div>
             </label>
             <div style="font-size: 0.74rem; color: #9ca3af; line-height: 1.6; flex: 1 1 260px;">
-                ${root ? `Branch <code>${multiaiEscape(multiaiWorkspaceBranch(chat))}</code>${chat.workspace && chat.workspace.branch ? '' : ' (created on the first run)'} · ${changes.length} change${changes.length === 1 ? '' : 's'} committed in this chat.` : 'No folder chosen.'}<br>
+                ${root ? `Chat branch <code>${multiaiEscape(multiaiWorkspaceBranch(chat))}</code> · ${changes.length} change${changes.length === 1 ? '' : 's'} committed in this chat.<br><span id="multiai-workspace-status">checking the folder…</span>` : 'No folder chosen.'}<br>
                 ${seatLine}
             </div>
         </div>
-        <div class="multiai-hint" style="margin-top: 8px;">Needs git. The folder must be clean or already on the chat's branch — Proxima never sweeps your uncommitted work into it. One writer edits at a time; readers and discussion seats overlap. <b>read</b> = list/read/search · <b>write</b> = edit + git status/diff/log · <b>full</b> = edit + any shell command (no sandbox — use on a throwaway clone). Review with <code>git log ${multiaiEscape(multiaiWorkspaceBranch(chat))}</code>, merge or delete the branch when done.</div>`;
+        <div class="multiai-hint" style="margin-top: 8px;">Needs git. Every chat is a fresh start: its branch is created from your base branch (the one the folder is on, or main/master when it is parked on another chat's branch), never from another chat's changes — merge a chat's branch into your base when you want to keep its work. The folder must be clean or already on the chat's branch; Proxima never sweeps your uncommitted work into it. One writer edits at a time; readers and discussion seats overlap. <b>read</b> = list/read/search · <b>write</b> = edit + git status/diff/log · <b>full</b> = edit + any shell command (no sandbox — use on a throwaway clone). Review with <code>git log ${multiaiEscape(multiaiWorkspaceBranch(chat))}</code>, merge or delete the branch when done.</div>`;
+    if (root) multiaiRefreshWorkspaceStatus(chat, root);
+}
+
+// Fills the status line with what git says about the folder (async; the
+// pane may have been re-rendered or the folder changed by the time it lands).
+let _multiaiWsStatusSeq = 0;
+async function multiaiRefreshWorkspaceStatus(chat, root) {
+    const seq = ++_multiaiWsStatusSeq;
+    const el = () => document.getElementById('multiai-workspace-status');
+    if (!agentHub.multiaiWorkspaceInfo) { const e = el(); if (e) e.textContent = ''; return; }
+    let info = null;
+    try { info = await agentHub.multiaiWorkspaceInfo({ root, chatId: chat.id }); } catch (e) { info = { ok: false, error: e.message || String(e) }; }
+    const target = el();
+    if (!target || seq !== _multiaiWsStatusSeq) return;
+    const cur = multiaiCurrentChat();
+    if (!cur || cur.id !== chat.id || !cur.workspace || cur.workspace.root !== root) return;
+    if (!info || !info.ok) {
+        target.innerHTML = `<span style="color: #f59e0b;">⚠ ${multiaiEscape((info && info.error) || 'Could not inspect the folder.')}</span>`;
+        return;
+    }
+    const parts = [`Folder is on <code>${multiaiEscape(info.branch || 'HEAD')}</code>${info.dirty ? ' <span style="color:#f59e0b;">with uncommitted changes</span>' : ' · clean'}`];
+    if (info.chatBranchExists) parts.push(info.branch === info.chatBranch ? 'this chat\'s branch is checked out' : 'this chat\'s branch exists — the next run switches to it');
+    else parts.push(`this chat's branch will start fresh from <code>${multiaiEscape(info.base || 'HEAD')}</code>`);
+    if (info.warning) parts.push(`<span style="color:#f59e0b;">⚠ ${multiaiEscape(info.warning)}</span>`);
+    target.innerHTML = parts.join(' · ');
 }
 
 async function multiaiWorkspacePick() {
