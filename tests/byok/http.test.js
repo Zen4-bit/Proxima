@@ -144,3 +144,14 @@ test('getJson rejects with statusCode on 4xx', async () => {
         }
     );
 });
+
+test('plain http:// endpoints go over http (local servers such as Ollama / LM Studio), no https shim needed', async () => {
+    let seen = null;
+    handler = (req, res, body) => { seen = { method: req.method, url: req.url, body }; res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, via: 'http' })); };
+    const r = await postJson(`http://127.0.0.1:${port}/v1/chat/completions`, { 'Content-Type': 'application/json' }, JSON.stringify({ model: 'llama3.2' }), 'Local');
+    assert.deepEqual(r, { ok: true, via: 'http' });
+    assert.equal(seen.url, '/v1/chat/completions');
+    assert.equal(seen.method, 'POST');
+    const g = await getJson(`http://127.0.0.1:${port}/v1/models`, {}, 'Local');
+    assert.deepEqual(g, { ok: true, via: 'http' });
+});

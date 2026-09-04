@@ -46,6 +46,8 @@ const CONTEXT_MODES = ['bounded', 'full', 'delta'];
 const ROUTES = ['auto', 'browser', 'api', 'cli'];
 const CLI_PROVIDERS = { 'claude-cli': { label: 'Claude Code', bin: 'claude' }, 'codex-cli': { label: 'Codex', bin: 'codex' }, 'gemini-cli': { label: 'Gemini CLI', bin: 'gemini' } };
 const EFFORTS = ['', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+// Workspace tools a CLI seat may use inside the chat's workspace folder.
+const TOOLS = ['none', 'read', 'write', 'full'];
 
 function slugify(s) {
     return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -96,6 +98,7 @@ function normalizeAgents(chat, { includeDisabled = false } = {}) {
                 id: raw.id || '', name: raw.name || '', route: ROUTES.includes(raw.route) ? raw.route : 'auto',
                 provider, model: raw.model || '', effort: EFFORTS.includes(raw.effort) ? raw.effort : '',
                 persona: raw.persona || '', personaKey: raw.personaKey || '', enabled: raw.enabled !== false,
+                tools: CLI_PROVIDERS[provider] && TOOLS.includes(raw.tools) ? raw.tools : 'none',
             };
             if (CLI_PROVIDERS[provider]) a.route = 'cli';
             if (!a.name) a.name = defaultAgentName(provider, a.model, a.effort);
@@ -176,6 +179,7 @@ function refLabel(msg) {
     else if (msg.role === 'summary') code = 'SM';
     else if (msg.role === 'system') code = 'SY';
     else if (msg.role === 'error') code = 'ER';
+    else if (msg.role === 'change') code = 'CH';
     else code = msg.code || providerCode(msg.provider);
     return `${String(c).padStart(2, '0')}${String(r).padStart(2, '0')}${code}`;
 }
@@ -383,7 +387,9 @@ function createStore({ dir, fs, path, log }) {
 
 // Roles that other participants should actually read. Errors, stop notices,
 // system notes and PASSes are UI bookkeeping, not conversation.
-const READABLE_ROLES = new Set(['user', 'assistant', 'judge', 'summary']);
+// 'change' = the diff a workspace seat produced in its turn (shown to the
+// others, never counted as a reply for convergence).
+const READABLE_ROLES = new Set(['user', 'assistant', 'judge', 'summary', 'change']);
 
 function readable(messages) {
     return (messages || []).filter(m => READABLE_ROLES.has(m.role || 'assistant') && (m.text || '').trim());
@@ -392,6 +398,7 @@ function readable(messages) {
 function whoOf(m) {
     if (m.role === 'user') return m.who || 'You';
     if (m.role === 'judge') return m.who || 'Judge';
+    if (m.role === 'change') return m.who || 'changes';
     if (m.role === 'summary') return 'State summary';
     return m.who || providerLabel(m.provider) || 'Participant';
 }
@@ -538,7 +545,21 @@ const CHARTER_RULES = [
 
 const RED_TEAM_BLOCK = 'This round you hold the RED-TEAM seat: your job is to find the strongest objection to the emerging consensus — a missing assumption, a test that would falsify it, a cheaper alternative — and state it plainly, even if you privately agree. Do not soften it.';
 
-function buildClassicPromptWithMeta({ chatTitle, topic, latestUserMessage, mode, brevity, persona, participants, provider, agent, messages, contextOpts, stopToken, independent, contextMode, delta, charter, redTeam }) {
+// What a seat is told about the chat's workspace (a git folder CLI seats
+// may read or edit). `tools` is this seat's own level.
+function workspaceBlock(workspace, tools) {
+    if (!workspace || !workspace.root) return '';
+    const where = `${workspace.root}${workspace.branch ? ` (git branch ${workspace.branch})` : ''}`;
+    if (tools === 'write' || tools === 'full') {
+        return `Workspace: ${where}. You have file tools${tools === 'full' ? ' and a shell' : ''} there. When the discussion calls for it, make the change directly in the files (minimal, focused, no commits — your turn is committed automatically and shown to everyone as a diff), then report exactly what you changed and why.`;
+    }
+    if (tools === 'read') {
+        return `Workspace: ${where}. You have read-only file tools there: read, list and search files to verify claims, and cite paths.`;
+    }
+    return `Workspace: ${where}. Other participants may edit files there; their diffs appear in the transcript as "changes" entries. Review them concretely (file, line, what is wrong or good).`;
+}
+
+function buildClassicPromptWithMeta({ chatTitle, topic, latestUserMessage, mode, brevity, persona, participants, provider, agent, messages, contextOpts, stopToken, independent, contextMode, delta, charter, redTeam, workspace }) {
     const agents = asAgents(participants);
     const self = agent || findAgent(agents, provider) || { id: String(provider), name: providerLabel(provider), provider: String(provider).split(':')[0] };
     const base = String(self.provider || provider).split(':')[0];
@@ -559,11 +580,12 @@ function buildClassicPromptWithMeta({ chatTitle, topic, latestUserMessage, mode,
     if (independent) rules.push('This is an independent first round: you have NOT been shown the other participants\' replies to the latest message. Commit to your own position; do not guess at theirs.');
     if (cmode === 'delta' && !ctx.catchUp) rules.push('You are continuing an ongoing thread: earlier messages are already in this conversation above — only the new ones are shown here.');
     if (charter) rules.push(...CHARTER_RULES);
+    const ws = workspaceBlock(workspace, self.tools || 'none');
     const prompt = `${personaBlock}You are ${self.name}, one participant in a multi-AI conversation` +
         `${others.length ? ` with ${others.join(', ')}` : ''}${chatTitle ? ` titled "${chatTitle}"` : ''}.\n` +
         `Topic / brief: ${topic || '(see conversation)'}\n` +
         `${latestUserMessage && latestUserMessage !== topic ? `Latest instruction from the human: ${latestUserMessage}\n` : ''}` +
-        `${side ? side + '\n' : ''}\n` +
+        `${side ? side + '\n' : ''}${ws ? ws + '\n' : ''}\n` +
         `${ctx.text}\n\n` +
         rules.join('\n');
     return { prompt, meta: { contextMode: cmode, catchUp: !!ctx.catchUp, lastId: ctx.lastId || null, redTeam: !!redTeam } };
@@ -708,7 +730,7 @@ module.exports = {
     CONTEXT_MODES, READABLE_ROLES, readable, buildContext, buildFullContext, buildDeltaContext, buildContextByMode,
     renderFullTranscript, briefAndLatest, messagesSinceSummary, stanceFor,
     buildClassicPrompt, buildClassicPromptWithMeta, buildJudgePrompt, buildSummaryPrompt, buildTitlePrompt,
-    ROUTES, CLI_PROVIDERS, EFFORTS, slugify, agentCode, defaultAgentName, normalizeAgents, findAgent, asAgents,
+    ROUTES, CLI_PROVIDERS, EFFORTS, TOOLS, slugify, agentCode, defaultAgentName, normalizeAgents, findAgent, asAgents, workspaceBlock,
     localTitle, cleanTitle, parseMentions, parseHandoff, redTeamFor, CHARTER_RULES, RED_TEAM_BLOCK, isPass, startsWithToken, roundOutcome,
     sessionFor, auxSessionFor, parseToolCall, parseWorkflowLine,
 };

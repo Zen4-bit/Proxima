@@ -222,9 +222,10 @@ function registerSettingsHandlers(deps) {
     const byokKeys = require('../api/byok/keys.cjs');
     const { callProvider: callBYOKProvider } = require('../api/byok/router.cjs');
 
-    ipcMain.handle('byok-save-key', (_, provider, key) => {
+    ipcMain.handle('byok-save-key', (_, provider, key, options) => {
         try {
-            byokKeys.saveKey(provider, key);
+            const opts = options && typeof options === 'object' ? { endpoint: options.endpoint || undefined, displayName: options.displayName || undefined } : {};
+            byokKeys.saveKey(provider, key, opts);
             return { success: true, provider };
         } catch (e) {
             return { success: false, error: e.message };

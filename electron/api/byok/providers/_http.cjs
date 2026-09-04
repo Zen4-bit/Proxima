@@ -1,9 +1,10 @@
 // Proxima — BYOK HTTP Client.
-// Handles shared HTTPS transport requests with consistent timeouts, error categorization, and response limits.
+// Handles shared HTTP(S) transport requests with consistent timeouts, error categorization, and response limits.
 
 'use strict';
 
 const https = require('https');
+const http = require('http');
 const { URL } = require('url');
 
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -35,9 +36,12 @@ function _send(method, endpoint, headers, body, label, opts = {}) {
             reqHeaders['Content-Length'] = Buffer.byteLength(body);
         }
 
-        const req = https.request({
+        // Plain http is allowed so local servers (Ollama, LM Studio, vLLM on
+        // localhost) work; hosted providers are all https.
+        const transport = url.protocol === 'http:' ? http : https;
+        const req = transport.request({
             hostname: url.hostname,
-            port: url.port || 443,
+            port: url.port || (url.protocol === 'http:' ? 80 : 443),
             path: url.pathname + url.search,
             method,
             headers: reqHeaders,

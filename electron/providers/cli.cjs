@@ -45,16 +45,92 @@ const DISCUSSION_SYSTEM_PROMPT =
     'filesystem; reply in plain text (light Markdown is fine). Follow the persona and instructions given in the user ' +
     'message. Do not narrate what you would do with tools; say what you think. Never run commands.';
 
+// Workspace seats: the CLI runs inside a git folder with real tools.
+const TOOLS_LEVELS = ['none', 'read', 'write', 'full'];
+function workspaceSystemPrompt({ root, branch, tools }) {
+    const base = 'You are one participant in a multi-agent discussion run through a local chat app, and you are running inside ' +
+        `the shared workspace ${root} (git branch ${branch || 'multiai'}). Reply in plain text (light Markdown is fine); ` +
+        'follow the persona and instructions given in the user message. ';
+    if (tools === 'read') {
+        return base + 'You have READ-ONLY tools: read, list and search files to verify claims and ground your points, and cite paths. ' +
+            'Do not try to edit files or run commands that change anything.';
+    }
+    return base + 'You have file tools' + (tools === 'full' ? ' and a shell' : '') + '. When the discussion calls for it, make the change directly in the files: ' +
+        'keep it minimal and focused, do not touch unrelated files, do not commit (your turn is committed automatically and ' +
+        'shown to the others as a diff), and finish with a short report of exactly what you changed and why. If nothing should ' +
+        'change yet, say so and discuss instead.';
+}
+
+const CLAUDE_TOOLS = {
+    read: 'Read,Glob,Grep,LS',
+    write: 'Read,Glob,Grep,LS,Edit,MultiEdit,Write,NotebookEdit,Bash(git status*),Bash(git diff*),Bash(git log*)',
+};
+
 // ---- availability ----------------------------------------------------------
 
 // Environment for child processes. MCP clients often spawn servers with a
 // trimmed environment (the MCP SDK keeps PATH but drops PATHEXT), and without
 // PATHEXT `where codex` cannot match codex.exe and cmd.exe cannot run .cmd
 // shims by bare name — so PATHEXT is restored when missing.
-function childEnv() {
+function childEnv(bin) {
     const env = Object.assign({}, process.env);
     if (IS_WIN && !env.PATHEXT) env.PATHEXT = '.COM;.EXE;.BAT;.CMD;.VBS;.JS;.PS1';
+    // Codex's Windows sandbox (--sandbox read-only / workspace-write) spawns
+    // codex-windows-sandbox-setup.exe by name. The desktop app installs it
+    // under %LOCALAPPDATA%\OpenAI\Codex\bin\<hash>\ but not on PATH, so a
+    // codex.exe launched from here reports "program not found" and the seat
+    // gets no tools. Put the newest helper folder on the child's PATH.
+    if (IS_WIN && bin === 'codex') {
+        const dir = codexSandboxHelperDir();
+        if (dir && !String(env.PATH || env.Path || '').toLowerCase().includes(dir.toLowerCase())) {
+            const key = 'PATH' in env ? 'PATH' : ('Path' in env ? 'Path' : 'PATH');
+            env[key] = `${dir};${env[key] || ''}`;
+        }
+    }
     return env;
+}
+
+// Codex's Windows sandbox needs two helpers next to codex.exe:
+// codex-windows-sandbox-setup.exe and codex-command-runner.exe. The
+// standalone CLI installer ships without them; the Codex desktop app bundles
+// a complete set (codex.exe + helpers) under %LOCALAPPDATA%\OpenAI\Codex\bin\<hash>\.
+const CODEX_HELPERS = ['codex-windows-sandbox-setup.exe', 'codex-command-runner.exe'];
+function hasCodexHelpers(dir) {
+    try { return !!dir && CODEX_HELPERS.every(f => fs.existsSync(path.join(dir, f))); } catch { return false; }
+}
+
+// Newest desktop-app bundle folder (codex.exe + both helpers), or null.
+let _codexBundleCache;
+function codexSandboxBundle({ force = false } = {}) {
+    if (!IS_WIN) return null;
+    if (_codexBundleCache !== undefined && !force) return _codexBundleCache;
+    _codexBundleCache = null;
+    try {
+        const local = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+        const bin = path.join(local, 'OpenAI', 'Codex', 'bin');
+        const found = fs.readdirSync(bin, { withFileTypes: true })
+            .filter(d => d.isDirectory())
+            .map(d => path.join(bin, d.name))
+            .filter(d => hasCodexHelpers(d) && fs.existsSync(path.join(d, 'codex.exe')))
+            .map(d => ({ d, t: fs.statSync(path.join(d, 'codex.exe')).mtimeMs }))
+            .sort((a, b) => b.t - a.t);
+        if (found.length) _codexBundleCache = { dir: found[0].d, exe: path.join(found[0].d, 'codex.exe') };
+    } catch { /* no desktop app install */ }
+    return _codexBundleCache;
+}
+function codexSandboxHelperDir(opts) { const b = codexSandboxBundle(opts); return b ? b.dir : null; }
+
+// How a sandboxed (read/write) Codex turn can run on this machine:
+//   native  — the codex on PATH has its helpers (or not Windows)
+//   bundle  — run the desktop app's bundled codex.exe instead
+//   missing — neither; read/write cannot be enforced (full still works)
+function codexSandboxSupport({ force = false } = {}) {
+    if (!IS_WIN) return { mode: 'native', exe: null };
+    const exe = which('codex');
+    if (exe && hasCodexHelpers(path.dirname(exe))) return { mode: 'native', exe: null };
+    const b = codexSandboxBundle({ force });
+    if (b) return { mode: 'bundle', exe: b.exe };
+    return { mode: 'missing', exe: null };
 }
 
 // Where the CLIs usually live when they are not on PATH at all.
@@ -247,6 +323,10 @@ async function discover({ force = false } = {}) {
                 defaultModel: cfg.model, defaultEffort: cfg.effort,
                 profiles: cfg.profiles,
                 defaultModelListed: !cfg.model || cache.some(m => m.id === cfg.model),
+                // Windows: read/write workspace levels need the sandbox helper
+                // (see childEnv); `full` bypasses the sandbox and always works.
+                sandbox: codexSandboxSupport({ force: true }).mode,
+                sandboxBundle: (() => { const b = codexSandboxBundle(); return b ? b.dir : undefined; })(),
                 note: cache.length ? 'Models from your account\'s list (~/.codex/models_cache.json).' : 'No model list cached yet — run codex once.',
             };
         } else out.codex = { available: false, label: LABELS.codex };
@@ -327,17 +407,17 @@ function killTree(child) {
 
 // Windows needs a shell to run the npm .cmd/.ps1 shims (claude); quote args.
 // The resolved path is used when the binary is not on PATH.
-function spawnCli(bin, args, cwd) {
-    const exe = which(bin) || bin;
+function spawnCli(bin, args, cwd, exeOverride) {
+    const exe = exeOverride || which(bin) || bin;
     if (IS_WIN) {
         const q = (a) => (/[\s"]/.test(a) ? `"${String(a).replace(/"/g, '\\"')}"` : a);
-        return spawn(`${q(exe)} ${args.map(q).join(' ')}`, { cwd, shell: true, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: childEnv() });
+        return spawn(`${q(exe)} ${args.map(q).join(' ')}`, { cwd, shell: true, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: childEnv(bin) });
     }
-    return spawn(exe, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], env: childEnv() });
+    return spawn(exe, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], env: childEnv(bin) });
 }
 
 // Runs a process with the prompt on stdin. Returns { promise, abort }.
-function runProcess(kind, bin, args, { cwd, prompt, timeoutMs }) {
+function runProcess(kind, bin, args, { cwd, prompt, timeoutMs, exe }) {
     let child = null;
     let aborted = false;
     let timer = null;
@@ -346,7 +426,7 @@ function runProcess(kind, bin, args, { cwd, prompt, timeoutMs }) {
         if (aborted) { release(kind); throw Object.assign(new Error('Cancelled by user'), { cancelled: true }); }
         try {
             return await new Promise((resolve, reject) => {
-                child = spawnCli(bin, args, cwd);
+                child = spawnCli(bin, args, cwd, exe);
                 let stdout = '';
                 let stderr = '';
                 child.stdout.on('data', d => { stdout += d.toString('utf8'); });
@@ -381,16 +461,29 @@ function tailOf(s, n = 600) {
 
 // ---- Claude Code ------------------------------------------------------------
 
-function runClaude({ model, effort, prompt, systemPrompt, cwd, timeoutMs }) {
-    const dir = scratchDir(cwd);
-    const sysFile = path.join(dir, `system-${process.pid}-${Date.now()}.txt`);
-    fs.writeFileSync(sysFile, systemPrompt || DISCUSSION_SYSTEM_PROMPT, 'utf-8');
-    const args = ['-p', '--output-format', 'json', '--disallowedTools', '*', '--permission-mode', 'dontAsk',
-        '--strict-mcp-config', '--mcp-config', path.join(dir, 'mcp_empty.json'), '--max-turns', '3', '--system-prompt-file', sysFile];
+// Command line for one Claude Code turn. `workspace` = { root, branch, tools }
+// puts it inside the folder with the tools that level allows; otherwise it
+// runs tool-less in the scratch folder.
+function claudeArgs({ model, effort, workspace }, dir, sysFile) {
+    const level = workspace && TOOLS_LEVELS.includes(workspace.tools) ? workspace.tools : 'none';
+    const args = ['-p', '--output-format', 'json', '--strict-mcp-config', '--mcp-config', path.join(dir, 'mcp_empty.json'), '--system-prompt-file', sysFile];
+    if (level === 'none') args.push('--disallowedTools', '*', '--permission-mode', 'dontAsk', '--max-turns', '3');
+    else if (level === 'read') args.push('--allowedTools', CLAUDE_TOOLS.read, '--permission-mode', 'dontAsk', '--max-turns', '15');
+    else if (level === 'write') args.push('--allowedTools', CLAUDE_TOOLS.write, '--permission-mode', 'acceptEdits', '--max-turns', '30');
+    else args.push('--dangerously-skip-permissions', '--max-turns', '40');
     if (model) args.push('--model', String(model));
     const eff = effort && EFFORT_MAP.claude[effort];
     if (eff) args.push('--effort', eff);
-    const run = runProcess('claude', 'claude', args, { cwd: dir, prompt, timeoutMs });
+    return args;
+}
+
+function runClaude({ model, effort, prompt, systemPrompt, cwd, workspace, timeoutMs }) {
+    const dir = scratchDir(cwd);
+    const level = workspace && workspace.root && workspace.tools && workspace.tools !== 'none' ? workspace.tools : 'none';
+    const sysFile = path.join(dir, `system-${process.pid}-${Date.now()}.txt`);
+    fs.writeFileSync(sysFile, systemPrompt || (level !== 'none' ? workspaceSystemPrompt(workspace) : DISCUSSION_SYSTEM_PROMPT), 'utf-8');
+    const args = claudeArgs({ model, effort, workspace: level !== 'none' ? workspace : null }, dir, sysFile);
+    const run = runProcess('claude', 'claude', args, { cwd: level !== 'none' ? workspace.root : dir, prompt, timeoutMs });
     const promise = run.promise.then(({ code, stdout, stderr }) => {
         try { fs.unlinkSync(sysFile); } catch { /* ignore */ }
         let parsed = null;
@@ -417,19 +510,37 @@ function runClaude({ model, effort, prompt, systemPrompt, cwd, timeoutMs }) {
 
 // ---- Codex --------------------------------------------------------------------
 
-function runCodex({ model, effort, prompt, systemPrompt, cwd, timeoutMs }) {
-    const dir = scratchDir(cwd);
-    const outFile = path.join(dir, `codex-last-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.txt`);
-    // No "no tools" switch exists for codex exec; the sandbox helper is also
-    // missing on some Windows installs, so approvals/sandbox are bypassed and
-    // the scratch folder is empty. The system prompt tells the model not to
-    // run anything; it is prepended because exec has no system-prompt flag.
-    const args = ['exec', '--dangerously-bypass-approvals-and-sandbox', '--skip-git-repo-check', '-C', dir, '--output-last-message', outFile];
+// Command line for one Codex turn. Discussion seats: approvals/sandbox
+// bypassed in the empty scratch folder (no "no tools" switch exists; the
+// sandbox helper is missing on some Windows installs). Workspace seats:
+// read → read-only sandbox, write → workspace-write sandbox, full → bypass.
+function codexArgs({ model, effort, workspace }, dir, outFile) {
+    const level = workspace && TOOLS_LEVELS.includes(workspace.tools) ? workspace.tools : 'none';
+    const args = ['exec', '--skip-git-repo-check', '--output-last-message', outFile];
+    // `codex exec` is non-interactive (no --ask-for-approval): a command the
+    // sandbox blocks simply fails, which is what we want for read/write.
+    if (level === 'read') args.push('--sandbox', 'read-only', '-C', workspace.root);
+    else if (level === 'write') args.push('--sandbox', 'workspace-write', '-C', workspace.root);
+    else if (level === 'full') args.push('--dangerously-bypass-approvals-and-sandbox', '-C', workspace.root);
+    else args.push('--dangerously-bypass-approvals-and-sandbox', '-C', dir);
     if (model) args.push('-m', String(model));
     const eff = codexEffortFor(model, effort);
     if (eff) args.push('-c', `model_reasoning_effort=${eff}`);
-    const full = `${systemPrompt || DISCUSSION_SYSTEM_PROMPT}\n\n${prompt}`;
-    const run = runProcess('codex', 'codex', args, { cwd: dir, prompt: full, timeoutMs });
+    return args;
+}
+
+function runCodex({ model, effort, prompt, systemPrompt, cwd, workspace, timeoutMs }) {
+    const dir = scratchDir(cwd);
+    const level = workspace && workspace.root && workspace.tools && workspace.tools !== 'none' ? workspace.tools : 'none';
+    const outFile = path.join(dir, `codex-last-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.txt`);
+    const args = codexArgs({ model, effort, workspace: level !== 'none' ? workspace : null }, dir, outFile);
+    // The system prompt is prepended because exec has no system-prompt flag.
+    const full = `${systemPrompt || (level !== 'none' ? workspaceSystemPrompt(workspace) : DISCUSSION_SYSTEM_PROMPT)}\n\n${prompt}`;
+    // read/write rely on Codex's sandbox; on Windows that may only exist in
+    // the desktop app's bundled codex.exe (see codexSandboxSupport).
+    const sandboxed = level === 'read' || level === 'write';
+    const support = sandboxed ? codexSandboxSupport() : null;
+    const run = runProcess('codex', 'codex', args, { cwd: level !== 'none' ? workspace.root : dir, prompt: full, timeoutMs, exe: support && support.mode === 'bundle' ? support.exe : undefined });
     const promise = run.promise.then(({ code, stdout, stderr }) => {
         let text = '';
         try { text = fs.readFileSync(outFile, 'utf8').trim(); fs.unlinkSync(outFile); } catch { /* no file */ }
@@ -446,15 +557,26 @@ function runCodex({ model, effort, prompt, systemPrompt, cwd, timeoutMs }) {
 
 // ---- Gemini CLI ----------------------------------------------------------------
 
-function runGemini({ model, prompt, systemPrompt, cwd, timeoutMs }) {
-    const dir = scratchDir(cwd);
-    // Headless mode: `-p` is appended to whatever arrives on stdin, so the
-    // system prompt + transcript go on stdin and -p carries the cue. Plan
-    // mode keeps the CLI read-only; there is no effort switch.
-    const args = ['-p', 'Follow the instructions above and reply now.', '-o', 'json', '--approval-mode', 'plan'];
+// Command line for one Gemini CLI turn. Headless mode: `-p` is appended to
+// whatever arrives on stdin, so the system prompt + transcript go on stdin
+// and -p carries the cue. Approval mode is the tools level: plan (read-only),
+// auto_edit (write), yolo (full). No effort switch. The workspace folder must
+// be trusted in Gemini CLI, or it falls back to prompting and headless
+// tool calls are denied.
+function geminiArgs({ model, workspace }) {
+    const level = workspace && TOOLS_LEVELS.includes(workspace.tools) ? workspace.tools : 'none';
+    const mode = level === 'write' ? 'auto_edit' : (level === 'full' ? 'yolo' : 'plan');
+    const args = ['-p', 'Follow the instructions above and reply now.', '-o', 'json', '--approval-mode', mode];
     if (model) args.push('-m', String(model));
-    const full = `${systemPrompt || DISCUSSION_SYSTEM_PROMPT}\n\n${prompt}`;
-    const run = runProcess('gemini', 'gemini', args, { cwd: dir, prompt: full, timeoutMs });
+    return args;
+}
+
+function runGemini({ model, prompt, systemPrompt, cwd, workspace, timeoutMs }) {
+    const dir = scratchDir(cwd);
+    const level = workspace && workspace.root && workspace.tools && workspace.tools !== 'none' ? workspace.tools : 'none';
+    const args = geminiArgs({ model, workspace: level !== 'none' ? workspace : null });
+    const full = `${systemPrompt || (level !== 'none' ? workspaceSystemPrompt(workspace) : DISCUSSION_SYSTEM_PROMPT)}\n\n${prompt}`;
+    const run = runProcess('gemini', 'gemini', args, { cwd: level !== 'none' ? workspace.root : dir, prompt: full, timeoutMs });
     const promise = run.promise.then(({ code, stdout, stderr }) => {
         const text = stdout.trim();
         let parsed = null;
@@ -491,5 +613,6 @@ function run(provider, opts) {
 module.exports = {
     run, runClaude, runCodex, runGemini, availability, resetAvailabilityCache, which, discover, discovered, childEnv, knownLocations,
     parseClaudeHelp, parseCodexModelsCache, parseCodexConfig, geminiAuthFrom, codexEffortFor,
-    EFFORT_MAP, DISCUSSION_SYSTEM_PROMPT, MAX_PARALLEL, KINDS, BINS, LABELS,
+    claudeArgs, codexArgs, geminiArgs, workspaceSystemPrompt, codexSandboxHelperDir, codexSandboxBundle, codexSandboxSupport, hasCodexHelpers,
+    EFFORT_MAP, DISCUSSION_SYSTEM_PROMPT, MAX_PARALLEL, KINDS, BINS, LABELS, TOOLS_LEVELS, CLAUDE_TOOLS,
 };

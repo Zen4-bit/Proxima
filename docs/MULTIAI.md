@@ -27,7 +27,8 @@ HANDOFFs, the judge picker and the provider-side thread key on.
 | `auto` (default) | Follows **Settings → API mode**: on, with a key for that provider → the provider's API; otherwise the browser tab | API: the agent's model when Settings lists it (a browser-side name like the Gemini engine `3.1-pro` is ignored), else the model selected in Settings; effort honoured. Browser: model ignored except Gemini's engine picker; effort ignored |
 | `browser` | Always the logged-in browser tab | as above |
 | `api` | The provider's API; falls back to the browser tab (with a ⚠ in the editor) if API mode is off or no key | model + effort |
-| `cli` (implied for `claude-cli`, `codex-cli`, `gemini-cli`) | `claude -p` / `codex exec` / `gemini -p` on this machine, one-shot, tool-less, in an empty scratch folder, ≤2 in parallel per CLI | Claude Code aliases `opus` `sonnet` `haiku` `fable` (+ `[1m]`) or full names, `--effort low…max`; Codex model slugs from your account list, `model_reasoning_effort` clamped to what that model supports; Gemini CLI model ids, no effort switch |
+| `cli` (implied for `claude-cli`, `codex-cli`, `gemini-cli`) | `claude -p` / `codex exec` / `gemini -p` on this machine, one-shot, ≤2 in parallel per CLI; tool-less in an empty scratch folder unless the chat has a **workspace** and the seat has **tools** (below) |
+| `api` (implied for a local / custom endpoint) | Any OpenAI-compatible server registered in **Settings → API → Local / custom endpoint** (Ollama, LM Studio, vLLM, llama.cpp, a gateway) | model id required (the row's list comes from the endpoint's `/models`); no effort switch; works with API mode off | Claude Code aliases `opus` `sonnet` `haiku` `fable` (+ `[1m]`) or full names, `--effort low…max`; Codex model slugs from your account list, `model_reasoning_effort` clamped to what that model supports; Gemini CLI model ids, no effort switch |
 
 Settings is the single source of truth for API mode, keys and default models —
 the tab never stores keys and never overrides the mode; it only reads it
@@ -66,8 +67,63 @@ Route-specific behaviour:
 - **Labels.** Known providers keep their codes; other agents get initials of
   their name (`Opus · high` → `OH`).
 
+### Local-model seats
+
+Settings → API has a *Local / custom endpoint* form: a name (`ollama`,
+`lmstudio`, `vllm`…), the chat-completions URL
+(`http://127.0.0.1:11434/v1/chat/completions`) and an optional key. Saving registers a BYOK provider whose `endpoint` is honoured by
+the OpenAI-compatible client (`byok.keys` store, `settings.byok-save-key` with
+`{endpoint, displayName}`). `routeInfo()` lists it as `apiOnly: true` with the
+models the endpoint reported (`GET <base>/models`, the URL with
+`/chat/completions` stripped; refreshed on ↻), so it shows
+up in the roster's provider menu and in *+ add agent…* as "<name> (API)". Such
+seats are pinned to the `api` route (there is no browser tab), have no effort
+switch, and need a model id — the cell turns amber until one is set. They run
+even when API mode is off, since there is nothing to fall back to.
+
+### Workspace seats (file access)
+
+The **Workspace** tab attaches a git folder to the chat (`chat.workspace =
+{root, branch}`; the branch is `multiai/<chat id tail>`). CLI seats then get a
+**Tools** level in the roster:
+
+| Tools | Claude Code | Codex | Gemini CLI |
+|---|---|---|---|
+| `none` (default) | `--disallowedTools *`, scratch folder | bypass mode in a scratch folder, "don't run anything" system prompt | `--approval-mode plan`, scratch folder |
+| `read` | `--allowedTools Read,Glob,Grep,LS --permission-mode dontAsk` | `--sandbox read-only` | `--approval-mode plan` |
+| `write` | `--allowedTools …,Edit,MultiEdit,Write,NotebookEdit,Bash(git status*),Bash(git diff*),Bash(git log*) --permission-mode acceptEdits` | `--sandbox workspace-write` | `--approval-mode auto_edit` |
+| `full` | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` | `--yolo` |
+
+All levels run with `cwd = root` and a system-prompt block telling the seat
+where it is and what it may do (`core.workspaceBlock`). Before a run that has
+tool seats, `workspace.prepare()` checks the folder: it must be a git repo (an
+empty one gets an initial commit); if the folder is on another branch it must
+be clean — Proxima refuses to sweep your uncommitted work into its branch —
+and is switched to the chat's branch (created from the current HEAD the first
+time); leftovers on the chat's own branch (an interrupted turn) are committed as
+WIP. After every **write/full** turn the folder is committed (`git add -A`,
+author *Proxima Multi-AI*, message `<seat> [<label>]`) and the result is recorded
+as a `role: 'change'` message — file list, `--stat`, and the patch (≤12 kB) —
+which the other participants read like any other turn and the feed shows as a
+🛠 card with a folding diff. Writers are serialised per chat (one at a time, even
+in a parallel first round); readers and discussion seats overlap. On Windows,
+Codex's `read`/`write` levels need two helpers next to `codex.exe`
+(`codex-windows-sandbox-setup.exe`, `codex-command-runner.exe`). The standalone
+CLI installer ships without them; the Codex desktop app bundles a complete
+`codex.exe` + helpers under `%LOCALAPPDATA%\OpenAI\Codex\bin\<hash>\`.
+`cli.codexSandboxSupport()` picks `native` (PATH codex has them), `bundle`
+(sandboxed turns run the app's bundled `codex.exe` instead — same `~/.codex`
+login, config and model list) or `missing`; discovery reports it as
+`cliInfo.codex.sandbox`, and the Tools cell explains either way. `full`
+bypasses the sandbox and always works. Gemini CLI may ask to trust the folder the first
+time. Review with `git log multiai/…`; merge or delete the branch when done.
+
+Over REST/MCP: `POST /v1/multiai/chats` and `multiai_create_chat` accept
+`workspace: {root}` and a per-agent `tools`; `multiai_read_chat` shows the
+workspace and `(change)` messages.
+
 **Roster and library.** The options panel is a tab strip — *Agents ·
-Discussion · Context · Charter · Judge* (Classic) or *Pipeline*
+Discussion · Context · Charter · Judge · Workspace* (Classic) or *Pipeline*
 (Orchestrated) — over one pane, collapsible to the strip plus a one-line
 summary. The Agents tab is a table: one row per agent, every cell editable in
 place, with a checkbox per row. Ticked agents take turns in this chat; unticked

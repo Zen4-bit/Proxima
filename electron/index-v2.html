@@ -1495,6 +1495,7 @@
                         <button class="multiai-optab-btn" data-optab="context" onclick="multiaiSelectOptab('context')" role="tab">Context</button>
                         <button class="multiai-optab-btn" data-optab="charter" onclick="multiaiSelectOptab('charter')" role="tab">Charter</button>
                         <button class="multiai-optab-btn" data-optab="judge" onclick="multiaiSelectOptab('judge')" role="tab">Judge</button>
+                        <button class="multiai-optab-btn" data-optab="workspace" onclick="multiaiSelectOptab('workspace')" role="tab" title="A git folder that CLI seats with tools may read or edit">Workspace</button>
                         <button class="multiai-optab-btn" data-optab="pipeline" onclick="multiaiSelectOptab('pipeline')" role="tab" style="display: none;">Pipeline</button>
                         <span style="flex: 1;"></span>
                         <button id="multiai-options-summary" onclick="multiaiToggleOptions()" aria-expanded="false" aria-controls="multiai-options-body" title="Collapse / expand the options" style="display: flex; align-items: center; gap: 8px; min-width: 0; background: none; border: none; color: #9ca3af; cursor: pointer; padding: 6px 4px; font-family: inherit; font-size: 0.72rem;">
@@ -1588,6 +1589,11 @@
                             </div>
                         </div>
 
+                        <!-- Workspace: the git folder CLI seats with tools work in -->
+                        <div class="multiai-optab" data-optab="workspace" style="display: none;">
+                            <div id="multiai-workspace"></div>
+                        </div>
+
                         <!-- Orchestrated: pipeline -->
                         <div class="multiai-optab" data-optab="pipeline" style="display: none;">
                             <div style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 10px;">
@@ -1676,7 +1682,9 @@
                         <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: 0.8px;">Agents</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">An agent is a seat</b> — name + provider + route + model + effort + persona. Add the same provider more than once with different models or efforts (“Opus · max” and “Sonnet · low”, or “GPT high” and “GPT low”) to run a single-provider panel. Names become ids for @mentions and HANDOFFs (<code>@opus-max</code>).</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Roster and library</b> — the Agents tab is a table: one row per agent, every cell editable in place (name, provider, route, model, effort, persona). <b style="color:#fff;">+ add agent…</b> offers new rows per provider and anything in your library. Agents go into the library, and every new chat starts with all of them. The checkbox on each row decides who takes turns <i>this</i> time — untick to bench an agent without losing its setup; benched agents get no turns, no mentions and aren't introduced to the others. Editing a library agent applies everywhere it is used; ✕ removes it from this chat only — the library chips (📚) remove it for good. The tab strip collapses to a one-line summary.</p>
-                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Routes</b> — <b style="color:#fff;">auto</b> follows the app's general Settings: API mode on with a key for that provider → its API, using the model chosen in Settings unless the agent names one; otherwise the logged-in browser tab. <b style="color:#fff;">browser</b> always uses the tab (model ignored except Gemini's engine; effort ignored). <b style="color:#fff;">api</b> asks for the API and falls back to the tab, with a ⚠, if Settings doesn't allow it. <b style="color:#fff;">Claude Code</b>, <b style="color:#fff;">Codex</b> and <b style="color:#fff;">Gemini CLI</b> agents run the installed CLI locally on your subscription — one-shot, no tools, in an empty scratch folder — with the model and effort you pick. Those pickers are filled from the CLIs themselves (Claude Code's help text, Codex's account model list with per-model reasoning levels, Gemini's login state); a model the CLI doesn't list is flagged. Keys and API mode are only ever set in Settings; ↻ re-reads them and re-probes the CLIs.</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Routes</b> — <b style="color:#fff;">auto</b> follows the app's general Settings: API mode on with a key for that provider → its API, using the model chosen in Settings unless the agent names one; otherwise the logged-in browser tab. <b style="color:#fff;">browser</b> always uses the tab (model ignored except Gemini's engine; effort ignored). <b style="color:#fff;">api</b> asks for the API and falls back to the tab, with a ⚠, if Settings doesn't allow it. <b style="color:#fff;">Claude Code</b>, <b style="color:#fff;">Codex</b> and <b style="color:#fff;">Gemini CLI</b> agents run the installed CLI locally on your subscription — one-shot, with the model and effort you pick; without a workspace they run in an empty scratch folder with no tools. Those pickers are filled from the CLIs themselves (Claude Code's help text, Codex's account model list with per-model reasoning levels, Gemini's login state); a model the CLI doesn't list is flagged. Keys and API mode are only ever set in Settings; ↻ re-reads them and re-probes the CLIs.</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Local models</b> — Settings → API → <i>Local / custom endpoint</i> registers any OpenAI-compatible server (Ollama, LM Studio, vLLM, llama.cpp, a gateway) under a name of your choice — give it the full <code>…/v1/chat/completions</code> URL. It then appears as a provider in the roster, API-only (no browser tab, no effort switch), with its model list pulled from the endpoint's <code>/models</code>; the model id is required. Such seats work whether or not API mode is on.</p>
+                        <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Workspace and tools</b> — the Workspace tab attaches a git folder to the chat. CLI seats then get a <b style="color:#fff;">Tools</b> level: <b style="color:#fff;">read</b> (list / read / search files, to verify claims), <b style="color:#fff;">write</b> (edit files; shell limited to git status/diff/log) or <b style="color:#fff;">full</b> (edit + any shell command — no sandbox, so use a throwaway clone). Runs happen on the chat's own branch (<code>multiai/…</code>, created from wherever the folder was); each writer turn is committed under the seat's name and appears in the transcript as a 🛠 change card with the diff, so every other participant — and you — can review it. One writer edits at a time; readers overlap. The folder must be clean or already on the chat's branch: Proxima refuses to run over your uncommitted work. Merge or delete the branch when you're done.</p>
                         <p style="margin: 0 0 14px 0;"><b style="color:#fff;">Route differences</b> — API and CLI turns are one-shot, so Delta context becomes Bounded for them (browser agents keep Delta). Stop kills CLI processes and aborts browser turns; an API call already in flight finishes and is discarded. Codex must support the chosen model on your account (gpt-5.5 does; gpt-5 does not on ChatGPT plans).</p>
 
                         <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: 0.8px;">Classic mode</p>
@@ -2123,6 +2131,26 @@
                                     </div>
                                     <div id="byok-model-status"
                                         style="font-size: 0.72rem; color: #555; margin-top: 5px; min-height: 16px;">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Local / custom OpenAI-compatible endpoint (Ollama, LM Studio, vLLM, …) -->
+                            <div style="margin-bottom: 20px; padding: 14px 16px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); border-radius: 10px;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px;">
+                                    <div style="font-size: 0.85rem; font-weight: 600; color: #ddd;">Local / custom endpoint</div>
+                                    <span style="font-size: 0.62rem; padding: 2px 8px; border-radius: 10px; background: rgba(34,197,94,0.12); color: #22c55e; font-weight: 600;">OpenAI-compatible</span>
+                                </div>
+                                <p style="color: #777; font-size: 0.74rem; line-height: 1.45; margin: 0 0 10px 0;">
+                                    Any server that speaks the OpenAI chat API — Ollama (<code>http://127.0.0.1:11434/v1/chat/completions</code>), LM Studio (<code>http://127.0.0.1:1234/v1/chat/completions</code>), vLLM, llama.cpp, a remote gateway. It becomes a provider you can seat at the Multi-AI table (API route, pick a model on the row) and call over the REST API. Local servers usually ignore the key; anything of 5+ characters will do.
+                                </p>
+                                <div style="display: grid; grid-template-columns: 130px 1fr; gap: 8px; align-items: center;">
+                                    <input id="byok-custom-name" placeholder="name, e.g. ollama" spellcheck="false" style="background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 8px 10px; color: #fff; font-size: 0.8rem;">
+                                    <input id="byok-custom-endpoint" placeholder="http://127.0.0.1:11434/v1/chat/completions" spellcheck="false" style="background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 8px 10px; color: #fff; font-size: 0.8rem;">
+                                    <input id="byok-custom-key" placeholder="key (optional)" spellcheck="false" style="background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 8px 10px; color: #fff; font-size: 0.8rem;">
+                                    <div style="display: flex; gap: 8px; align-items: center;">
+                                        <button class="header-btn" onclick="byokSaveCustom()" style="justify-content: center; font-size: 0.78rem; padding: 6px 12px;">Add endpoint</button>
+                                        <span id="byok-custom-status" style="font-size: 0.72rem; color: #555;"></span>
                                     </div>
                                 </div>
                             </div>
@@ -4032,6 +4060,30 @@ Confirm when done</pre>
             } catch (e) {
                 status.textContent = '❌ ' + e.message; status.style.color = '#ef4444';
             }
+        }
+
+        async function byokSaveCustom() {
+            const nameEl = document.getElementById('byok-custom-name');
+            const epEl = document.getElementById('byok-custom-endpoint');
+            const keyEl = document.getElementById('byok-custom-key');
+            const status = document.getElementById('byok-custom-status');
+            const name = nameEl.value.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+            const endpoint = epEl.value.trim();
+            const key = keyEl.value.trim() || 'local-no-key';
+            if (!name || name.length < 2) { status.textContent = '⚠️ Give it a short name (letters, digits, dashes).'; status.style.color = '#f59e0b'; return; }
+            if (!/^https?:\/\//i.test(endpoint)) { status.textContent = '⚠️ Endpoint must be a full URL ending in /chat/completions.'; status.style.color = '#f59e0b'; return; }
+            status.textContent = '⏳ Saving…'; status.style.color = '#f59e0b';
+            try {
+                const result = await agentHub.byokSaveKey(name, key, { endpoint, displayName: nameEl.value.trim() });
+                if (result && result.success) {
+                    status.textContent = `✅ ${name} added — it is now a provider for Multi-AI seats and the REST API.`; status.style.color = '#22c55e';
+                    epEl.value = ''; keyEl.value = ''; nameEl.value = '';
+                    await byokRefreshAll();
+                    if (typeof multiaiRefreshRoutes === 'function') multiaiRefreshRoutes().catch(() => {});
+                } else {
+                    status.textContent = '❌ ' + ((result && result.error) || 'Save failed'); status.style.color = '#ef4444';
+                }
+            } catch (e) { status.textContent = '❌ ' + e.message; status.style.color = '#ef4444'; }
         }
 
         async function byokTestFromForm() {

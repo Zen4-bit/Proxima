@@ -68,6 +68,8 @@ const fakeByok = {
         getKey: (p) => byokState.keys[p] || null,
         getSelectedModel: (p) => byokState.selected[p] || null,
         getModels: (p) => (byokState.selected[p] ? [{ id: byokState.selected[p], enabled: true }] : []),
+        // custom endpoints live in the store alongside the keys
+        _readStore: () => { const st = { _meta: { enabled: byokState.enabled } }; for (const [k, v] of Object.entries(byokState.keys)) st[k] = Object.assign({ key: v }, byokState.custom && byokState.custom[k] ? byokState.custom[k] : {}); return st; },
     },
     models: { DEFAULT_MODELS: { chatgpt: 'gpt-5.5', claude: 'claude-sonnet-5' } },
     async callProvider(provider, key, messages, options) {
@@ -697,4 +699,184 @@ test('REST: variants list, ask, ask-many, and OpenAI-compatible /v1/chat/complet
     // variantModels for GET /v1/models
     const models = multiaiApi.variantModels();
     assert.ok(models.some(m => m.id === 'cli:opus-max' && m.provider === 'claude-cli'));
+});
+
+test('local-model seats: a custom OpenAI-compatible endpoint is an api-only seat, works with API mode off, needs a model', async () => {
+    byokCalls.length = 0; providerCalls.length = 0;
+    byokState.enabled = false;
+    byokState.keys.ollama = 'local-no-key';
+    byokState.custom = { ollama: { endpoint: 'http://127.0.0.1:11434/v1/chat/completions', displayName: 'Ollama' } };
+    try {
+        const r = await invoke('multiai-routes', {});
+        assert.deepEqual([r.providers.ollama.apiOnly, r.providers.ollama.custom, r.providers.ollama.label, r.providers.ollama.hasKey], [true, true, 'Ollama', true]);
+        assert.equal(r.providers.chatgpt.apiOnly, undefined, 'browser providers are not api-only');
+
+        const chat = newChat({ participants: [], agents: [
+            { name: 'Llama', provider: 'ollama', model: 'llama3.2' },
+            { name: 'GPT tab', provider: 'chatgpt' },
+        ], stopWhenAllAgree: false });
+        userMsg(chat.id, 'go');
+        await invoke('multiai-run-round', { chatId: chat.id, rounds: 1 });
+        assert.equal(byokCalls.length, 1, 'the local seat went through the API even though API mode is off');
+        assert.deepEqual([byokCalls[0].provider, byokCalls[0].key, byokCalls[0].options.modelId], ['ollama', 'local-no-key', 'llama3.2']);
+        assert.deepEqual(providerCalls.map(c => c.provider), ['chatgpt'], 'the browser seat still used its tab');
+        const msgs = messagesOf(chat.id).filter(m => m.role === 'assistant');
+        assert.deepEqual(msgs.map(m => [m.who, m.route]), [['Llama', 'api'], ['GPT tab', 'browser']]);
+        const got = multiaiApi.getChat(chat.id);
+        assert.equal(got.agents.find(a => a.id === 'llama').route, 'api', 'readers see the resolved api route');
+
+        // no key/endpoint → a clear error, not a browser fallback
+        delete byokState.keys.ollama;
+        const chat2 = newChat({ participants: [], agents: [{ name: 'Llama', provider: 'ollama', model: 'llama3.2' }], stopWhenAllAgree: false });
+        userMsg(chat2.id, 'go');
+        await invoke('multiai-run-round', { chatId: chat2.id, rounds: 1 });
+        const err = messagesOf(chat2.id).find(m => m.role === 'error');
+        assert.match(err.text, /No API key for ollama in Settings/);
+        assert.equal(providerCalls.length, 1, 'no browser attempt for an api-only seat');
+    } finally {
+        delete byokState.keys.ollama; delete byokState.custom;
+    }
+});
+
+// ---- workspace seats --------------------------------------------------------
+
+import { execFileSync } from 'node:child_process';
+const gitOk = (() => { try { execFileSync('git', ['--version'], { stdio: 'ignore' }); return true; } catch { return false; } })();
+const gitIn = (root, args) => execFileSync('git', ['-c', 'user.name=Tester', '-c', 'user.email=t@example.com', ...args], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+function tempRepo() {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'multiai-wsrun-'));
+    gitIn(root, ['init', '-q']); gitIn(root, ['checkout', '-q', '-b', 'main']);
+    fs.writeFileSync(path.join(root, 'README.md'), 'hello\n');
+    gitIn(root, ['add', '-A']); gitIn(root, ['commit', '-q', '-m', 'initial', '--no-verify']);
+    return root;
+}
+const wsmod = require('../../../electron/providers/workspace.cjs');
+
+test('workspace seats: tool seats get the folder + branch, writer turns are committed on the chat branch and recorded as change messages the others read', { skip: !gitOk && 'git not installed' }, async () => {
+    cliCalls.length = 0; sent.length = 0;
+    const root = tempRepo();
+    const mainHead = gitIn(root, ['rev-parse', 'main']);
+    cliReplyFn = async (p, o) => {
+        if (o.workspace && o.workspace.tools === 'write') { fs.appendFileSync(path.join(o.workspace.root, 'README.md'), `${p} was here\n`); return 'I appended a line to README.md.'; }
+        return `${p} (${o.workspace ? o.workspace.tools : 'no tools'}) read the diff`;
+    };
+    const chat = newChat({ participants: [], agents: [
+        { name: 'Writer', provider: 'claude-cli', model: 'sonnet', tools: 'write' },
+        { name: 'Reader', provider: 'codex-cli', model: 'gpt-5.5', tools: 'read' },
+        { name: 'Talker', provider: 'claude-cli', model: 'haiku' },
+        { name: 'Tab', provider: 'chatgpt', tools: 'full' },   // tools are meaningless off the CLI route
+    ], workspace: { root }, stopWhenAllAgree: false });
+    userMsg(chat.id, 'improve the readme');
+    const r = await invoke('multiai-run-round', { chatId: chat.id, rounds: 1 });
+    assert.equal(r.success, true, r.error);
+
+    const branch = wsmod.branchFor(chat.id);
+    assert.deepEqual(cliCalls.map(c => c.opts.workspace ? c.opts.workspace.tools : null), ['write', 'read', null], 'only tool seats are given the workspace');
+    assert.deepEqual([cliCalls[0].opts.workspace.root, cliCalls[0].opts.workspace.branch], [root, branch]);
+    assert.ok(cliCalls[0].opts.prompt.includes('Workspace:') && cliCalls[0].opts.prompt.includes('file tools'), 'the writer is told about its tools in the prompt');
+    assert.ok(cliCalls[1].opts.prompt.includes('read-only'), 'the reader is told it is read-only');
+    assert.ok(cliCalls[2].opts.prompt.includes('Workspace:') && cliCalls[2].opts.prompt.includes('Review them') && !cliCalls[2].opts.prompt.includes('You have file tools'), 'a seat without tools is asked to review the diffs, not to edit');
+
+    const msgs = messagesOf(chat.id);
+    const change = msgs.find(m => m.role === 'change');
+    assert.ok(change, 'a change message was recorded');
+    assert.deepEqual([change.who, change.files, change.provider, change.agentId, change.round], ['Writer · changes', ['README.md'], 'claude-cli', 'writer', 1]);
+    assert.match(change.text, /^Writer changed 1 file \(commit [0-9a-f]{8}\):/);
+    assert.ok(change.text.includes('```diff') && change.text.includes('+claude-cli was here'));
+    assert.equal(change.commit, gitIn(root, ['rev-parse', 'HEAD']));
+    assert.equal(msgs.indexOf(change), msgs.findIndex(m => m.who === 'Writer') + 1, 'the change follows the writer\'s own reply');
+    assert.ok(cliCalls[1].opts.prompt.includes('+claude-cli was here'), 'the next seat sees the diff in its context');
+    assert.ok(msgs.some(m => m.role === 'system' && m.text.includes(`on branch ${branch}`) && m.text.includes('Writer (write)') && m.text.includes('Reader (read)') && !m.text.includes('Tab')), 'the run notes the branch and the tool seats');
+    assert.equal(core.normalizeAgents(store.getChat(chat.id))[3].tools, 'none', 'tools on a non-CLI seat are dropped');
+
+    assert.equal(gitIn(root, ['rev-parse', '--abbrev-ref', 'HEAD']), branch);
+    assert.match(gitIn(root, ['log', '-1', '--format=%an %s']), /^Proxima Multi-AI Writer \[0101WR\]$/);
+    assert.equal(gitIn(root, ['rev-parse', 'main']), mainHead, 'main is untouched');
+    assert.equal(store.getChat(chat.id).workspace.branch, branch, 'the branch is remembered on the chat');
+    assert.equal(multiaiApi.getChat(chat.id).messages.find(m => m.role === 'change').label, '0101CH', 'change messages carry their own label code');
+
+    // a writer turn that changes nothing records no change message
+    cliCalls.length = 0;
+    cliReplyFn = async () => 'Nothing to change.';
+    store.updateChat(chat.id, { cycle: 2 });
+    userMsg(chat.id, 'anything else?', 2);
+    await invoke('multiai-run-round', { chatId: chat.id, rounds: 1 });
+    assert.equal(messagesOf(chat.id).filter(m => m.role === 'change').length, 1);
+});
+
+test('workspace seats: writers are serialised even in a parallel first round; readers overlap', { skip: !gitOk && 'git not installed' }, async () => {
+    cliCalls.length = 0;
+    const root = tempRepo();
+    const timeline = [];
+    cliReplyFn = async (p, o) => {
+        const name = o.workspace ? o.workspace.tools : 'talk';
+        timeline.push({ name, at: 'start', t: Date.now() });
+        await delay(40);
+        if (o.workspace && (o.workspace.tools === 'write' || o.workspace.tools === 'full')) fs.appendFileSync(path.join(o.workspace.root, 'README.md'), `${o.model}\n`);
+        timeline.push({ name, at: 'end', t: Date.now() });
+        return `${o.model} done`;
+    };
+    const chat = newChat({ participants: [], agents: [
+        { name: 'W1', provider: 'claude-cli', model: 'w1', tools: 'write' },
+        { name: 'W2', provider: 'codex-cli', model: 'w2', tools: 'full' },
+        { name: 'R1', provider: 'claude-cli', model: 'r1', tools: 'read' },
+    ], workspace: { root }, independentFirstRound: true, stopWhenAllAgree: false });
+    userMsg(chat.id, 'go');
+    const r = await invoke('multiai-run-round', { chatId: chat.id, rounds: 1 });
+    assert.equal(r.success, true, r.error);
+    const starts = (n) => timeline.filter(e => e.name === n && e.at === 'start').map(e => e.t);
+    const ends = (n) => timeline.filter(e => e.name === n && e.at === 'end').map(e => e.t);
+    const [wA, wB] = [['write', 'full'], ['full', 'write']].find(([a]) => starts(a)[0] <= starts(['write', 'full'].find(x => x !== a))[0]);
+    assert.ok(starts(wB)[0] >= ends(wA)[0], 'the second writer started only after the first finished');
+    assert.ok(starts('read')[0] < ends(wA)[0], 'the reader ran alongside the first writer');
+    assert.equal(messagesOf(chat.id).filter(m => m.role === 'change').length, 2, 'each writer produced its own commit');
+    assert.equal(gitIn(root, ['rev-list', '--count', 'main..HEAD']), '2');
+    assert.equal(fs.readFileSync(path.join(root, 'README.md'), 'utf-8'), 'hello\nw1\nw2\n'.replace('w1\nw2', wA === 'write' ? 'w1\nw2' : 'w2\nw1'));
+});
+
+test('workspace seats: a non-repo folder or uncommitted work on another branch stops the run before any seat speaks', { skip: !gitOk && 'git not installed' }, async () => {
+    cliCalls.length = 0;
+    const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'multiai-plain-'));
+    const chat = newChat({ participants: [], agents: [{ name: 'W', provider: 'claude-cli', model: 'sonnet', tools: 'write' }], workspace: { root: plain } });
+    userMsg(chat.id, 'go');
+    const r = await invoke('multiai-run-round', { chatId: chat.id, rounds: 1 });
+    assert.equal(r.success, false);
+    assert.match(r.error, /git repository/);
+    assert.equal(cliCalls.length, 0);
+    const err = messagesOf(chat.id).find(m => m.role === 'error');
+    assert.ok(err && err.who === 'Workspace' && /git repository/.test(err.text), 'the refusal is in the transcript');
+
+    const root = tempRepo();
+    fs.writeFileSync(path.join(root, 'mine.txt'), 'uncommitted\n');
+    const chat2 = newChat({ participants: [], agents: [{ name: 'W', provider: 'claude-cli', model: 'sonnet', tools: 'write' }], workspace: { root } });
+    userMsg(chat2.id, 'go');
+    const r2 = await invoke('multiai-run-round', { chatId: chat2.id, rounds: 1 });
+    assert.equal(r2.success, false);
+    assert.match(r2.error, /uncommitted changes on branch "main"/);
+    assert.equal(gitIn(root, ['rev-parse', '--abbrev-ref', 'HEAD']), 'main');
+    assert.equal(cliCalls.length, 0);
+
+    // a chat with a workspace but no tool seats never touches git
+    const chat3 = newChat({ participants: [], agents: [{ name: 'T', provider: 'claude-cli', model: 'sonnet' }], workspace: { root }, stopWhenAllAgree: false });
+    userMsg(chat3.id, 'go');
+    cliReplyFn = async () => 'talk';
+    const r3 = await invoke('multiai-run-round', { chatId: chat3.id, rounds: 1 });
+    assert.equal(r3.success, true);
+    assert.equal(cliCalls.length, 1);
+    assert.equal(cliCalls[0].opts.workspace, undefined);
+});
+
+test('REST/MCP: create-chat accepts workspace + per-agent tools and readers see them', async () => {
+    const ext = routeExtensions[0];
+    const calls = [];
+    const helpers = { sendJSON: (r, code, d) => calls.push({ code, data: d }), sendError: (r, code, msg) => calls.push({ code, error: msg }) };
+    const url = (p) => new URL(`http://127.0.0.1:3210${p}`);
+    await ext('POST', url('/v1/multiai/chats'), { title: 'ws', agents: [{ name: 'W', provider: 'codex-cli', model: 'gpt-5.5', tools: 'write' }, { name: 'T', provider: 'chatgpt', tools: 'write' }], workspace: { root: 'C:\\repo' } }, {}, helpers);
+    const r = calls.pop();
+    assert.equal(r.code, 201, JSON.stringify(r));
+    assert.deepEqual(r.data.chat.workspace, { root: 'C:\\repo' });
+    assert.deepEqual(r.data.chat.agents.map(a => [a.id, a.tools]), [['w', 'write'], ['t', 'none']]);
+    const got = multiaiApi.getChat(r.data.chat.id);
+    assert.deepEqual(got.agents.map(a => a.tools), ['write', 'none']);
+    assert.deepEqual(got.workspace, { root: 'C:\\repo' });
 });

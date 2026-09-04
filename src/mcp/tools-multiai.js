@@ -69,16 +69,17 @@ export function register(server, deps) {
     }, async ({ chatId, since, last }) => {
         try {
             const { chat } = await ipc('multiaiGetChat', { chatId, since, last });
-            const agents = (chat.agents || []).map(a => `${a.name} [${a.id}: ${a.route}${a.model ? ' ' + a.model : ''}${a.effort ? ' ' + a.effort : ''}]`);
+            const agents = (chat.agents || []).map(a => `${a.name} [${a.id}: ${a.route}${a.model ? ' ' + a.model : ''}${a.effort ? ' ' + a.effort : ''}${a.tools && a.tools !== 'none' ? ' tools=' + a.tools : ''}]`);
+            const ws = chat.workspace && chat.workspace.root ? `  ·  workspace: ${chat.workspace.root}${chat.workspace.branch ? ' @ ' + chat.workspace.branch : ''}` : '';
             const header = `"${chat.title}"  [${chat.mode}${chat.mode === 'orchestrated' ? '/' + (chat.strategy || 'crew') : ''}, ${chat.discussMode || 'discuss'}, context=${chat.contextMode || 'bounded'}]  ` +
-                `agents: ${agents.join(', ') || (chat.participants || []).join(', ') || '—'}  ·  ${chat.totalMessages} messages total  ·  cycle ${chat.cycle || 0}  ·  ${chat.running ? 'RUN IN PROGRESS' : 'idle'}`;
+                `agents: ${agents.join(', ') || (chat.participants || []).join(', ') || '—'}${ws}  ·  ${chat.totalMessages} messages total  ·  cycle ${chat.cycle || 0}  ·  ${chat.running ? 'RUN IN PROGRESS' : 'idle'}`;
             return toolResponse(`${header}\n\n${renderMessages(chat.messages)}`);
         } catch (err) { return toolError(err); }
     });
 
     server.registerTool('multiai_create_chat', {
         title: 'Multi-AI Chat: create a chat',
-        description: 'Create a new Multi-AI chat. Optionally give it an opening message (topic), agents, discuss/debate mode and a context mode (bounded | delta | full). An agent is a name + provider + route + model + effort: several agents may share one provider ("GPT high" and "GPT low"). Routes: auto (follows the app\'s Settings — API mode on with a key → API, else the browser tab), browser, api, cli (claude-cli = Claude Code, codex-cli = Codex, gemini-cli = Gemini CLI — run locally on the user\'s subscriptions). `participants` is the legacy shorthand: one browser-tab agent per provider.',
+        description: 'Create a new Multi-AI chat. Optionally give it an opening message (topic), agents, discuss/debate mode, a context mode (bounded | delta | full) and a workspace. An agent is a name + provider + route + model + effort: several agents may share one provider ("GPT high" and "GPT low"). Routes: auto (follows the app\'s Settings — API mode on with a key → API, else the browser tab), browser, api, cli (claude-cli = Claude Code, codex-cli = Codex, gemini-cli = Gemini CLI — run locally on the user\'s subscriptions). Local models registered in Settings → API → Local / custom endpoint (Ollama, LM Studio, …) are providers too, by the name given there — API only, model id required. With a `workspace` (a git folder), CLI seats may get `tools`: read / write / full; writer turns are committed on a chat branch and shown as diffs. `participants` is the legacy shorthand: one browser-tab agent per provider.',
         inputSchema: {
             title: z.string().optional().describe('Chat title (defaults to the first words of the topic)'),
             topic: z.string().optional().describe('Opening message / brief, recorded as the first human message'),
@@ -86,13 +87,15 @@ export function register(server, deps) {
             participants: z.array(z.string()).optional().describe('Legacy shorthand: one agent per provider, e.g. ["chatgpt","claude"] (ignored when `agents` is given)'),
             agents: z.array(z.object({
                 name: z.string().optional().describe('Display name, e.g. "Opus · max" (default: provider · model · effort)'),
-                provider: z.enum(['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli', 'gemini-cli']),
+                provider: z.string().describe('chatgpt | claude | gemini | perplexity (browser tab / API), claude-cli | codex-cli | gemini-cli (local CLI), or the name of a local / custom endpoint registered in Settings → API (api only)'),
                 route: z.enum(['auto', 'browser', 'api', 'cli']).optional().describe('auto (default) follows Settings; cli is implied for claude-cli/codex-cli'),
                 model: z.string().optional().describe('API model id, CLI model (opus/sonnet aliases, a Codex model slug such as gpt-5.5, a Gemini CLI model id) or Gemini browser engine (3.1-pro); blank = the Settings / CLI default'),
                 effort: z.enum(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']).optional().describe('Reasoning effort — API and CLI routes only'),
                 persona: z.string().optional().describe('Persona / system instructions for this agent'),
                 enabled: z.boolean().optional().describe('false = on the roster but benched (takes no turns until the user ticks it)'),
+                tools: z.enum(['none', 'read', 'write', 'full']).optional().describe('CLI seats only, needs `workspace`: none (default) | read (list/read/search files) | write (edit files; shell limited to git status/diff/log; each turn committed and shown as a diff) | full (edit + any shell command, no sandbox)'),
             })).optional().describe('The agents that take turns, in order'),
+            workspace: z.object({ root: z.string().describe('Absolute path of a git repository') }).optional().describe('Folder that CLI seats with tools read or edit. Must be a git repo, clean or already on the chat branch (multiai/<chat>); Proxima never touches uncommitted work on another branch. Merge or delete the branch when done.'),
             discussMode: z.enum(['discuss', 'debate']).optional(),
             contextMode: z.enum(['bounded', 'delta', 'full']).optional(),
             brevity: z.string().optional().describe('e.g. "max 4 sentences" or "as long as needed"'),
@@ -107,7 +110,7 @@ export function register(server, deps) {
     }, async (args) => {
         try {
             const { chat } = await ipc('multiaiCreateChat', args);
-            return toolResponse({ success: true, chatId: chat.id, title: chat.title, agents: (chat.agents || []).map(a => ({ id: a.id, name: a.name, provider: a.provider, route: a.route, model: a.model || undefined, effort: a.effort || undefined })) });
+            return toolResponse({ success: true, chatId: chat.id, title: chat.title, workspace: chat.workspace || undefined, agents: (chat.agents || []).map(a => ({ id: a.id, name: a.name, provider: a.provider, route: a.route, model: a.model || undefined, effort: a.effort || undefined, tools: a.tools && a.tools !== 'none' ? a.tools : undefined })) });
         } catch (err) { return toolError(err); }
     });
 

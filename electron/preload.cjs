@@ -45,7 +45,7 @@ contextBridge.exposeInMainWorld('agentHub', {
     getApiKey: () => ipcRenderer.invoke('get-api-key'),
     revokeApiKey: () => ipcRenderer.invoke('revoke-api-key'),
 
-    byokSaveKey: (provider, key) => ipcRenderer.invoke('byok-save-key', provider, key),
+    byokSaveKey: (provider, key, options) => ipcRenderer.invoke('byok-save-key', provider, key, options || undefined),
     byokRemoveKey: (provider) => ipcRenderer.invoke('byok-remove-key', provider),
     byokGetStatus: () => ipcRenderer.invoke('byok-get-status'),
     byokSetEnabled: (enabled) => ipcRenderer.invoke('byok-set-enabled', enabled),

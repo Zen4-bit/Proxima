@@ -105,3 +105,74 @@ test('childEnv / knownLocations: PATHEXT is restored for trimmed environments; i
     assert.ok(cli.knownLocations('claude').some(p => /claude/.test(p)));
     assert.deepEqual(cli.knownLocations('nope'), []);
 });
+
+test('workspace tools: each level maps to the right permission flags per CLI; no workspace = no tools in a scratch folder', () => {
+    const ws = (tools) => ({ root: '/repo', branch: 'multiai/abc', tools });
+    // Claude Code
+    const none = cli.claudeArgs({ model: 'sonnet', effort: 'high' }, '/scratch', '/scratch/sys.txt');
+    assert.ok(none.includes('--disallowedTools') && none[none.indexOf('--disallowedTools') + 1] === '*');
+    assert.ok(none.includes('--strict-mcp-config'), 'the seat never inherits the user\'s MCP servers');
+    assert.deepEqual(none.slice(none.indexOf('--model')), ['--model', 'sonnet', '--effort', 'high']);
+    const read = cli.claudeArgs({ workspace: ws('read') }, '/scratch', '/s');
+    assert.equal(read[read.indexOf('--allowedTools') + 1], cli.CLAUDE_TOOLS.read);
+    assert.equal(read[read.indexOf('--permission-mode') + 1], 'dontAsk');
+    assert.ok(!read.includes('--disallowedTools'));
+    const write = cli.claudeArgs({ workspace: ws('write') }, '/scratch', '/s');
+    assert.ok(write[write.indexOf('--allowedTools') + 1].includes('Edit') && write[write.indexOf('--allowedTools') + 1].includes('Bash(git diff*)'));
+    assert.ok(!write[write.indexOf('--allowedTools') + 1].includes('Bash(rm'), 'write is edits plus read-only git, not a shell');
+    assert.equal(write[write.indexOf('--permission-mode') + 1], 'acceptEdits');
+    const full = cli.claudeArgs({ workspace: ws('full') }, '/scratch', '/s');
+    assert.ok(full.includes('--dangerously-skip-permissions') && !full.includes('--allowedTools'));
+    assert.ok(Number(full[full.indexOf('--max-turns') + 1]) > Number(none[none.indexOf('--max-turns') + 1]), 'tool seats get more turns');
+    assert.deepEqual(cli.claudeArgs({ workspace: ws('bogus') }, '/scratch', '/s').includes('--disallowedTools'), true, 'an unknown level is no tools');
+
+    // Codex
+    const cNone = cli.codexArgs({ model: 'gpt-5.5' }, '/scratch', '/scratch/out.txt');
+    assert.ok(cNone.includes('--dangerously-bypass-approvals-and-sandbox') && cNone[cNone.indexOf('-C') + 1] === '/scratch');
+    const cRead = cli.codexArgs({ workspace: ws('read') }, '/scratch', '/o');
+    assert.deepEqual(cRead.slice(cRead.indexOf('--sandbox'), cRead.indexOf('--sandbox') + 4), ['--sandbox', 'read-only', '-C', '/repo']);
+    assert.ok(!cRead.includes('-a'), 'codex exec has no --ask-for-approval flag');
+    const cWrite = cli.codexArgs({ workspace: ws('write') }, '/scratch', '/o');
+    assert.equal(cWrite[cWrite.indexOf('--sandbox') + 1], 'workspace-write');
+    assert.ok(!cWrite.includes('--dangerously-bypass-approvals-and-sandbox'));
+    const cFull = cli.codexArgs({ workspace: ws('full') }, '/scratch', '/o');
+    assert.ok(cFull.includes('--dangerously-bypass-approvals-and-sandbox') && cFull[cFull.indexOf('-C') + 1] === '/repo' && !cFull.includes('--sandbox'));
+
+    // Gemini CLI
+    const mode = (a) => a[a.indexOf('--approval-mode') + 1];
+    assert.equal(mode(cli.geminiArgs({})), 'plan');
+    assert.equal(mode(cli.geminiArgs({ workspace: ws('read') })), 'plan');
+    assert.equal(mode(cli.geminiArgs({ workspace: ws('write') })), 'auto_edit');
+    assert.equal(mode(cli.geminiArgs({ workspace: ws('full') })), 'yolo');
+
+    // The system prompt names the folder and the level
+    const sp = cli.workspaceSystemPrompt(ws('write'));
+    assert.ok(sp.includes('/repo') && /multiai\/abc/.test(sp));
+    assert.ok(!/commit/i.test(sp) || /do not commit|no commits|never commit|committed automatically/i.test(sp), 'the seat is told not to commit itself');
+    assert.deepEqual(cli.TOOLS_LEVELS, ['none', 'read', 'write', 'full']);
+});
+
+test('codexSandboxSupport: native off Windows; on Windows the desktop app bundle stands in when the PATH codex lacks its helpers', () => {
+    const dir = cli.codexSandboxHelperDir({ force: true });
+    assert.equal(cli.hasCodexHelpers('/definitely/not/here'), false);
+    if (process.platform !== 'win32') {
+        assert.equal(dir, null);
+        assert.deepEqual(cli.codexSandboxSupport(), { mode: 'native', exe: null });
+        assert.equal(cli.codexSandboxBundle(), null);
+        return;
+    }
+    const sup = cli.codexSandboxSupport({ force: true });
+    assert.ok(['native', 'bundle', 'missing'].includes(sup.mode));
+    if (sup.mode === 'bundle') { assert.ok(/codex\.exe$/i.test(sup.exe)); assert.ok(cli.hasCodexHelpers(cli.codexSandboxBundle().dir)); }
+    if (sup.mode === 'native') assert.equal(sup.exe, null);
+    // With a helper present the codex child env starts with its folder; other CLIs are untouched.
+    if (dir) {
+        const env = cli.childEnv('codex');
+        const p = env.PATH || env.Path;
+        assert.ok(p.toLowerCase().startsWith(dir.toLowerCase()), 'helper folder is first on PATH for codex');
+        const other = cli.childEnv('claude');
+        assert.ok(!(other.PATH || other.Path).toLowerCase().startsWith(dir.toLowerCase()) || (process.env.PATH || '').toLowerCase().includes(dir.toLowerCase()));
+    } else {
+        assert.equal(cli.childEnv('codex').PATH, process.env.PATH);
+    }
+});

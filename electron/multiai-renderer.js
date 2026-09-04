@@ -57,6 +57,7 @@ function multiaiDefaultChat() {
         personaKeys: {},        // provider -> persona name picked in the assignment UI (chat.personas holds the resolved text sent to the backend).
         pendingContextRefs: [], // message ids queued via "Add as context", folded into the next outgoing prompt then cleared.
         agentConfig: { provider: '', root: '', maxTurns: 6 }, // Orchestrated "Agent (file tools)" strategy settings.
+        workspace: null,        // Classic: {root, branch} — the git folder CLI seats with tools read/edit (see multiaiRenderWorkspace).
         engines: {},            // provider -> engine string (e.g. gemini -> 'gemini:3.1-pro'); only Gemini honours it today.
         contextMode: 'bounded', // 'bounded' (digest + window) | 'full' (entire transcript every turn) | 'delta' (only what's new; provider thread remembers)
         autoSummaryEvery: 0,    // delta mode: refresh the rolling summary after this many new messages (0 = manual)
@@ -98,6 +99,7 @@ function multiaiRefLabel(msg) {
     else if (msg.role === 'summary') code = 'SM';
     else if (msg.role === 'system') code = 'SY';
     else if (msg.role === 'error') code = 'ER';
+    else if (msg.role === 'change') code = 'CH';
     else code = msg.code || multiaiProviderCode(msg.provider);
     return `${String(c).padStart(2, '0')}${String(r).padStart(2, '0')}${code}`;
 }
@@ -187,6 +189,7 @@ async function multiaiInit() {
             multiaiAppendFeedItem(message);
             multiaiRenderStatusLine(chat);
             multiaiRenderLedger(chat);
+            if (message.role === 'change') multiaiRenderWorkspace(chat);
         }
     });
     agentHub.onMultiaiChatCreated(({ chat }) => {
@@ -702,7 +705,7 @@ function multiaiWireResize(handleId, panelId, side, minWidth, maxWidth, prefKey)
 // collapsed by default so the feed gets the room — click the summary row
 // to expand. Replaces the earlier design that pinned them in the sidebar.
 
-const MULTIAI_OPTABS = { classic: ['agents', 'discussion', 'context', 'charter', 'judge'], orchestrated: ['pipeline'] };
+const MULTIAI_OPTABS = { classic: ['agents', 'discussion', 'context', 'charter', 'judge', 'workspace'], orchestrated: ['pipeline'] };
 
 function multiaiToggleOptions() {
     const prefs = multiaiUiPrefs();
@@ -757,6 +760,9 @@ function multiaiRenderOptionsSummary(chat) {
         const routes = multiaiState.routes || {};
         if (routes.apiMode) extras.push('API mode');
         if (multiaiActiveAgents(chat).some(a => MULTIAI_CLI_PROVIDERS[a.provider])) extras.push('CLI');
+        const wsSeats = multiaiWorkspaceSeats(chat);
+        if (chat.workspace && chat.workspace.root) extras.push(wsSeats.length ? `workspace · ${wsSeats.length} with tools` : 'workspace (no seat has tools)');
+        else if (wsSeats.length) extras.push('⚠ tools without a workspace');
         el.textContent = `${n}${all > n ? '/' + all : ''} agent${Math.max(n, all) === 1 ? '' : 's'} · ${chat.discussMode === 'debate' ? 'Debate' : 'Discuss'} · ${rounds} round${rounds === 1 ? '' : 's'} · ${chat.brevity || 'max 4 sentences'}${extras.length ? ' · ' + extras.join(' · ') : ''}`;
         const hint = document.getElementById('multiai-composer-hint');
         if (hint) {
@@ -822,6 +828,7 @@ function multiaiRenderChat() {
     multiaiRenderParticipants(chat);
     multiaiRenderPersonaAssignment(chat);
     multiaiRenderJudgeOptions(chat);
+    multiaiRenderWorkspace(chat);
     multiaiRenderStrategyForm();
     multiaiRenderFeed(chat);
     multiaiRenderStatusLine(chat);
@@ -951,6 +958,20 @@ const MULTIAI_MODEL_HINTS = {
     gemini: ['3.5-flash', '3.1-pro', '3.1-flash-lite', 'auto'],
 };
 
+// Providers that exist only as API entries in Settings (BYOK-only providers
+// and local / custom OpenAI-compatible endpoints such as Ollama): api-only
+// seats, no browser tab to fall back to.
+function multiaiApiOnlyProviders() {
+    const r = multiaiState.routes || { providers: {} };
+    return Object.entries(r.providers || {}).filter(([, v]) => v && v.apiOnly).map(([id, v]) => ({ id, label: v.label || id, hasKey: !!v.hasKey, models: v.models || [], model: v.model || '', endpoint: v.endpoint || '', custom: !!v.custom }));
+}
+
+function multiaiIsApiOnly(provider) {
+    const r = multiaiState.routes || { providers: {} };
+    const v = r.providers && r.providers[provider];
+    return !!(v && v.apiOnly);
+}
+
 // What the local CLI behind a provider reports (from ↻ / startup discovery):
 // { available, version, models: [{id, label, efforts}], efforts, defaultModel,
 //   defaultEffort, loggedIn?, note }. Null when unknown.
@@ -983,8 +1004,16 @@ function multiaiCliEfforts(provider, model) {
     if (m && Array.isArray(m.efforts) && m.efforts.length) return m.efforts;
     return Array.isArray(info.efforts) && info.efforts.length ? info.efforts : null;
 }
-const MULTIAI_AGENT_FIELDS = ['uid', 'name', 'provider', 'route', 'model', 'effort', 'persona', 'personaKey', 'enabled'];
-const MULTIAI_AGENT_SYNC_FIELDS = ['name', 'provider', 'route', 'model', 'effort', 'persona', 'personaKey'];
+const MULTIAI_AGENT_FIELDS = ['uid', 'name', 'provider', 'route', 'model', 'effort', 'persona', 'personaKey', 'enabled', 'tools'];
+const MULTIAI_AGENT_SYNC_FIELDS = ['name', 'provider', 'route', 'model', 'effort', 'persona', 'personaKey', 'tools'];
+// What a CLI seat may do inside the chat's workspace folder (mirrors multiai-core.TOOLS).
+const MULTIAI_TOOLS = ['none', 'read', 'write', 'full'];
+const MULTIAI_TOOLS_HELP = {
+    none: 'Discussion only — no file access (the CLI runs in a scratch folder).',
+    read: 'Read-only: list, read and search files in the workspace to verify claims.',
+    write: 'Edit files in the workspace; every turn is committed on the chat branch and shown as a diff. Shell limited to git status/diff/log.',
+    full: 'Edit files and run any shell command in the workspace (Claude: --dangerously-skip-permissions; Codex: --dangerously-bypass-approvals-and-sandbox; Gemini: --yolo).',
+};
 
 function multiaiAgentUid() {
     return 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -1046,7 +1075,8 @@ function multiaiEnsureAgents(chat) {
             });
         }
         if (!a.provider) a.provider = 'chatgpt';
-        if (MULTIAI_CLI_PROVIDERS[a.provider]) a.route = 'cli';
+        if (MULTIAI_CLI_PROVIDERS[a.provider]) { a.route = 'cli'; if (!MULTIAI_TOOLS.includes(a.tools)) a.tools = 'none'; }
+        else { if (multiaiIsApiOnly(a.provider)) a.route = 'api'; delete a.tools; }
         if (!a.route) a.route = 'auto';
         if (a.enabled == null) a.enabled = true;
         if (!a.name) a.name = multiaiDefaultAgentName(a.provider, a.model, a.effort);
@@ -1128,6 +1158,11 @@ function multiaiRouteLabel(agent) {
         return `${MULTIAI_CLI_PROVIDERS[agent.provider]}${ver} (local, subscription)${known}`;
     }
     const p = r.providers[agent.provider] || {};
+    if (p.apiOnly) {
+        if (!p.hasKey) return `⚠ ${p.label || agent.provider} has no key/endpoint in Settings → API`;
+        let host = ''; try { host = p.endpoint ? new URL(p.endpoint).host : ''; } catch { /* ignore */ }
+        return `API · ${agent.model || (p.model ? p.model + ' (Settings)' : '⚠ pick a model')}${host ? ' · ' + host : ''}`;
+    }
     const apiOk = r.apiMode && p.hasKey;
     if (agent.route === 'browser') return 'browser tab';
     if (agent.route === 'api' && !apiOk) return `⚠ API mode off / no ${multiaiProviderLabel(agent.provider)} key in Settings — browser tab`;
@@ -1141,8 +1176,14 @@ function multiaiAgentMeta(a) {
     bits.push(isCli ? 'cli' : (a.route || 'auto'));
     if (a.model) bits.push(a.model);
     if (a.effort) bits.push(a.effort);
+    if (isCli && a.tools && a.tools !== 'none') bits.push('🛠 ' + a.tools);
     if (a.personaKey) bits.push('🎭 ' + a.personaKey);
     return bits.join(' · ');
+}
+
+// Enabled CLI seats that have workspace tools (read/write/full).
+function multiaiWorkspaceSeats(chat) {
+    return multiaiActiveAgents(chat).filter(a => MULTIAI_CLI_PROVIDERS[a.provider] && a.tools && a.tools !== 'none');
 }
 
 function multiaiRenderParticipants(chat) {
@@ -1151,7 +1192,8 @@ function multiaiRenderParticipants(chat) {
     const agents = multiaiEnsureAgents(chat);
     const routes = multiaiState.routes || { apiMode: false, providers: {}, cli: {} };
     const personaNames = Object.keys(multiaiAllPersonas());
-    const providerOptions = ['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli', 'gemini-cli'];
+    const apiOnlyList = multiaiApiOnlyProviders();
+    const providerOptions = ['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli', 'gemini-cli'].concat(apiOnlyList.map(x => x.id));
     const takenCodes = new Set();
     const opt = (v, label, sel, dis) => `<option value="${multiaiEscapeAttr(v)}" ${sel ? 'selected' : ''} ${dis ? 'disabled' : ''}>${multiaiEscape(label)}</option>`;
     const rows = agents.map((a, i) => {
@@ -1159,31 +1201,47 @@ function multiaiRenderParticipants(chat) {
         const code = multiaiAgentCode(a, takenCodes);
         const isCli = !!MULTIAI_CLI_PROVIDERS[a.provider];
         const p = routes.providers[a.provider] || {};
-        const apiOk = routes.apiMode && p.hasKey;
+        const apiOnly = !!p.apiOnly;
+        const apiOk = apiOnly ? !!p.hasKey : (routes.apiMode && p.hasKey);
         const cliInfo = isCli ? multiaiCliInfo(a.provider) : null;
         const cliOk = !isCli || multiaiCliAvailable(a.provider);
         const cliModels = isCli ? multiaiCliModels(a.provider) : [];
         const hints = isCli ? cliModels.map(m => m.id) : (apiOk ? (p.models || []) : (a.provider === 'gemini' ? MULTIAI_MODEL_HINTS.gemini : []));
         const cliEfforts = isCli ? multiaiCliEfforts(a.provider, a.model) : null;
-        const effortList = isCli ? (cliEfforts === null ? MULTIAI_EFFORTS.filter(Boolean) : cliEfforts) : MULTIAI_EFFORTS.filter(Boolean);
-        const effortOn = (isCli && effortList.length > 0) || (!isCli && (apiOk || a.route === 'api'));
-        const modelOn = isCli || apiOk || a.route === 'api' || a.provider === 'gemini';
-        const modelUnknown = isCli && !!a.model && cliInfo && cliInfo.models && cliInfo.models.length && !cliInfo.models.some(m => m.id === a.model) && a.provider !== 'claude-cli';
+        const effortList = isCli ? (cliEfforts === null ? MULTIAI_EFFORTS.filter(Boolean) : cliEfforts) : (apiOnly ? [] : MULTIAI_EFFORTS.filter(Boolean));
+        const effortOn = (isCli && effortList.length > 0) || (!isCli && !apiOnly && (apiOk || a.route === 'api'));
+        const modelOn = isCli || apiOnly || apiOk || a.route === 'api' || a.provider === 'gemini';
+        const modelUnknown = (isCli && !!a.model && cliInfo && cliInfo.models && cliInfo.models.length && !cliInfo.models.some(m => m.id === a.model) && a.provider !== 'claude-cli')
+            || (apiOnly && !a.model && !p.model);
         const cliBad = isCli && (!cliOk || (cliInfo && cliInfo.loggedIn === false));
         const resolved = isCli ? 'cli' : (a.route === 'browser' ? 'tab' : (a.route === 'api' ? (apiOk ? 'api' : 'api ⚠ → tab') : (apiOk ? 'api' : 'tab')));
         const routeOpts = isCli
             ? opt('cli', !cliOk ? 'cli ⚠ not found' : (cliInfo && cliInfo.loggedIn === false ? 'cli ⚠ login' : `cli${cliInfo && cliInfo.version ? ' ' + cliInfo.version : ''}`), true)
-            : opt('auto', `auto → ${apiOk ? 'api' : 'tab'}`, a.route === 'auto') + opt('browser', 'browser tab', a.route === 'browser') + opt('api', apiOk ? 'api' : 'api ⚠ (Settings)', a.route === 'api');
+            : (apiOnly
+                ? opt('api', p.hasKey ? 'api' : 'api ⚠ (Settings)', true)
+                : opt('auto', `auto → ${apiOk ? 'api' : 'tab'}`, a.route === 'auto') + opt('browser', 'browser tab', a.route === 'browser') + opt('api', apiOk ? 'api' : 'api ⚠ (Settings)', a.route === 'api'));
         const cliDefault = cliInfo && cliInfo.defaultModel ? `${cliInfo.defaultModel} (CLI default)` : 'CLI default';
-        const modelPh = isCli ? cliDefault : (apiOk || a.route === 'api' ? (p.model ? `${p.model} (Settings)` : 'Settings default') : (a.provider === 'gemini' ? 'engine' : '—'));
+        const modelPh = isCli ? cliDefault : (apiOnly ? (p.model ? `${p.model} (Settings)` : 'model id (required)') : (apiOk || a.route === 'api' ? (p.model ? `${p.model} (Settings)` : 'Settings default') : (a.provider === 'gemini' ? 'engine' : '—')));
+        const tools = isCli ? (MULTIAI_TOOLS.includes(a.tools) ? a.tools : 'none') : '';
+        const hasWs = !!(chat.workspace && chat.workspace.root);
+        const codexNoSandbox = a.provider === 'codex-cli' && cliInfo && cliInfo.sandbox === 'missing' && (tools === 'read' || tools === 'write');
+        const toolsWarn = isCli && tools !== 'none' && (!hasWs || codexNoSandbox);
+        const toolsTitle = !isCli ? 'File tools — CLI seats only (Claude Code, Codex, Gemini CLI)'
+            : (!hasWs && tools !== 'none' ? `No workspace folder chosen (Workspace tab) — this seat runs without tools until one is set.\n\n${MULTIAI_TOOLS_HELP[tools]}`
+                : (codexNoSandbox ? `Codex's Windows sandbox helpers (codex-windows-sandbox-setup.exe + codex-command-runner.exe) are neither next to the codex on PATH nor bundled by the Codex desktop app, so read/write cannot be enforced — Codex will report it cannot read files. Install the Codex app, or use "full" (no sandbox).\n\n${MULTIAI_TOOLS_HELP[tools]}`
+                    : (a.provider === 'codex-cli' && cliInfo && cliInfo.sandbox === 'bundle' && (tools === 'read' || tools === 'write') ? `${MULTIAI_TOOLS_HELP[tools]}\n\nRuns through the Codex desktop app's bundled CLI (${cliInfo.sandboxBundle || 'bundle'}), which has the Windows sandbox helpers the codex on PATH lacks.` : MULTIAI_TOOLS_HELP[tools])));
+        const toolsCell = isCli
+            ? `<select onchange="multiaiAgentField(${i}, 'tools', this.value)" title="${multiaiEscapeAttr(toolsTitle)}" ${toolsWarn ? 'style="border-color: rgba(245,158,11,0.7);"' : ''}>${MULTIAI_TOOLS.map(t => opt(t, t === 'none' ? 'none' : (t === 'full' ? 'full ⚡' : t) + (toolsWarn ? ' ⚠' : ''), tools === t)).join('')}</select>`
+            : `<select disabled title="${multiaiEscapeAttr(toolsTitle)}">${opt('', '—', true)}</select>`;
         return `
             <tr class="${on ? '' : 'off'}" title="${multiaiEscapeAttr(multiaiRouteLabel(a))}">
                 <td style="width: 24px;"><input type="checkbox" ${on ? 'checked' : ''} onchange="multiaiAgentToggle(${i}, this.checked)" title="${on ? 'Taking turns in this chat — untick to bench' : 'Benched — tick to include'}"></td>
                 <td class="nm" style="min-width: 150px;"><div style="display: flex; align-items: center; gap: 6px;"><span class="code" title="Label code">${multiaiEscape(code)}</span><input type="text" value="${multiaiEscapeAttr(a.name)}" oninput="multiaiAgentField(${i}, 'name', this.value)" title="Name — also the @mention id"></div></td>
-                <td style="width: 122px;"><select onchange="multiaiAgentField(${i}, 'provider', this.value)" title="Provider">${providerOptions.map(pv => opt(pv, MULTIAI_CLI_PROVIDERS[pv] || multiaiProviderLabel(pv), a.provider === pv)).join('')}</select></td>
-                <td style="width: 118px;"><select onchange="multiaiAgentField(${i}, 'route', this.value)" ${isCli ? 'disabled' : ''} title="Route — auto follows Settings (API mode on + key → API, else the browser tab); resolved: ${multiaiEscapeAttr(resolved)}">${routeOpts}</select></td>
-                <td style="width: 130px;"><input type="text" list="multiai-models-${i}" value="${multiaiEscapeAttr(a.model || '')}" placeholder="${multiaiEscapeAttr(modelPh)}" oninput="multiaiAgentField(${i}, 'model', this.value)" onchange="multiaiAgentField(${i}, 'model:commit', this.value)" ${modelOn ? '' : 'disabled'} ${modelUnknown ? 'style="border-color: rgba(245,158,11,0.7);"' : ''} title="${multiaiEscapeAttr(isCli ? (modelUnknown ? `Not in this CLI's model list — ${cliInfo.note || ''}` : (cliInfo && cliInfo.note ? cliInfo.note : 'CLI model (blank = its default)')) : (a.provider === 'gemini' && !apiOk ? 'Gemini engine (3.1-pro, 3.5-flash…)' : 'API model id — blank uses the model selected in Settings'))}"><datalist id="multiai-models-${i}">${cliModels.length ? cliModels.map(m => `<option value="${multiaiEscapeAttr(m.id)}">${multiaiEscape(m.label && m.label !== m.id ? m.label : '')}</option>`).join('') : hints.map(h => `<option value="${multiaiEscapeAttr(h)}">`).join('')}</datalist></td>
+                <td style="width: 122px;"><select onchange="multiaiAgentField(${i}, 'provider', this.value)" title="Provider">${(providerOptions.includes(a.provider) ? providerOptions : providerOptions.concat([a.provider])).map(pv => opt(pv, MULTIAI_CLI_PROVIDERS[pv] || multiaiProviderLabel(pv), a.provider === pv)).join('')}</select></td>
+                <td style="width: 118px;"><select onchange="multiaiAgentField(${i}, 'route', this.value)" ${isCli || apiOnly ? 'disabled' : ''} title="${multiaiEscapeAttr(apiOnly ? 'API only — this provider has no browser tab' : `Route — auto follows Settings (API mode on + key → API, else the browser tab); resolved: ${resolved}`)}">${routeOpts}</select></td>
+                <td style="width: 130px;"><input type="text" list="multiai-models-${i}" value="${multiaiEscapeAttr(a.model || '')}" placeholder="${multiaiEscapeAttr(modelPh)}" oninput="multiaiAgentField(${i}, 'model', this.value)" onchange="multiaiAgentField(${i}, 'model:commit', this.value)" ${modelOn ? '' : 'disabled'} ${modelUnknown ? 'style="border-color: rgba(245,158,11,0.7);"' : ''} title="${multiaiEscapeAttr(isCli ? (modelUnknown ? `Not in this CLI's model list — ${cliInfo.note || ''}` : (cliInfo && cliInfo.note ? cliInfo.note : 'CLI model (blank = its default)')) : (apiOnly ? (modelUnknown ? 'This endpoint needs a model id (e.g. llama3.2, qwen2.5-coder) — ↻ lists what it serves' : 'Model id as the endpoint names it — ↻ lists what it serves') : (a.provider === 'gemini' && !apiOk ? 'Gemini engine (3.1-pro, 3.5-flash…)' : 'API model id — blank uses the model selected in Settings')))}"><datalist id="multiai-models-${i}">${cliModels.length ? cliModels.map(m => `<option value="${multiaiEscapeAttr(m.id)}">${multiaiEscape(m.label && m.label !== m.id ? m.label : '')}</option>`).join('') : hints.map(h => `<option value="${multiaiEscapeAttr(h)}">`).join('')}</datalist></td>
                 <td style="width: 96px;"><select onchange="multiaiAgentField(${i}, 'effort', this.value)" ${effortOn ? '' : 'disabled'} title="${multiaiEscapeAttr(isCli ? (effortList.length ? `Reasoning effort — levels this ${MULTIAI_CLI_PROVIDERS[a.provider]} model accepts` : `${MULTIAI_CLI_PROVIDERS[a.provider]} has no effort switch`) : 'Reasoning effort — API and CLI routes only')}">${opt('', 'default', !a.effort)}${effortList.map(e => opt(e, e, a.effort === e)).join('')}${a.effort && !effortList.includes(a.effort) ? opt(a.effort, a.effort + ' ⚠', true) : ''}</select></td>
+                <td style="width: 84px;">${toolsCell}</td>
                 <td style="width: 120px;"><select onchange="multiaiAgentPersona(${i}, this.value)" title="Persona">${opt('', 'none', !a.personaKey)}${personaNames.map(n => opt(n, n, a.personaKey === n)).join('')}</select></td>
                 <td class="act"><button onclick="multiaiAgentDuplicate(${i})" title="Duplicate (same provider, e.g. another effort)">⧉</button><button class="rm" onclick="multiaiAgentRemove(${i})" title="Remove from this chat (stays in the library)">✕</button></td>
             </tr>`;
@@ -1192,12 +1250,12 @@ function multiaiRenderParticipants(chat) {
     const lib = multiaiAgentLibrary();
     const inChat = new Set(agents.map(a => a.uid).filter(Boolean));
     const libFree = lib.filter(a => !inChat.has(a.uid));
-    const presets = ['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli', 'gemini-cli'];
+    const presets = ['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli', 'gemini-cli'].concat(apiOnlyList.map(x => x.id));
     const cliOkFor = (pv) => MULTIAI_CLI_PROVIDERS[pv] ? multiaiCliAvailable(pv) : true;
     const addMenu = `<select onchange="multiaiAgentAddFromMenu(this.value); this.value='';" title="Add an agent to this chat" style="min-width: 150px;">
             <option value="">+ add agent…</option>
             ${libFree.length ? `<optgroup label="Library">${libFree.map(a => opt('lib:' + a.uid, `${a.name} — ${multiaiAgentMeta(a)}`)).join('')}</optgroup>` : ''}
-            <optgroup label="New">${presets.map(pv => opt('new:' + pv, (MULTIAI_CLI_PROVIDERS[pv] || multiaiProviderLabel(pv) + ' tab') + (cliOkFor(pv) ? '' : ' (CLI not found)'), false, !cliOkFor(pv))).join('')}</optgroup>
+            <optgroup label="New">${presets.map(pv => opt('new:' + pv, (MULTIAI_CLI_PROVIDERS[pv] || (multiaiIsApiOnly(pv) ? multiaiProviderLabel(pv) + ' (API)' : multiaiProviderLabel(pv) + ' tab')) + (cliOkFor(pv) ? '' : ' (CLI not found)'), false, !cliOkFor(pv))).join('')}</optgroup>
         </select>`;
     const libManage = multiaiState.agentMenuOpen && lib.length ? `
         <div style="flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 0 2px;">
@@ -1218,8 +1276,8 @@ function multiaiRenderParticipants(chat) {
     box.innerHTML = `
         <div style="overflow-x: auto;">
         <table class="multiai-roster">
-            <thead><tr><th></th><th>Agent</th><th>Provider</th><th>Route</th><th>Model</th><th>Effort</th><th>Persona</th><th></th></tr></thead>
-            <tbody>${rows || `<tr><td colspan="8" style="color: #6b7280; padding: 10px 6px;">No agents yet — add one below. Agents go into the library, so every new chat starts with them; tick / untick to choose who takes part in this one.</td></tr>`}</tbody>
+            <thead><tr><th></th><th>Agent</th><th>Provider</th><th>Route</th><th>Model</th><th>Effort</th><th title="Workspace file tools (CLI seats): none · read · write · full — see the Workspace tab">Tools</th><th>Persona</th><th></th></tr></thead>
+            <tbody>${rows || `<tr><td colspan="9" style="color: #6b7280; padding: 10px 6px;">No agents yet — add one below. Agents go into the library, so every new chat starts with them; tick / untick to choose who takes part in this one.</td></tr>`}</tbody>
         </table>
         </div>
         <div class="multiai-roster-foot">
@@ -1239,8 +1297,66 @@ function multiaiRenderParticipants(chat) {
 function multiaiRerenderAgents(chat) {
     multiaiRenderParticipants(chat);
     multiaiRenderJudgeOptions(chat);
+    multiaiRenderWorkspace(chat);
     multiaiRenderOptionsSummary(chat);
     multiaiRenderStatusLine(chat);
+}
+
+// ---- Workspace (a git folder CLI seats with tools work in) ---------------
+// The folder is per chat; the branch is derived from the chat id the same
+// way the main process derives it (workspace.branchFor), so it can be shown
+// before the first run creates it.
+
+function multiaiWorkspaceBranch(chat) {
+    if (chat && chat.workspace && chat.workspace.branch) return chat.workspace.branch;
+    const tail = String(chat && chat.id || '').replace(/^chat_/, '').replace(/[^a-z0-9]+/gi, '-').slice(-14) || 'chat';
+    return `multiai/${tail}`;
+}
+
+function multiaiRenderWorkspace(chat) {
+    const box = document.getElementById('multiai-workspace');
+    if (!box || !chat) return;
+    const root = chat.workspace && chat.workspace.root ? chat.workspace.root : '';
+    const seats = multiaiWorkspaceSeats(chat);
+    const cliSeats = multiaiActiveAgents(chat).filter(a => MULTIAI_CLI_PROVIDERS[a.provider]);
+    const changes = (chat.messages || []).filter(m => m.role === 'change');
+    const seatLine = seats.length
+        ? `Seats with tools: ${seats.map(a => `<b style="color:#e5e7eb;">${multiaiEscape(a.name)}</b> <span style="color:#9ca3af;">(${multiaiEscape(a.tools)})</span>`).join(', ')}.`
+        : (cliSeats.length
+            ? `No seat has tools yet — set <b style="color:#e5e7eb;">Tools</b> to read, write or full on a CLI seat in the Agents tab.`
+            : `Only CLI seats (Claude Code, Codex, Gemini CLI) can use a workspace — add one in the Agents tab.`);
+    box.innerHTML = `
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+            <label class="multiai-field" style="flex: 1 1 320px; min-width: 240px;" title="A folder that is a git repository. Writer seats edit it directly; each of their turns is committed on the chat's own branch and shown in the transcript as a diff.">Folder
+                <div style="display: flex; gap: 6px; align-items: center;">
+                    <input id="multiai-workspace-root" type="text" value="${multiaiEscapeAttr(root)}" placeholder="path to a git repository (none — seats run without file tools)" onchange="multiaiWorkspaceSet(this.value)" style="flex: 1;">
+                    <button class="multiai-btn ghost" onclick="multiaiWorkspacePick()" title="Choose a folder">📁</button>
+                    <button class="multiai-btn ghost" onclick="multiaiWorkspaceSet('')" ${root ? '' : 'disabled'} title="Detach the folder from this chat (files and commits stay)">clear</button>
+                </div>
+            </label>
+            <div style="font-size: 0.74rem; color: #9ca3af; line-height: 1.6; flex: 1 1 260px;">
+                ${root ? `Branch <code>${multiaiEscape(multiaiWorkspaceBranch(chat))}</code>${chat.workspace && chat.workspace.branch ? '' : ' (created on the first run)'} · ${changes.length} change${changes.length === 1 ? '' : 's'} committed in this chat.` : 'No folder chosen.'}<br>
+                ${seatLine}
+            </div>
+        </div>
+        <div class="multiai-hint" style="margin-top: 8px;">Needs git. The folder must be clean or already on the chat's branch — Proxima never sweeps your uncommitted work into it. One writer edits at a time; readers and discussion seats overlap. <b>read</b> = list/read/search · <b>write</b> = edit + git status/diff/log · <b>full</b> = edit + any shell command (no sandbox — use on a throwaway clone). Review with <code>git log ${multiaiEscape(multiaiWorkspaceBranch(chat))}</code>, merge or delete the branch when done.</div>`;
+}
+
+async function multiaiWorkspacePick() {
+    if (!agentHub.multiaiPickToolsFolder) return;
+    let r = null;
+    try { r = await agentHub.multiaiPickToolsFolder(); } catch (e) { showToast('Could not open the folder picker: ' + (e.message || e)); return; }
+    if (r && r.success && r.path) multiaiWorkspaceSet(r.path);
+}
+
+function multiaiWorkspaceSet(root) {
+    const chat = multiaiCurrentChat();
+    if (!chat) return;
+    root = String(root || '').trim();
+    if (root) chat.workspace = { root };            // a new folder gets a fresh branch on the next run
+    else delete chat.workspace;
+    multiaiPersist();
+    multiaiRerenderAgents(chat);
 }
 
 // ---- actions --------------------------------------------------------------
@@ -1281,8 +1397,10 @@ function multiaiAgentsSetAll(on) {
 
 function multiaiAgentPreset(provider) {
     const isCli = !!MULTIAI_CLI_PROVIDERS[provider];
-    const model = multiaiCliPresetModel(provider);
-    const a = { id: '', name: '', route: isCli ? 'cli' : 'auto', provider, model, effort: multiaiCliPresetEffort(provider, model), enabled: true };
+    const apiOnly = multiaiIsApiOnly(provider);
+    const pinfo = apiOnly ? (multiaiState.routes.providers[provider] || {}) : null;
+    const model = isCli ? multiaiCliPresetModel(provider) : (apiOnly ? (pinfo.model || (pinfo.models && pinfo.models[0]) || '') : '');
+    const a = { id: '', name: '', route: isCli ? 'cli' : (apiOnly ? 'api' : 'auto'), provider, model, effort: isCli ? multiaiCliPresetEffort(provider, model) : '', enabled: true };
     a.name = multiaiDefaultAgentName(provider, model, a.effort);
     return a;
 }
@@ -1362,8 +1480,13 @@ function multiaiAgentField(i, field, value) {
     if (field === 'provider') {
         const isCli = !!MULTIAI_CLI_PROVIDERS[value];
         a.route = isCli ? 'cli' : (a.route === 'cli' ? 'auto' : a.route);
-        if (isCli) { a.model = multiaiCliPresetModel(value); a.effort = multiaiCliPresetEffort(value, a.model, a.effort); }
-        else if (value !== 'gemini') a.model = '';
+        if (isCli) { a.model = multiaiCliPresetModel(value); a.effort = multiaiCliPresetEffort(value, a.model, a.effort); if (!MULTIAI_TOOLS.includes(a.tools)) a.tools = 'none'; }
+        else if (multiaiIsApiOnly(value)) { const pi = multiaiState.routes.providers[value] || {}; a.route = 'api'; a.model = pi.model || (pi.models && pi.models[0]) || ''; a.effort = ''; delete a.tools; }
+        else { if (value !== 'gemini') a.model = ''; delete a.tools; }
+    }
+    if (field === 'tools') {
+        a.tools = MULTIAI_TOOLS.includes(value) ? value : 'none';
+        if (a.tools !== 'none' && !(chat.workspace && chat.workspace.root)) showToast('Pick a workspace folder (Workspace tab) — until then this seat runs without tools.');
     }
     if (field === 'model:commit') {
         // Codex models carry their own effort list: keep the effort legal.
@@ -1426,7 +1549,9 @@ async function multiaiRefreshRoutes() {
 function multiaiProviderLabel(p) {
     const names = { chatgpt: 'ChatGPT', claude: 'Claude', gemini: 'Gemini', perplexity: 'Perplexity', codex: 'Codex', 'claude-code': 'Claude Code', 'claude-cli': 'Claude Code', 'codex-cli': 'Codex', 'gemini-cli': 'Gemini CLI', human: 'You', external: 'External' };
     const base = String(p || '').split(':')[0];
-    return names[base] || base;
+    if (names[base]) return names[base];
+    const r = multiaiState.routes && multiaiState.routes.providers && multiaiState.routes.providers[base];
+    return (r && r.label) || base;
 }
 
 // Legacy entry points kept for older call sites; agents carry personas now.
@@ -1543,6 +1668,26 @@ function multiaiAppendFeedItem(message, skipScroll) {
     const item = document.createElement('div');
     item.id = 'multiai-msg-' + message.id;
     item.oncontextmenu = (e) => multiaiShowMsgMenu(e, message.id);
+    if (message.role === 'change') {
+        // A workspace seat's committed turn: summary line + file list, diff folded.
+        const text = String(message.text || '');
+        const fence = text.indexOf('```diff');
+        const head = (fence === -1 ? text : text.slice(0, fence)).trim();
+        const diff = fence === -1 ? '' : text.slice(fence).replace(/^```diff\s*/, '').replace(/```\s*$/, '');
+        const files = Array.isArray(message.files) ? message.files : [];
+        item.style.cssText = 'border: 1px solid rgba(245,158,11,0.4); border-radius: 10px; padding: 12px 14px; background: rgba(245,158,11,0.06);';
+        item.innerHTML = `
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
+                <div style="font-size: 0.72rem; font-weight: 700; color: #fbbf24; text-transform: uppercase; letter-spacing: 0.5px;">🛠 ${multiaiEscape(message.who || 'changes')}${message.commit ? ` <span style="font-weight: 600; letter-spacing: 0; text-transform: none; color: #d1d5db;">· ${multiaiEscape(String(message.commit).slice(0, 8))}</span>` : ''}</div>
+                <div title="Reference label — right-click this message for options" style="font-size: 0.62rem; color: #4b4b60; font-weight: 600; letter-spacing: 0.5px; flex-shrink: 0;">${multiaiRefLabel(message)}</div>
+            </div>
+            <div style="font-size: 0.82rem; color: #e5e7eb; white-space: pre-wrap; line-height: 1.5; font-family: ui-monospace, Menlo, Consolas, monospace;">${multiaiEscape(head)}</div>
+            ${files.length && !head ? `<div style="font-size: 0.78rem; color: #d1d5db;">${files.map(f => `<code>${multiaiEscape(f)}</code>`).join(' · ')}</div>` : ''}
+            ${diff ? `<details style="margin-top: 8px; font-size: 0.76rem;"><summary style="cursor: pointer; color: #fbbf24;">diff</summary><pre style="white-space: pre; overflow-x: auto; margin: 6px 0 0 0; padding: 8px; border-radius: 6px; background: rgba(0,0,0,0.35); color: #d1d5db; font-size: 0.74rem; line-height: 1.4;">${multiaiDiffHtml(diff)}</pre></details>` : ''}`;
+        feed.appendChild(item);
+        if (!skipScroll) feed.scrollTop = feed.scrollHeight;
+        return;
+    }
     const border = isError ? 'border-color: rgba(239,68,68,0.4); background: rgba(239,68,68,0.06);'
         : isJudge ? 'border-color: rgba(168,85,247,0.4); background: rgba(168,85,247,0.06);'
         : isSummary ? 'border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.06);'
@@ -1582,6 +1727,18 @@ function multiaiEscape(s) {
     const div = document.createElement('div');
     div.textContent = String(s == null ? '' : s);
     return div.innerHTML;
+}
+
+// Unified diff → escaped HTML with added/removed/header lines tinted.
+function multiaiDiffHtml(diff) {
+    return String(diff || '').split('\n').map(line => {
+        const esc = multiaiEscape(line);
+        if (/^(diff --git|index |--- |\+\+\+ )/.test(line)) return `<span style="color: #9ca3af;">${esc}</span>`;
+        if (line.startsWith('@@')) return `<span style="color: #c084fc;">${esc}</span>`;
+        if (line.startsWith('+')) return `<span style="color: #34d399;">${esc}</span>`;
+        if (line.startsWith('-')) return `<span style="color: #f87171;">${esc}</span>`;
+        return esc;
+    }).join('\n');
 }
 
 // Running state is per chat (the main process owns it); this updates the
@@ -1881,7 +2038,9 @@ async function multiaiExportMd() {
     const chat = multiaiCurrentChat();
     if (!chat) return;
     const lines = [`# ${chat.title || 'Multi-AI Chat'}`, '', `Mode: ${chat.mode}`, `Created: ${new Date(chat.createdAt || Date.now()).toLocaleString()}`,
-        `Participants: ${(chat.participants || []).map(multiaiProviderLabel).join(', ') || '—'}`, ''];
+        `Participants: ${(chat.participants || []).map(multiaiProviderLabel).join(', ') || '—'}`];
+    if (chat.workspace && chat.workspace.root) lines.push(`Workspace: ${chat.workspace.root} (branch ${multiaiWorkspaceBranch(chat)})`);
+    lines.push('');
     (chat.messages || []).forEach(m => {
         const time = m.ts ? new Date(m.ts).toLocaleString() : '';
         if (m.role === 'system') { lines.push(`> _${m.text || ''}_`, ''); return; }

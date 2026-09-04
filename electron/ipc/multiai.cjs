@@ -28,6 +28,7 @@ const path = require('path');
 const sender = require('../providers/sender.cjs');
 const cli = require('../providers/cli.cjs');
 const { createVariants } = require('../providers/variants.cjs');
+const workspace = require('../providers/workspace.cjs');
 const core = require('./multiai-core.cjs');
 
 function dataDir() {
@@ -162,33 +163,92 @@ function registerMultiAiHandlers(deps) {
         return core.normalizeAgents(chat || {});
     }
 
+    // A provider that only exists as an API entry in Settings — a BYOK
+    // provider that has no browser tab (deepseek, groq, …) or a custom
+    // OpenAI-compatible endpoint such as Ollama / LM Studio. Such seats are
+    // api-only: the global API-mode switch decides browser-vs-API for the four
+    // browser providers, but for these there is nothing else to fall back to.
+    function isApiOnlyProvider(provider) {
+        return !core.CLI_PROVIDERS[provider] && !core.KNOWN_PROVIDERS.includes(String(provider || '').split(':')[0]);
+    }
+
     function apiAvailable(provider) {
         try {
-            return !!(byok && byok.keys && byok.keys.isEnabled() && byok.keys.hasKey(provider));
+            if (!byok || !byok.keys || !byok.keys.hasKey(provider)) return false;
+            return isApiOnlyProvider(provider) || byok.keys.isEnabled();
         } catch { return false; }
     }
 
     function resolveRoute(agent) {
         if (core.CLI_PROVIDERS[agent.provider]) return 'cli';
+        if (isApiOnlyProvider(agent.provider)) return 'api';
         if (agent.route === 'browser') return 'browser';
         return apiAvailable(agent.provider) ? 'api' : 'browser';
     }
 
+    // Custom endpoints (Settings → API → local / custom): entry with an
+    // endpoint URL. Model lists are fetched from `<base>/models` when asked.
+    const _customModels = {};
+    function customProviders() {
+        const out = {};
+        try {
+            const store = byok && byok.keys && byok.keys._readStore ? byok.keys._readStore() : {};
+            for (const [name, entry] of Object.entries(store || {})) {
+                if (name === '_meta' || !entry || !entry.key) continue;
+                if (core.KNOWN_PROVIDERS.includes(name)) continue;
+                out[name] = { endpoint: entry.endpoint || '', label: entry.displayName || name, custom: !!entry.endpoint };
+            }
+        } catch { /* no store */ }
+        return out;
+    }
+
+    async function fetchCustomModels(name, endpoint) {
+        if (!endpoint || typeof fetch !== 'function') return [];
+        const base = endpoint.replace(/\/chat\/completions\/?$/i, '');
+        const url = `${base.replace(/\/$/, '')}/models`;
+        try {
+            const key = byok.keys.getKey(name);
+            const ctrl = new AbortController();
+            const t = setTimeout(() => ctrl.abort(), 4000);
+            const res = await fetch(url, { headers: key ? { Authorization: `Bearer ${key}` } : {}, signal: ctrl.signal });
+            clearTimeout(t);
+            if (!res.ok) return [];
+            const data = await res.json();
+            const list = Array.isArray(data) ? data : (Array.isArray(data.data) ? data.data : (Array.isArray(data.models) ? data.models : []));
+            return list.map(m => (typeof m === 'string' ? m : (m && (m.id || m.name)))).filter(Boolean);
+        } catch { return []; }
+    }
+
     // What the editor needs to offer sensible choices: API mode state and
-    // per-provider selected model / model list from Settings, CLI availability.
+    // per-provider selected model / model list from Settings, CLI availability,
+    // plus any api-only providers (BYOK-only and custom endpoints).
     function routeInfo() {
         const info = { apiMode: false, providers: {}, cli: cli.availability() };
         try {
             info.apiMode = !!(byok && byok.keys && byok.keys.isEnabled());
-            for (const p of core.KNOWN_PROVIDERS) {
+            const entries = core.KNOWN_PROVIDERS.map(p => [p, null]).concat(Object.entries(customProviders()));
+            for (const [p, custom] of entries) {
                 let hasKey = false, model = '', models = [];
                 try { hasKey = !!(byok && byok.keys.hasKey(p)); } catch { /* ignore */ }
                 try { model = (byok && byok.keys.getSelectedModel(p)) || (byok && byok.models && byok.models.DEFAULT_MODELS && byok.models.DEFAULT_MODELS[p]) || ''; } catch { /* ignore */ }
                 try { models = ((byok && byok.keys.getModels(p)) || []).filter(m => m.enabled !== false).map(m => m.id); } catch { /* ignore */ }
-                info.providers[p] = { hasKey, model, models };
+                if (custom && !models.length && _customModels[p]) models = _customModels[p];
+                info.providers[p] = custom
+                    ? { hasKey, model, models, apiOnly: true, custom: custom.custom, endpoint: custom.endpoint, label: custom.label }
+                    : { hasKey, model, models };
             }
         } catch { /* settings unavailable */ }
         return info;
+    }
+
+    // Probe custom endpoints for their model lists (used by ↻ / the
+    // background probe after first paint).
+    async function probeCustomModels() {
+        for (const [name, c] of Object.entries(customProviders())) {
+            if (!c.endpoint) continue;
+            const models = await fetchCustomModels(name, c.endpoint);
+            if (models.length) _customModels[name] = models;
+        }
     }
 
     // Ad-hoc agent from a provider string / agent id / agent object (judge,
@@ -297,7 +357,7 @@ function registerMultiAiHandlers(deps) {
     // agent's, else the model selected in Settings (resolveModel handles it).
     async function sendApi(chat, agent, prompt) {
         const key = byok.keys.getKey(agent.provider);
-        if (!key) return { ok: false, error: new Error(`No API key for ${core.providerLabel(agent.provider)} in Settings`) };
+        if (!key) return { ok: false, error: new Error(`No API key for ${core.providerLabel(agent.provider)} in Settings${isApiOnlyProvider(agent.provider) ? ' (Settings → API → add the provider / local endpoint)' : ''}`) };
         const untrack = trackInFlight(chat.id, { kind: 'api', base: agent.provider });
         try {
             const p = byok.callProvider(agent.provider, key, [{ role: 'user', content: prompt }], {
@@ -310,9 +370,18 @@ function registerMultiAiHandlers(deps) {
         }
     }
 
-    // CLI route: Claude Code / Codex on the local machine.
+    // The chat's workspace as a CLI seat sees it (null when the chat has none
+    // or the seat has no tools).
+    function workspaceFor(chat, agent) {
+        const root = chat && chat.workspace && chat.workspace.root;
+        if (!root || !agent || !core.CLI_PROVIDERS[agent.provider] || !agent.tools || agent.tools === 'none') return null;
+        return { root, branch: (chat.workspace && chat.workspace.branch) || workspace.branchFor(chat.id), tools: agent.tools };
+    }
+
+    // CLI route: Claude Code / Codex / Gemini CLI on the local machine.
     async function sendCli(chat, agent, prompt) {
-        const handle = cli.run(agent.provider, { model: agent.model || undefined, effort: agent.effort || undefined, prompt, cwd: dataDir() });
+        const ws = workspaceFor(chat, agent);
+        const handle = cli.run(agent.provider, { model: agent.model || undefined, effort: agent.effort || undefined, prompt, cwd: dataDir(), workspace: ws || undefined });
         const entry = { kind: 'cli', base: agent.provider, abort: handle.abort };
         const untrack = trackInFlight(chat.id, entry);
         try {
@@ -385,6 +454,7 @@ function registerMultiAiHandlers(deps) {
     ipcMain.handle('multiai-routes', async (event, opts) => {
         const probe = !!(opts && opts.probe);
         if (probe) cli.resetAvailabilityCache();
+        if (probe) { try { await probeCustomModels(); } catch { /* offline */ } }
         const info = routeInfo();
         try { info.cliInfo = probe ? await cli.discover({ force: true }) : (cli.discovered() || null); } catch { info.cliInfo = null; }
         return info;
@@ -466,25 +536,80 @@ function registerMultiAiHandlers(deps) {
             delta: { sinceId: (!st || st.rotated || st.turns === 0) ? null : st.lastId, provider: agent.provider, agentId: agent.id },
             charter: !!chat.charterMode,
             redTeam: !!(chat.charterMode && opts.redTeam && opts.redTeam.id === agent.id),
+            workspace: chat.workspace && chat.workspace.root ? { root: chat.workspace.root, branch: chat.workspace.branch || workspace.branchFor(chat.id) } : null,
         });
-        const raced = await sendAgent(chat, agent, built.prompt, { st, lastId: cmode === 'delta' ? built.meta.lastId : null });
+        // Writers take turns in the folder one at a time (readers and
+        // discussion seats can overlap), so parallel first rounds never race
+        // on the same files and every commit belongs to one seat.
+        const ws = workspaceFor(chat, agent);
+        const writer = !!(ws && (ws.tools === 'write' || ws.tools === 'full'));
+        const releaseWriter = writer ? await acquireWriter(chatId) : null;
+        let raced;
+        let change = null;
+        try {
+            raced = await sendAgent(chat, agent, built.prompt, { st, lastId: cmode === 'delta' ? built.meta.lastId : null });
+            if (writer) {
+                const label = core.refLabel({ cycle, round, code: agent.code, role: 'assistant' });
+                try { change = await workspace.commitAll(ws.root, `${agent.name} [${label}]${raced.ok ? '' : ' (turn ended with an error)'}`); }
+                catch (e) { change = { committed: false, error: e.message }; }
+            }
+        } finally {
+            if (releaseWriter) releaseWriter();
+        }
         const base = { provider: agent.provider, agentId: agent.id, code: agent.code, route, cycle, round };
+        const recordChange = () => {
+            if (!change) return;
+            if (change.committed) {
+                record(chatId, Object.assign({ who: `${agent.name} · changes`, role: 'change', text: workspace.describeChange(agent.name, change), commit: change.hash, files: change.files.map(f => f.path) }, base));
+            } else if (change.error) {
+                note(chatId, `Could not commit ${agent.name}'s changes: ${change.error}`);
+            }
+        };
         if (raced.cancelled) {
             record(chatId, Object.assign({ who: `${agent.name} (stopped)`, text: 'Stopped before this reply arrived.', role: 'error' }, base));
+            recordChange();
             return { cancelled: true };
         }
         if (!raced.ok) {
             record(chatId, Object.assign({ who: `${agent.name} error`, text: raced.error.message, role: 'error' }, base));
+            recordChange();
             return { error: raced.error.message };
         }
         const text = raced.value.response || '';
         const model = raced.value.model || undefined;
         if (core.isPass(text)) {
             record(chatId, Object.assign({ who: agent.name, text: 'PASS', role: 'pass', model }, base));
+            recordChange();
             return { pass: true };
         }
         record(chatId, Object.assign({ who: agent.name, text, role: 'assistant', model, redTeam: built.meta.redTeam || undefined }, base));
+        recordChange();
         return { ok: true, handoff: chat.charterMode ? core.parseHandoff(text, opts.participants) : null };
+    }
+
+    // One writer at a time per chat.
+    const writerLocks = new Map();
+    function acquireWriter(chatId) {
+        const prev = writerLocks.get(chatId) || Promise.resolve();
+        let release;
+        const next = new Promise(res => { release = res; });
+        writerLocks.set(chatId, prev.then(() => next));
+        return prev.then(() => release);
+    }
+
+    // Before a run that has workspace seats: the folder must be a git repo,
+    // on the chat's branch, with nothing of the user's uncommitted.
+    async function prepareWorkspace(chatId, chat, agents) {
+        const root = chat.workspace && chat.workspace.root;
+        if (!root) return null;
+        const seats = agents.filter(a => workspaceFor(chat, a));
+        if (!seats.length) return null;
+        const branch = chat.workspace.branch || workspace.branchFor(chat.id);
+        const r = await workspace.prepare(root, branch);
+        if (!r.ok) throw new Error(r.error);
+        if (!chat.workspace.branch) store.updateChat(chatId, { workspace: Object.assign({}, chat.workspace, { branch }) });
+        note(chatId, `Workspace ${root} on branch ${branch}${r.created ? ` (created from ${r.from})` : ''}${r.wip ? ' — leftover changes from an interrupted turn were committed as WIP' : ''}. Seats with tools: ${seats.map(a => `${a.name} (${a.tools})`).join(', ')}.`);
+        return r;
     }
 
     // Rolling summary (delta mode's "Topic block"): once more than
@@ -524,6 +649,12 @@ function registerMultiAiHandlers(deps) {
             let agents = all.filter(a => resolveRoute(a) !== 'browser' || enabled.includes(a.provider));
             if (!agents.length) agents = all.slice();
             if (!agents.length) throw new Error('No participants selected.');
+            try { await prepareWorkspace(chatId, chat0, agents); }
+            catch (e) {
+                // Leave the reason in the transcript, not just a toast.
+                record(chatId, { who: 'Workspace', role: 'error', text: e.message, cycle: chat0.cycle || 1, round: 0 });
+                throw e;
+            }
             const mentions = core.parseMentions(latestText || '', agents);
             const order = mentions.order;
             if (mentions.mentioned.length) {
@@ -851,7 +982,7 @@ function registerMultiAiHandlers(deps) {
         const w = win();
         try {
             const result = await dialog.showOpenDialog(w || undefined, {
-                title: 'Choose a working folder for Agent (file tools)',
+                title: 'Choose a working folder',
                 properties: ['openDirectory', 'createDirectory'],
             });
             if (result.canceled || !result.filePaths.length) return { success: false, canceled: true };
@@ -1005,7 +1136,7 @@ function registerMultiAiHandlers(deps) {
 
     // Agents as shown to REST/MCP clients: resolved route, no persona text.
     function publicAgents(chat) {
-        return agentsOf(chat).map(a => ({ id: a.id, name: a.name, code: a.code, route: resolveRoute(a), provider: a.provider, model: a.model, effort: a.effort }));
+        return agentsOf(chat).map(a => ({ id: a.id, name: a.name, code: a.code, route: resolveRoute(a), provider: a.provider, model: a.model, effort: a.effort, tools: a.tools || 'none' }));
     }
 
     function withLabels(messages) {
@@ -1049,7 +1180,8 @@ function registerMultiAiHandlers(deps) {
             if (body.contextWindow != null) fields.contextWindow = Math.max(0, parseInt(body.contextWindow, 10) || 0);
             if (body.autoSummaryEvery != null) fields.autoSummaryEvery = Math.max(0, parseInt(body.autoSummaryEvery, 10) || 0);
             if (body.engines && typeof body.engines === 'object') fields.engines = body.engines;
-            if (Array.isArray(body.agents) && body.agents.length) fields.agents = core.normalizeAgents({ agents: body.agents }, { includeDisabled: true }).map(a => ({ id: a.id, name: a.name, route: a.route, provider: a.provider, model: a.model, effort: a.effort, persona: a.persona || '', enabled: a.enabled !== false }));
+            if (Array.isArray(body.agents) && body.agents.length) fields.agents = core.normalizeAgents({ agents: body.agents }, { includeDisabled: true }).map(a => ({ id: a.id, name: a.name, route: a.route, provider: a.provider, model: a.model, effort: a.effort, persona: a.persona || '', enabled: a.enabled !== false, tools: a.tools || 'none' }));
+            if (body.workspace && typeof body.workspace === 'object' && body.workspace.root) fields.workspace = { root: String(body.workspace.root) };
             if (body.topic) fields.topic = String(body.topic);
             const created = store.createChat(fields);
             if (body.topic) {
