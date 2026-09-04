@@ -13,6 +13,7 @@ function createRouteHandler(deps) {
         scrapeUrl, searchDDG, formatResultsMarkdown,
         buildToolCallingPrompt, parseToolCallResponse, formatToolCallResponse,
         byok,
+        listExtraModels,
     } = deps;
 
     return async function handleRoute(method, pathname, body, res) {
@@ -384,6 +385,9 @@ function createRouteHandler(deps) {
                 models.push({ id: '3.1-flash-lite', object: 'model', owned_by: 'proxima', status: 'enabled', description: 'Gemini 3.1 Flash-Lite engine' });
                 models.push({ id: 'gemini:auto', object: 'model', owned_by: 'proxima', status: 'enabled', description: 'Gemini Auto engine' });
             }
+
+            // Local CLI seats (Multi-AI variants): "cli:<seat>" — see /v1/multiai/variants.
+            if (typeof listExtraModels === 'function') for (const m of listExtraModels()) models.push(m);
 
             models.push({ id: 'auto', object: 'model', owned_by: 'proxima', status: enabled.length > 0 ? 'enabled' : 'disabled', description: 'Auto-picks best available' });
             return sendJSON(res, 200, { object: 'list', mode: isByokMode ? 'api' : 'session', data: models });

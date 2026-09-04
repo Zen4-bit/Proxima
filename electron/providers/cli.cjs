@@ -47,17 +47,46 @@ const DISCUSSION_SYSTEM_PROMPT =
 
 // ---- availability ----------------------------------------------------------
 
+// Environment for child processes. MCP clients often spawn servers with a
+// trimmed environment (the MCP SDK keeps PATH but drops PATHEXT), and without
+// PATHEXT `where codex` cannot match codex.exe and cmd.exe cannot run .cmd
+// shims by bare name — so PATHEXT is restored when missing.
+function childEnv() {
+    const env = Object.assign({}, process.env);
+    if (IS_WIN && !env.PATHEXT) env.PATHEXT = '.COM;.EXE;.BAT;.CMD;.VBS;.JS;.PS1';
+    return env;
+}
+
+// Where the CLIs usually live when they are not on PATH at all.
+function knownLocations(bin) {
+    const home = os.homedir();
+    const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
+    const local = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
+    const win = {
+        claude: [path.join(home, '.local', 'bin', 'claude.exe'), path.join(appData, 'npm', 'claude.cmd')],
+        codex: [path.join(local, 'Programs', 'OpenAI', 'Codex', 'bin', 'codex.exe'), path.join(appData, 'npm', 'codex.cmd')],
+        gemini: [path.join(appData, 'npm', 'gemini.cmd')],
+    };
+    const nix = {
+        claude: [path.join(home, '.local', 'bin', 'claude'), '/usr/local/bin/claude', '/opt/homebrew/bin/claude'],
+        codex: [path.join(home, '.local', 'bin', 'codex'), '/usr/local/bin/codex', '/opt/homebrew/bin/codex'],
+        gemini: [path.join(home, '.local', 'bin', 'gemini'), '/usr/local/bin/gemini', '/opt/homebrew/bin/gemini'],
+    };
+    return (IS_WIN ? win : nix)[bin] || [];
+}
+
 const _avail = {};
+// Resolved path of a CLI (PATH first, then the usual install folders), or null.
 function which(bin) {
     if (_avail[bin] !== undefined) return _avail[bin];
+    let found = null;
     try {
-        const out = execFileSync(IS_WIN ? 'where' : 'which', [bin], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 });
-        const first = out.split(/\r?\n/).map(l => l.trim()).filter(Boolean)[0] || null;
-        _avail[bin] = first;
-    } catch {
-        _avail[bin] = null;
-    }
-    return _avail[bin];
+        const out = execFileSync(IS_WIN ? 'where' : 'which', [bin], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000, env: childEnv() });
+        found = out.split(/\r?\n/).map(l => l.trim()).filter(Boolean)[0] || null;
+    } catch { found = null; }
+    if (!found) found = knownLocations(bin).find(p => { try { return fs.existsSync(p); } catch { return false; } }) || null;
+    _avail[bin] = found;
+    return found;
 }
 
 function availability() {
@@ -297,12 +326,14 @@ function killTree(child) {
 }
 
 // Windows needs a shell to run the npm .cmd/.ps1 shims (claude); quote args.
+// The resolved path is used when the binary is not on PATH.
 function spawnCli(bin, args, cwd) {
+    const exe = which(bin) || bin;
     if (IS_WIN) {
         const q = (a) => (/[\s"]/.test(a) ? `"${String(a).replace(/"/g, '\\"')}"` : a);
-        return spawn(`${bin} ${args.map(q).join(' ')}`, { cwd, shell: true, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+        return spawn(`${q(exe)} ${args.map(q).join(' ')}`, { cwd, shell: true, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: childEnv() });
     }
-    return spawn(bin, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+    return spawn(exe, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], env: childEnv() });
 }
 
 // Runs a process with the prompt on stdin. Returns { promise, abort }.
@@ -458,7 +489,7 @@ function run(provider, opts) {
 }
 
 module.exports = {
-    run, runClaude, runCodex, runGemini, availability, resetAvailabilityCache, which, discover, discovered,
+    run, runClaude, runCodex, runGemini, availability, resetAvailabilityCache, which, discover, discovered, childEnv, knownLocations,
     parseClaudeHelp, parseCodexModelsCache, parseCodexConfig, geminiAuthFrom, codexEffortFor,
     EFFORT_MAP, DISCUSSION_SYSTEM_PROMPT, MAX_PARALLEL, KINDS, BINS, LABELS,
 };

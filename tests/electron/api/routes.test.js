@@ -194,3 +194,11 @@ test('POST /v1/brain/recall requires key and text', async () => {
     await handle('POST', '/v1/brain/recall', { key: 'k' }, mockRes());
     assert.equal(calls.error[0].code, 400);
 });
+
+test('GET /v1/models appends local CLI seats from listExtraModels, before "auto"', async () => {
+    const { handle, calls } = makeHandler({ listExtraModels: () => [{ id: 'cli:opus-max', object: 'model', owned_by: 'proxima', provider: 'claude-cli', status: 'enabled' }] });
+    await handle('GET', '/v1/models', {}, mockRes());
+    const ids = calls.json[0].obj.data.map((m) => m.id);
+    assert.ok(ids.includes('cli:opus-max'));
+    assert.ok(ids.indexOf('cli:opus-max') < ids.indexOf('auto'));
+});

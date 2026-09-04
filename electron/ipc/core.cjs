@@ -88,6 +88,10 @@ ipcMain.handle('get-mcp-config', () => {
     const serverPath = isDev
         ? path.join(__dirname, '..', '..', 'src', 'mcp', 'index.js')
         : unpackedPath;
+    // Standalone variants server: the local-CLI tools without the app running.
+    const variantsPath = isDev
+        ? path.join(__dirname, '..', '..', 'src', 'mcp', 'variants-server.js')
+        : path.join(resourcesPath, 'app.asar.unpacked', 'src', 'mcp', 'variants-server.js');
 
     return {
         mcpServers: {
@@ -95,7 +99,11 @@ ipcMain.handle('get-mcp-config', () => {
                 command: 'node',
                 args: [serverPath.replace(/\\/g, '/')]
             }
-        }
+        },
+        // Not part of the snippet (it would duplicate the three cli_* tools):
+        // the Settings page shows it separately for clients that should work
+        // without the app running.
+        variantsServer: { command: 'node', args: [variantsPath.replace(/\\/g, '/')] },
     };
 });
 

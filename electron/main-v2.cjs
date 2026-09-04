@@ -302,7 +302,9 @@ function createWindow() {
                 const s = loadSettings();
                 return Object.entries(s.providers)
                     .filter(([_, c]) => c.enabled).map(([n]) => n);
-            }
+            },
+            // Local CLI seats show up in GET /v1/models as "cli:<seat>".
+            listExtraModels: () => (multiaiApi ? multiaiApi.variantModels() : []),
         });
         if (currentSettings.restApiEnabled) {
             startRestAPI();
@@ -542,6 +544,7 @@ async function handleMCPRequest(request) {
                     case 'multiaiStop': return Object.assign({ success: true }, multiaiApi.stop(d.chatId));
                     case 'multiaiVariants': return Object.assign({ success: true }, await multiaiApi.variants({ probe: !!d.probe }));
                     case 'multiaiAskVariant': return Object.assign({ success: true }, await multiaiApi.askVariant(d));
+                    case 'multiaiAskVariants': return Object.assign({ success: true }, await multiaiApi.askVariants(d));
                     default: return { success: false, error: `Unknown action: ${action}` };
                 }
             } catch (e) {

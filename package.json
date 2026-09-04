@@ -17,12 +17,14 @@
     "type": "module",
     "main": "electron/main-v2.cjs",
     "bin": {
-        "proxima": "./cli/proxima-cli.cjs"
+        "proxima": "./cli/proxima-cli.cjs",
+        "proxima-variants-mcp": "./src/mcp/variants-server.js"
     },
     "scripts": {
         "prestart": "node scripts/ensure-deps.mjs",
         "start": "electron .",
         "mcp": "node src/mcp/index.js",
+        "mcp:variants": "node src/mcp/variants-server.js",
         "cli": "node cli/proxima-cli.cjs",
         "prebuild": "node scripts/build-wheel.cjs",
         "build": "electron-builder --win --x64",
@@ -106,6 +108,9 @@
         "asarUnpack": [
             "src/**/*",
             "cli/**/*",
+            "electron/providers/cli.cjs",
+            "electron/providers/variants.cjs",
+            "electron/ipc/multiai-core.cjs",
             "node_modules/**/*"
         ],
         "win": {

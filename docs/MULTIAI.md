@@ -242,8 +242,49 @@ subscriptions without an API key or a chat:
 | `ask_variant {message, variant? \| provider?+model?+effort?, system?, timeoutSeconds?}` | One question through one CLI seat. `variant` is a library agent's name/id or shorthand `model[:effort]` — `opus:max`, `sonnet:low` (Claude Code), `gpt-5.5:high` (Codex), `gemini-3.1-pro` (Gemini CLI). A library agent's persona rides along as the system prompt. |
 | `ask_variants {message, variants[], …}` | The same question to up to 8 variants in parallel (each CLI's concurrency cap applies), answers side by side; a failing variant is reported, the rest still return |
 
-They go through the Agent Hub IPC bridge (`multiaiVariants`, `multiaiAskVariant`),
-so the app must be running; that is what gives them the app's discovery cache,
-library and concurrency caps. Note that calling `ask_variant` *from* Claude Code
-runs Claude Code inside Claude Code — allowed, but both turns count against the
-same subscription window.
+They go through the Agent Hub IPC bridge (`multiaiVariants`, `multiaiAskVariant`,
+`multiaiAskVariants`), so the app must be running; that is what gives them the
+app's discovery cache, library and concurrency caps. Note that calling
+`ask_variant` *from* Claude Code runs Claude Code inside Claude Code — allowed,
+but both turns count against the same subscription window.
+
+### Standalone variants server (no app needed)
+
+`src/mcp/variants-server.js` (`npm run mcp:variants`, or the
+`proxima-variants-mcp` bin) serves just those three tools without the app: it
+probes the CLIs and runs them in-process (`electron/providers/cli.cjs`) and
+reads the agent library from Proxima's store file
+(`<userData>/multiai/chats.json`; `PROXIMA_USERDATA` overrides the location).
+Settings → MCP shows the ready-made config as **Local CLI variants — standalone
+server**. Give a client one or the other, not both — the tool names are the
+same. The shared implementation is `electron/providers/variants.cjs`.
+
+## Variants over REST and WebSocket
+
+The same seats are reachable from anything that speaks HTTP, on the gateway
+(Settings → API, default `http://127.0.0.1:3210`, API key if configured):
+
+| Method | Path | Body / query | Result |
+|---|---|---|---|
+| GET | `/v1/multiai/variants` | `?probe=1` to re-probe the CLIs | `{cli: {claude, codex, gemini}, library: [{id, name, provider, model, effort, persona}]}` |
+| POST | `/v1/multiai/variants/ask` | `{message, variant? \| provider?+model?+effort?, system?, timeoutMs?}` | `{variant, id, provider, model, effort, text, ms, costUsd}` |
+| POST | `/v1/multiai/variants/ask-many` | `{message, variants: [...≤8], system?, timeoutMs?}` | `{results: [{ok, …} \| {ok:false, variant, error}]}` |
+| POST | `/v1/chat/completions` | OpenAI body with `model: "cli:opus:max"`, `"cli:gpt-5.5:high"`, `"cli:<library id>"` or a library seat's name; `stream: true` supported | a standard `chat.completion` (or SSE chunks); `proxima` carries variant/model/effort/time |
+| GET | `/v1/models` | | now also lists `cli:<seat>` entries — library seats first, then each logged-in CLI's models — so OpenAI-compatible clients can pick them from a menu |
+
+The OpenAI-compatible path is the one to point Open WebUI, a Python
+`openai` client, the VariantArena UI or any other OpenAI-speaking tool at:
+`base_url = http://127.0.0.1:3210/v1`, `model = "cli:opus:max"`. `system`
+messages become the CLI system prompt; a multi-turn `messages` array is
+flattened into a transcript, since CLI seats are one-shot.
+
+WebSocket (`ws://127.0.0.1:3210/ws`), JSON actions:
+
+| Action | Fields | Replies |
+|---|---|---|
+| `variants` | `probe?` | `{type:"response", action:"variants", cli, library}` |
+| `ask_variant` | `message`, `variant?` or `provider?/model?/effort?`, `system?`, `timeoutMs?` | `status` then `{type:"response", action:"ask_variant", variant, provider, model, effort, content, responseTimeMs}` |
+| `ask_variants` | `message`, `variants: [...≤8]`, `system?` | `status`, then one `response` per seat **as each finishes** (`index`, `ok`, `content` or `error`, `remaining`), then `{type:"done"}` |
+
+`ask_variants` over WebSocket is the natural way to watch a comparison come in
+seat by seat instead of waiting for the slowest one.

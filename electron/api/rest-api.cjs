@@ -178,9 +178,11 @@ function getFormattedStats() {
     return { uptime: `${Math.floor(process.uptime())}s`, totalRequests: stats.totalRequests, totalErrors: stats.totalErrors, providers: formatted };
 }
 
+let listExtraModels = () => [];
 function initRestAPI(config) {
     handleMCPRequest = config.handleMCPRequest;
     getEnabledProvidersList = config.getEnabledProviders;
+    if (typeof config.listExtraModels === 'function') listExtraModels = config.listExtraModels;
 }
 
 function parseBody(req) {
@@ -484,6 +486,7 @@ const handleRoute = createRouteHandler({
     scrapeUrl, searchDDG, formatResultsMarkdown,
     buildToolCallingPrompt, parseToolCallResponse, formatToolCallResponse,
     byok,
+    listExtraModels: () => { try { return listExtraModels() || []; } catch { return []; } },
 });
 
 let agentUiProcess = null;

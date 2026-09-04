@@ -517,6 +517,41 @@ async function handleWSMessage(ws, clientId, msg) {
             break;
         }
 
+        // ---- Local CLI variants (model × effort seats on Claude Code / Codex / Gemini CLI) ----
+        case 'variants': {
+            const r = await handleMCPRequest({ action: 'multiaiVariants', data: { probe: !!msg.probe } });
+            if (!r || r.success === false) { sendJSON(ws, { type: 'error', id: requestId, error: (r && r.error) || 'variants failed', timestamp: new Date().toISOString() }); break; }
+            sendJSON(ws, { type: 'response', id: requestId, action: 'variants', cli: r.cli, library: r.library, timestamp: new Date().toISOString() });
+            break;
+        }
+
+        case 'ask_variant': {
+            const { message, variant, provider, model, effort, system, timeoutMs } = msg;
+            if (!message) { sendJSON(ws, { type: 'error', id: requestId, error: 'Missing "message" field', timestamp: new Date().toISOString() }); break; }
+            sendJSON(ws, { type: 'status', id: requestId, status: 'processing', variant: variant || `${provider || 'claude-cli'}${model ? ' ' + model : ''}`, timestamp: new Date().toISOString() });
+            const r = await handleMCPRequest({ action: 'multiaiAskVariant', data: { message, variant, provider, model, effort, system, timeoutMs } });
+            if (!r || r.success === false) { sendJSON(ws, { type: 'error', id: requestId, error: (r && r.error) || 'ask_variant failed', timestamp: new Date().toISOString() }); break; }
+            sendJSON(ws, { type: 'response', id: requestId, action: 'ask_variant', variant: r.variant, provider: r.provider, model: r.model, effort: r.effort, content: r.text, responseTimeMs: r.ms, costUsd: r.costUsd, timestamp: new Date().toISOString() });
+            break;
+        }
+
+        // Fan-out: one `response` per seat as each finishes, then `done`.
+        case 'ask_variants': {
+            const { message, variants: list, system, timeoutMs } = msg;
+            if (!message || !Array.isArray(list) || !list.length) { sendJSON(ws, { type: 'error', id: requestId, error: '"message" and a non-empty "variants" array are required', timestamp: new Date().toISOString() }); break; }
+            if (list.length > 8) { sendJSON(ws, { type: 'error', id: requestId, error: 'at most 8 variants per call', timestamp: new Date().toISOString() }); break; }
+            sendJSON(ws, { type: 'status', id: requestId, status: 'processing', variants: list, timestamp: new Date().toISOString() });
+            let remaining = list.length;
+            await Promise.all(list.map(async (v, index) => {
+                const r = await handleMCPRequest({ action: 'multiaiAskVariant', data: { message, variant: v, system, timeoutMs } });
+                remaining -= 1;
+                if (!r || r.success === false) sendJSON(ws, { type: 'response', id: requestId, action: 'ask_variants', index, variant: String(v), ok: false, error: (r && r.error) || 'failed', remaining, timestamp: new Date().toISOString() });
+                else sendJSON(ws, { type: 'response', id: requestId, action: 'ask_variants', index, variant: r.variant, ok: true, provider: r.provider, model: r.model, effort: r.effort, content: r.text, responseTimeMs: r.ms, remaining, timestamp: new Date().toISOString() });
+            }));
+            sendJSON(ws, { type: 'done', id: requestId, action: 'ask_variants', timestamp: new Date().toISOString() });
+            break;
+        }
+
         case 'ping': {
             sendJSON(ws, { type: 'pong', id: requestId, timestamp: new Date().toISOString() });
             break;

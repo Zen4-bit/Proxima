@@ -2372,6 +2372,20 @@ Here is the MCP configuration to add:
 
 Confirm when done</pre>
                         </div>
+
+                        <!-- Standalone variants server -->
+                        <div style="margin-top: 18px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 14px;">
+                            <h3 style="margin: 0 0 6px 0; font-size: 0.85rem; font-weight: 700; color: #fff;">Local CLI variants — standalone server</h3>
+                            <p style="color: #777; font-size: 0.78rem; line-height: 1.5; margin: 0 0 10px 0;">
+                                The <code>cli_variants</code> / <code>ask_variant</code> / <code>ask_variants</code> tools are already part of the Proxima server above.
+                                This second server offers just those three and needs no running app — it probes Claude Code, Codex and Gemini CLI itself and reads your Multi-AI agent library from disk.
+                                Use it for clients that should work while Proxima is closed (don't add both to the same client: the three tools would appear twice).
+                            </p>
+                            <div class="config-box" style="border: 1px solid rgba(255,255,255,0.06); box-shadow: none; background: rgba(0,0,0,0.25);">
+                                <button class="copy-btn" onclick="copyVariantsConfig()">Copy Config</button>
+                                <pre id="mcp-variants-config">Loading...</pre>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -3593,9 +3607,18 @@ Confirm when done</pre>
 
         async function loadMcpConfig() {
             const config = await agentHub.getMcpConfig();
-            const configStr = JSON.stringify(config, null, 2);
+            const { variantsServer, ...main } = config || {};
+            const configStr = JSON.stringify(main, null, 2);
             document.getElementById('mcp-config').textContent = configStr;
             document.getElementById('ai-prompt-config').textContent = configStr;
+            const vEl = document.getElementById('mcp-variants-config');
+            if (vEl) vEl.textContent = variantsServer ? JSON.stringify({ mcpServers: { 'proxima-variants': variantsServer } }, null, 2) : 'Unavailable in this build.';
+        }
+
+        async function copyVariantsConfig() {
+            const config = document.getElementById('mcp-variants-config').textContent;
+            await agentHub.copyToClipboard(config);
+            showToast('Variants server config copied to clipboard!');
         }
 
         async function copyConfig() {

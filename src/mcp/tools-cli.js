@@ -24,10 +24,17 @@ function fmtCli(kind, info) {
     return lines.join('\n');
 }
 
+// `deps.variantsBackend` ({ variants(opts), askVariant(body) }) runs the CLIs
+// in-process (the standalone server); without it the calls go through the
+// Agent Hub IPC bridge to the app.
 export function register(server, deps) {
-    const { z, toolResponse, toolError, ipcClient } = deps;
+    const { z, toolResponse, toolError, ipcClient, variantsBackend } = deps;
 
     const ipc = async (action, data) => {
+        if (variantsBackend) {
+            if (action === 'multiaiVariants') return Object.assign({ success: true }, await variantsBackend.variants(data || {}));
+            if (action === 'multiaiAskVariant') return Object.assign({ success: true }, await variantsBackend.askVariant(data || {}));
+        }
         const r = await ipcClient.send(action, null, data || {});
         if (!r || r.success === false) throw new Error((r && r.error) || `${action} failed`);
         return r;

@@ -645,3 +645,56 @@ test('variants: library CLI agents + discovery; askVariant resolves names, short
     await assert.rejects(multiaiApi.askVariant({ provider: 'chatgpt', message: 'hi' }), /provider must be/);
     await assert.rejects(multiaiApi.askVariant({ variant: 'opus', message: '' }), /message is required/);
 });
+
+test('REST: variants list, ask, ask-many, and OpenAI-compatible /v1/chat/completions with a cli: model (json + SSE)', async () => {
+    cliCalls.length = 0;
+    cliReplyFn = async (p, o) => `${p} ${o.model || 'default'}/${o.effort || 'none'}`;
+    const data = store.load();
+    data.uiPrefs = { agentLibrary: [{ uid: 'u1', name: 'Opus max', provider: 'claude-cli', model: 'opus', effort: 'max' }] };
+    store.save(data);
+    const ext = routeExtensions[0];
+    const calls = [];
+    const helpers = { sendJSON: (r, code, d) => calls.push({ code, data: d }), sendError: (r, code, msg) => calls.push({ code, error: msg }) };
+    const url = (p, q) => Object.assign(new URL(`http://127.0.0.1:3210${p}`), q ? { search: q } : {});
+
+    assert.equal(await ext('GET', url('/v1/multiai/variants'), {}, {}, helpers), true);
+    let r = calls.pop();
+    assert.equal(r.code, 200);
+    assert.deepEqual(r.data.library.map(v => v.id), ['opus-max']);
+    assert.equal(r.data.cli.codex.version, '0.142.5');
+
+    await ext('POST', url('/v1/multiai/variants/ask'), { variant: 'gpt-5.5:high', message: 'hi' }, {}, helpers);
+    r = calls.pop();
+    assert.deepEqual([r.code, r.data.provider, r.data.model, r.data.effort, r.data.text], [200, 'codex-cli', 'gpt-5.5', 'high', 'codex-cli gpt-5.5/high']);
+
+    await ext('POST', url('/v1/multiai/variants/ask-many'), { variants: ['Opus max', 'gemini-2.5-flash'], message: 'hi' }, {}, helpers);
+    r = calls.pop();
+    assert.deepEqual(r.data.results.map(x => x.ok), [true, false]);
+
+    // OpenAI-compatible: a "cli:" model is claimed by the extension; other models fall through
+    assert.equal(await ext('POST', url('/v1/chat/completions'), { model: 'gemini:3.1-pro', messages: [{ role: 'user', content: 'hi' }] }, {}, helpers), false, 'browser-route models are not ours');
+    assert.equal(await ext('POST', url('/v1/chat/completions'), { model: 'cli:opus:max', messages: [{ role: 'system', content: 'Terse.' }, { role: 'user', content: 'why?' }] }, {}, helpers), true);
+    r = calls.pop();
+    assert.equal(r.data.object, 'chat.completion');
+    assert.equal(r.data.model, 'cli:opus:max');
+    assert.equal(r.data.choices[0].message.content, 'claude-cli opus/max');
+    assert.ok(cliCalls[cliCalls.length - 1].opts.systemPrompt.startsWith('Terse.'), 'system messages become the system prompt');
+    assert.equal(cliCalls[cliCalls.length - 1].opts.prompt, 'why?');
+    assert.equal(await ext('POST', url('/v1/chat/completions'), { model: 'Opus max', messages: [{ role: 'user', content: 'hi' }] }, {}, helpers), true, 'a library seat name works as the model');
+    calls.pop();
+
+    // streaming: a single content chunk, a stop chunk, [DONE]
+    const written = [];
+    const res = { writeHead: (code, headers) => written.push({ code, headers }), write: (s) => written.push(s), end: () => written.push('END') };
+    assert.equal(await ext('POST', url('/v1/chat/completions'), { model: 'cli:gpt-5.5:low', stream: true, messages: [{ role: 'user', content: 'hi' }] }, res, helpers), true);
+    assert.equal(written[0].code, 200);
+    assert.match(written[0].headers['Content-Type'], /text\/event-stream/);
+    assert.match(written[1], /"delta":\{"role":"assistant","content":"codex-cli gpt-5\.5\/low"\}/);
+    assert.match(written[2], /"finish_reason":"stop"/);
+    assert.equal(written[3], 'data: [DONE]\n\n');
+    assert.equal(written[4], 'END');
+
+    // variantModels for GET /v1/models
+    const models = multiaiApi.variantModels();
+    assert.ok(models.some(m => m.id === 'cli:opus-max' && m.provider === 'claude-cli'));
+});

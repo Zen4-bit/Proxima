@@ -97,3 +97,11 @@ test('runGemini: reaches the process layer for the gemini kind (concurrency slot
     const h = cli.runGemini({ model: 'gemini-2.5-flash', prompt: 'hi', cwd: undefined, timeoutMs: 5000 });
     await assert.rejects(h.promise, (e) => e instanceof Error);
 });
+
+test('childEnv / knownLocations: PATHEXT is restored for trimmed environments; install folders are per-CLI', () => {
+    const env = cli.childEnv();
+    if (process.platform === 'win32') assert.ok(env.PATHEXT && /\.EXE/i.test(env.PATHEXT));
+    assert.ok(cli.knownLocations('codex').length >= 1);
+    assert.ok(cli.knownLocations('claude').some(p => /claude/.test(p)));
+    assert.deepEqual(cli.knownLocations('nope'), []);
+});
