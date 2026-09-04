@@ -51,12 +51,15 @@ Route-specific behaviour:
 - **Labels.** Known providers keep their codes; other agents get initials of
   their name (`Opus · high` → `OH`).
 
-**Roster and library.** The Agents block is a roster: one row per agent with a
-checkbox. Ticked agents take turns in this chat; unticked ones are benched —
-still configured, but they take no turns, get no mentions and aren't introduced
-to the others (`enabled: false` on the stored agent; `normalizeAgents` drops
-them). Agents are defined once — *+ Add agent* offers quick presets, the
-library, and *Custom…* for the full editor — and live in a library
+**Roster and library.** The options panel is a tab strip — *Agents ·
+Discussion · Context · Charter · Judge* (Classic) or *Pipeline*
+(Orchestrated) — over one pane, collapsible to the strip plus a one-line
+summary. The Agents tab is a table: one row per agent, every cell editable in
+place, with a checkbox per row. Ticked agents take turns in this chat; unticked
+ones are benched — still configured, but they take no turns, get no mentions
+and aren't introduced to the others (`enabled: false` on the stored agent;
+`normalizeAgents` drops them). Agents are defined once — *+ add agent…* offers
+a new row per provider and anything in the library — and live in a library
 (`uiPrefs.agentLibrary`, keyed by `uid`). Every new chat starts with the whole
 library switched on; editing a library agent (✎) applies to every chat that
 carries it; ✕ on a row removes the agent from that chat only, ✕ in the library
@@ -69,8 +72,9 @@ provider the first time they are opened; the `participants` field is kept in
 sync (enabled agents only) for older readers.
 
 The app opens on the Multi-AI tab by default (Settings → General → *Open on
-start* picks another tab). Provider views start off-screen and only cover the
-window when their tab is selected.
+start* picks another tab); the tab strip sits in the header, inline with the
+logo. Provider views start off-screen and only cover the window when their tab
+is selected.
 
 ## How a turn is built
 

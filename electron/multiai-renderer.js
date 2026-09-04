@@ -11,8 +11,7 @@ let multiaiState = {
     mode: 'classic',       // 'classic' | 'orchestrated'
     running: false,
     enabledProviders: [],
-    agentEditor: null,     // { index } for a row being edited, { index: -1, draft } for a new agent, or null
-    agentMenuOpen: false,  // "+ Add agent" menu (library + quick add) visible
+    agentMenuOpen: false,  // library chips shown under the roster
     personas: {},
     pendingAttachments: [], // [{name, text, isImage, dataUrl}] queued for the next send
     runningChats: new Set(), // chat ids with a run in flight (main process is the source of truth)
@@ -497,7 +496,6 @@ function multiaiDeleteChat(chatId) {
 function multiaiNewChat() {
     const chat = multiaiDefaultChat();
     multiaiSeedAgentsFromLibrary(chat);
-    multiaiState.agentEditor = null;
     multiaiState.agentMenuOpen = false;
     if (!multiaiState.data.projects.length) {
         multiaiState.data.projects.push({ id: 'default', name: 'General', chats: [] });
@@ -513,7 +511,6 @@ function multiaiNewChat() {
 
 function multiaiOpenChat(chatId) {
     multiaiState.currentChatId = chatId;
-    multiaiState.agentEditor = null;
     multiaiState.agentMenuOpen = false;
     multiaiState.currentRound = null;
     multiaiState.totalRounds = null;
@@ -695,6 +692,8 @@ function multiaiWireResize(handleId, panelId, side, minWidth, maxWidth, prefKey)
 // collapsed by default so the feed gets the room — click the summary row
 // to expand. Replaces the earlier design that pinned them in the sidebar.
 
+const MULTIAI_OPTABS = { classic: ['agents', 'discussion', 'context', 'charter', 'judge'], orchestrated: ['pipeline'] };
+
 function multiaiToggleOptions() {
     const prefs = multiaiUiPrefs();
     prefs.optionsExpanded = !prefs.optionsExpanded;
@@ -702,13 +701,33 @@ function multiaiToggleOptions() {
     multiaiApplyOptionsState();
 }
 
+// Pick a tab; clicking one while collapsed also expands the panel.
+function multiaiSelectOptab(name) {
+    const prefs = multiaiUiPrefs();
+    if (prefs.optab === name && prefs.optionsExpanded) { multiaiToggleOptions(); return; }
+    prefs.optab = name;
+    prefs.optionsExpanded = true;
+    multiaiPersist();
+    multiaiApplyOptionsState();
+}
+
 function multiaiApplyOptionsState() {
+    const prefs = multiaiUiPrefs();
     const body = document.getElementById('multiai-options-body');
     const chevron = document.getElementById('multiai-options-chevron');
     const btn = document.getElementById('multiai-options-summary');
-    const expanded = !!multiaiUiPrefs().optionsExpanded;
+    const allowed = MULTIAI_OPTABS[multiaiState.mode === 'orchestrated' ? 'orchestrated' : 'classic'];
+    const active = allowed.includes(prefs.optab) ? prefs.optab : allowed[0];
+    const expanded = !!prefs.optionsExpanded;
+    document.querySelectorAll('.multiai-optab-btn').forEach(b => {
+        const t = b.dataset.optab;
+        b.style.display = allowed.includes(t) ? '' : 'none';
+        b.classList.toggle('active', expanded && t === active);
+        b.setAttribute('aria-selected', expanded && t === active ? 'true' : 'false');
+    });
+    document.querySelectorAll('.multiai-optab').forEach(pane => { pane.style.display = pane.dataset.optab === active ? 'block' : 'none'; });
     if (body) body.style.display = expanded ? 'block' : 'none';
-    if (chevron) chevron.style.transform = expanded ? 'rotate(180deg)' : 'rotate(0deg)';
+    if (chevron) chevron.textContent = expanded ? '▴ collapse' : '▾ expand';
     if (btn) btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
 }
 
@@ -728,7 +747,13 @@ function multiaiRenderOptionsSummary(chat) {
         const routes = multiaiState.routes || {};
         if (routes.apiMode) extras.push('API mode');
         if (multiaiActiveAgents(chat).some(a => MULTIAI_CLI_PROVIDERS[a.provider])) extras.push('CLI');
-        el.textContent = `⚙ ${n}${all > n ? '/' + all : ''} agent${Math.max(n, all) === 1 ? '' : 's'} · ${chat.discussMode === 'debate' ? 'Debate' : 'Discuss'} · ${rounds} round${rounds === 1 ? '' : 's'} · ${chat.brevity || 'max 4 sentences'}${extras.length ? ' · ' + extras.join(' · ') : ''}`;
+        el.textContent = `${n}${all > n ? '/' + all : ''} agent${Math.max(n, all) === 1 ? '' : 's'} · ${chat.discussMode === 'debate' ? 'Debate' : 'Discuss'} · ${rounds} round${rounds === 1 ? '' : 's'} · ${chat.brevity || 'max 4 sentences'}${extras.length ? ' · ' + extras.join(' · ') : ''}`;
+        const hint = document.getElementById('multiai-composer-hint');
+        if (hint) {
+            const names = multiaiActiveAgents(chat).map(a => a.name);
+            hint.textContent = names.length ? `to ${names.join(', ')} · ${chat.discussMode === 'debate' ? 'debate' : 'discuss'} · ${rounds} round${rounds === 1 ? '' : 's'}` : 'no agents enabled';
+            hint.title = hint.textContent;
+        }
     } else {
         const strategy = chat.strategy || 'crew';
         let label = 'Crew';
@@ -740,7 +765,9 @@ function multiaiRenderOptionsSummary(chat) {
         } else if (strategy === 'loop') {
             label = 'Loop';
         }
-        el.textContent = `⚙ ${label}`;
+        el.textContent = label;
+        const hint = document.getElementById('multiai-composer-hint');
+        if (hint) { hint.textContent = `${label} pipeline`; hint.title = hint.textContent; }
     }
 }
 
@@ -1072,105 +1099,72 @@ function multiaiRenderParticipants(chat) {
     if (!box) return;
     const agents = multiaiEnsureAgents(chat);
     const routes = multiaiState.routes || { apiMode: false, providers: {}, cli: {} };
-    const editing = multiaiState.agentEditor;   // { index } | { index: -1, draft } | null
+    const personaNames = Object.keys(multiaiAllPersonas());
+    const providerOptions = ['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli'];
     const takenCodes = new Set();
+    const opt = (v, label, sel, dis) => `<option value="${multiaiEscapeAttr(v)}" ${sel ? 'selected' : ''} ${dis ? 'disabled' : ''}>${multiaiEscape(label)}</option>`;
     const rows = agents.map((a, i) => {
         const on = a.enabled !== false;
         const code = multiaiAgentCode(a, takenCodes);
-        const label = multiaiRouteLabel(a);
-        const warn = label.startsWith('⚠');
-        const row = `
-            <div style="display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; ${on ? '' : 'opacity: 0.55;'} ${editing && editing.index === i ? 'background: rgba(255,255,255,0.04);' : ''}">
-                <input type="checkbox" ${on ? 'checked' : ''} onchange="multiaiAgentToggle(${i}, this.checked)" title="${on ? 'Enabled — takes turns in this chat' : 'Disabled — sits out this chat'}" style="accent-color: #a855f7; cursor: pointer; flex-shrink: 0;">
-                <span title="Label code" style="font-size: 0.66rem; font-weight: 700; color: #6b7280; width: 26px; flex-shrink: 0;">${multiaiEscape(code)}</span>
-                <span style="font-size: 0.82rem; color: #fff; ${on ? '' : 'text-decoration: line-through;'} white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px;" title="${multiaiEscapeAttr(a.name)}">${multiaiEscape(a.name)}</span>
-                <span style="font-size: 0.7rem; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${multiaiEscapeAttr(label)}">${multiaiEscape(multiaiAgentMeta(a))}${warn ? ' <span style="color: #f59e0b;">⚠</span>' : ''}</span>
-                <span style="flex: 1;"></span>
-                <button onclick="multiaiAgentEdit(${i})" title="Edit" style="background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 0.85rem; padding: 0 3px;">✎</button>
-                <button onclick="multiaiAgentDuplicate(${i})" title="Duplicate (e.g. same model, other effort)" style="background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 0.85rem; padding: 0 3px;">⧉</button>
-                <button onclick="multiaiAgentRemove(${i})" title="Remove from this chat" style="background: none; border: none; color: #f87171; cursor: pointer; font-size: 0.85rem; padding: 0 3px;">✕</button>
-            </div>`;
-        return row + (editing && editing.index === i ? multiaiAgentEditorHtml(a, i) : '');
+        const isCli = !!MULTIAI_CLI_PROVIDERS[a.provider];
+        const p = routes.providers[a.provider] || {};
+        const apiOk = routes.apiMode && p.hasKey;
+        const cliOk = !isCli || (a.provider === 'claude-cli' ? routes.cli.claude : routes.cli.codex);
+        const hints = isCli ? MULTIAI_MODEL_HINTS[a.provider] : (apiOk ? (p.models || []) : (a.provider === 'gemini' ? MULTIAI_MODEL_HINTS.gemini : []));
+        const effortOn = isCli || apiOk || a.route === 'api';
+        const modelOn = isCli || apiOk || a.route === 'api' || a.provider === 'gemini';
+        const resolved = isCli ? 'cli' : (a.route === 'browser' ? 'tab' : (a.route === 'api' ? (apiOk ? 'api' : 'api ⚠ → tab') : (apiOk ? 'api' : 'tab')));
+        const routeOpts = isCli
+            ? opt('cli', cliOk ? 'cli' : 'cli ⚠ not found', true)
+            : opt('auto', `auto → ${apiOk ? 'api' : 'tab'}`, a.route === 'auto') + opt('browser', 'browser tab', a.route === 'browser') + opt('api', apiOk ? 'api' : 'api ⚠ (Settings)', a.route === 'api');
+        const modelPh = isCli ? 'alias' : (apiOk || a.route === 'api' ? (p.model ? `${p.model} (Settings)` : 'Settings default') : (a.provider === 'gemini' ? 'engine' : '—'));
+        return `
+            <tr class="${on ? '' : 'off'}" title="${multiaiEscapeAttr(multiaiRouteLabel(a))}">
+                <td style="width: 24px;"><input type="checkbox" ${on ? 'checked' : ''} onchange="multiaiAgentToggle(${i}, this.checked)" title="${on ? 'Taking turns in this chat — untick to bench' : 'Benched — tick to include'}"></td>
+                <td class="nm" style="min-width: 150px;"><div style="display: flex; align-items: center; gap: 6px;"><span class="code" title="Label code">${multiaiEscape(code)}</span><input type="text" value="${multiaiEscapeAttr(a.name)}" oninput="multiaiAgentField(${i}, 'name', this.value)" title="Name — also the @mention id"></div></td>
+                <td style="width: 122px;"><select onchange="multiaiAgentField(${i}, 'provider', this.value)" title="Provider">${providerOptions.map(pv => opt(pv, MULTIAI_CLI_PROVIDERS[pv] || multiaiProviderLabel(pv), a.provider === pv)).join('')}</select></td>
+                <td style="width: 118px;"><select onchange="multiaiAgentField(${i}, 'route', this.value)" ${isCli ? 'disabled' : ''} title="Route — auto follows Settings (API mode on + key → API, else the browser tab); resolved: ${multiaiEscapeAttr(resolved)}">${routeOpts}</select></td>
+                <td style="width: 130px;"><input type="text" list="multiai-models-${i}" value="${multiaiEscapeAttr(a.model || '')}" placeholder="${multiaiEscapeAttr(modelPh)}" oninput="multiaiAgentField(${i}, 'model', this.value)" ${modelOn ? '' : 'disabled'} title="${isCli ? 'CLI model alias (opus, sonnet, gpt-5.5…)' : (a.provider === 'gemini' && !apiOk ? 'Gemini engine (3.1-pro, 3.5-flash…)' : 'API model id — blank uses the model selected in Settings')}"><datalist id="multiai-models-${i}">${hints.map(h => `<option value="${multiaiEscapeAttr(h)}">`).join('')}</datalist></td>
+                <td style="width: 96px;"><select onchange="multiaiAgentField(${i}, 'effort', this.value)" ${effortOn ? '' : 'disabled'} title="Reasoning effort — API and CLI routes only">${MULTIAI_EFFORTS.map(e => opt(e, e || 'default', (a.effort || '') === e)).join('')}</select></td>
+                <td style="width: 120px;"><select onchange="multiaiAgentPersona(${i}, this.value)" title="Persona">${opt('', 'none', !a.personaKey)}${personaNames.map(n => opt(n, n, a.personaKey === n)).join('')}</select></td>
+                <td class="act"><button onclick="multiaiAgentDuplicate(${i})" title="Duplicate (same provider, e.g. another effort)">⧉</button><button class="rm" onclick="multiaiAgentRemove(${i})" title="Remove from this chat (stays in the library)">✕</button></td>
+            </tr>`;
     }).join('');
     const enabledN = agents.filter(a => a.enabled !== false).length;
-    const mode = routes.apiMode ? 'API mode ON in Settings — auto agents use API keys/models from there' : 'API mode OFF in Settings — auto agents use the browser tabs';
     const lib = multiaiAgentLibrary();
     const inChat = new Set(agents.map(a => a.uid).filter(Boolean));
-    const menuOpen = !!multiaiState.agentMenuOpen;
+    const libFree = lib.filter(a => !inChat.has(a.uid));
     const presets = ['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli'];
-    const menu = !menuOpen ? '' : `
-        <div style="border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; background: #12121e; padding: 8px; margin-top: 6px; display: flex; flex-direction: column; gap: 6px; max-width: 460px;">
-            ${lib.length ? `<div style="font-size: 0.66rem; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.6px;">Library</div>` +
-                lib.map(a => `<div style="display: flex; align-items: center; gap: 6px; font-size: 0.78rem;">
-                    <button onclick="multiaiAgentAddFromLibrary('${multiaiEscapeAttr(a.uid)}')" ${inChat.has(a.uid) ? 'disabled' : ''} style="flex: 1; text-align: left; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #e5e7eb; padding: 4px 8px; cursor: ${inChat.has(a.uid) ? 'default' : 'pointer'}; ${inChat.has(a.uid) ? 'opacity: 0.45;' : ''}">${multiaiEscape(a.name)} <span style="color: #6b7280; font-size: 0.7rem;">${multiaiEscape(multiaiAgentMeta(a))}${inChat.has(a.uid) ? ' · in chat' : ''}</span></button>
-                    <button onclick="multiaiLibraryRemove('${multiaiEscapeAttr(a.uid)}')" title="Remove from library (chats that use it keep their copy)" style="background: none; border: none; color: #6b7280; cursor: pointer;">✕</button>
-                </div>`).join('') : '<div style="font-size: 0.74rem; color: #6b7280;">Library is empty — agents you add are saved here, and every new chat starts with them.</div>'}
-            <div style="font-size: 0.66rem; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.6px; margin-top: 4px;">Quick add</div>
-            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-                ${presets.map(pv => {
-                    const cliOk = pv === 'claude-cli' ? routes.cli.claude : (pv === 'codex-cli' ? routes.cli.codex : true);
-                    return `<button class="header-btn" onclick="multiaiAgentAdd('${pv}')" ${cliOk ? '' : 'disabled title="CLI not found on this machine"'} style="justify-content: center; font-size: 0.74rem; padding: 4px 8px; ${cliOk ? '' : 'opacity: 0.4;'}">+ ${MULTIAI_CLI_PROVIDERS[pv] || multiaiProviderLabel(pv)}</button>`;
-                }).join('')}
-                <button class="header-btn" onclick="multiaiAgentNew()" style="justify-content: center; font-size: 0.74rem; padding: 4px 8px;">+ Custom…</button>
-            </div>
-        </div>`;
-    const newEditor = editing && editing.index === -1 ? multiaiAgentEditorHtml(editing.draft, -1) : '';
-    box.style.display = 'block';
+    const cliOkFor = (pv) => pv === 'claude-cli' ? routes.cli.claude : (pv === 'codex-cli' ? routes.cli.codex : true);
+    const addMenu = `<select onchange="multiaiAgentAddFromMenu(this.value); this.value='';" title="Add an agent to this chat" style="min-width: 150px;">
+            <option value="">+ add agent…</option>
+            ${libFree.length ? `<optgroup label="Library">${libFree.map(a => opt('lib:' + a.uid, `${a.name} — ${multiaiAgentMeta(a)}`)).join('')}</optgroup>` : ''}
+            <optgroup label="New">${presets.map(pv => opt('new:' + pv, (MULTIAI_CLI_PROVIDERS[pv] || multiaiProviderLabel(pv) + ' tab') + (cliOkFor(pv) ? '' : ' (CLI not found)'), false, !cliOkFor(pv))).join('')}</optgroup>
+        </select>`;
+    const libManage = multiaiState.agentMenuOpen && lib.length ? `
+        <div style="flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 0 2px;">
+            <span style="font-size: 0.66rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: .6px;">Library</span>
+            ${lib.map(a => `<span style="display: inline-flex; align-items: center; gap: 4px; border: 1px solid rgba(255,255,255,0.12); border-radius: 999px; padding: 2px 6px 2px 8px; font-size: 0.72rem; color: #d1d5db;">${multiaiEscape(a.name)}${inChat.has(a.uid) ? ' <span style="color:#6b7280">· in chat</span>' : ''}<button onclick="multiaiLibraryRemove('${multiaiEscapeAttr(a.uid)}')" title="Remove from the library (chats keep their copy)" style="background: none; border: none; color: #6b7280; cursor: pointer; font-size: 0.8rem; padding: 0 2px;">✕</button></span>`).join('')}
+            <span style="font-size: 0.7rem; color: #6b7280;">— new chats start with all of these</span>
+        </div>` : '';
+    const mode = routes.apiMode ? 'API mode ON in Settings' : 'API mode OFF in Settings — auto agents use the browser tabs';
     box.innerHTML = `
-        <div style="display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px;">${rows || '<div style="font-size: 0.76rem; color: #6b7280; padding: 4px 6px;">No agents yet — add some below. They go into the library, so every new chat starts with them; tick/untick to choose who takes part in this one.</div>'}</div>
-        ${newEditor}
-        <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
-            <button class="header-btn" onclick="multiaiAgentMenuToggle()" style="justify-content: center; font-size: 0.74rem; padding: 4px 8px;">${menuOpen ? '▾' : '+'} Add agent</button>
-            <button class="header-btn" onclick="multiaiAgentsSetAll(true)" title="Enable all" style="justify-content: center; font-size: 0.74rem; padding: 4px 8px;">all</button>
-            <button class="header-btn" onclick="multiaiAgentsSetAll(false)" title="Disable all" style="justify-content: center; font-size: 0.74rem; padding: 4px 8px;">none</button>
-            <button class="header-btn" onclick="multiaiRefreshRoutes()" title="Re-read Settings (API mode, keys, models) and CLI availability" style="justify-content: center; font-size: 0.74rem; padding: 4px 8px;">↻</button>
-            <span style="font-size: 0.7rem; color: #6b7280;">${enabledN}/${agents.length} enabled · ${multiaiEscape(mode)}</span>
+        <div style="overflow-x: auto;">
+        <table class="multiai-roster">
+            <thead><tr><th></th><th>Agent</th><th>Provider</th><th>Route</th><th>Model</th><th>Effort</th><th>Persona</th><th></th></tr></thead>
+            <tbody>${rows || `<tr><td colspan="8" style="color: #6b7280; padding: 10px 6px;">No agents yet — add one below. Agents go into the library, so every new chat starts with them; tick / untick to choose who takes part in this one.</td></tr>`}</tbody>
+        </table>
         </div>
-        ${menu}`;
-}
-
-// Inline editor for one agent (an existing row, or a new draft when i === -1).
-function multiaiAgentEditorHtml(a, i) {
-    const routes = multiaiState.routes || { apiMode: false, providers: {}, cli: {} };
-    const personaNames = Object.keys(multiaiAllPersonas());
-    const providerOptions = ['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli'];
-    const inp = 'background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 4px 6px; font-size: 0.76rem; box-sizing: border-box;';
-    const isCli = !!MULTIAI_CLI_PROVIDERS[a.provider];
-    const apiOk = routes.apiMode && (routes.providers[a.provider] || {}).hasKey;
-    const hints = isCli ? MULTIAI_MODEL_HINTS[a.provider] : (apiOk ? ((routes.providers[a.provider] || {}).models || []) : (a.provider === 'gemini' ? MULTIAI_MODEL_HINTS.gemini : []));
-    const effortOn = isCli || apiOk || a.route === 'api';
-    const inLib = i === -1 || !!(a.uid && multiaiAgentLibrary().some(x => x.uid === a.uid));
-    return `
-        <div style="margin: 2px 0 8px 30px; border: 1px solid rgba(168,85,247,0.35); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; max-width: 460px;">
-            <input value="${multiaiEscapeAttr(a.name || '')}" placeholder="Name (blank = provider · model · effort)" oninput="multiaiAgentField(${i}, 'name', this.value)" style="${inp}">
-            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-                <select title="Provider" onchange="multiaiAgentField(${i}, 'provider', this.value)" style="flex: 1 1 110px; ${inp}">
-                    ${providerOptions.map(pv => `<option value="${pv}" ${a.provider === pv ? 'selected' : ''}>${MULTIAI_CLI_PROVIDERS[pv] || multiaiProviderLabel(pv)}</option>`).join('')}
-                </select>
-                <select title="Route: auto follows Settings (API mode on + key → API, else browser tab)" onchange="multiaiAgentField(${i}, 'route', this.value)" ${isCli ? 'disabled' : ''} style="flex: 1 1 90px; ${inp}">
-                    ${['auto', 'browser', 'api', 'cli'].map(rt => `<option value="${rt}" ${(isCli ? 'cli' : a.route) === rt ? 'selected' : ''} ${rt === 'cli' && !isCli ? 'disabled' : ''}>${rt}</option>`).join('')}
-                </select>
-            </div>
-            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-                <input list="multiai-models-${i}" value="${multiaiEscapeAttr(a.model || '')}" placeholder="${isCli ? 'model alias' : (apiOk ? 'model (blank = Settings)' : (a.provider === 'gemini' ? 'engine (blank = default)' : 'model n/a in browser tab'))}" oninput="multiaiAgentField(${i}, 'model', this.value)" style="flex: 2 1 120px; ${inp}">
-                <datalist id="multiai-models-${i}">${hints.map(h => `<option value="${multiaiEscapeAttr(h)}">`).join('')}</datalist>
-                <select title="Reasoning effort (API and CLI routes)" onchange="multiaiAgentField(${i}, 'effort', this.value)" ${effortOn ? '' : 'disabled'} style="flex: 1 1 80px; ${inp}">
-                    ${MULTIAI_EFFORTS.map(e => `<option value="${e}" ${(a.effort || '') === e ? 'selected' : ''}>${e || 'effort: default'}</option>`).join('')}
-                </select>
-            </div>
-            <select title="Persona" onchange="multiaiAgentPersona(${i}, this.value)" style="${inp} color: #9ca3af;">
-                <option value="">🎭 Persona: none</option>
-                ${personaNames.map(n => `<option value="${multiaiEscapeAttr(n)}" ${a.personaKey === n ? 'selected' : ''}>${multiaiEscape(n)}</option>`).join('')}
-            </select>
-            <div style="font-size: 0.7rem; color: #6b7280;">→ ${multiaiEscape(multiaiRouteLabel(a))}</div>
-            <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
-                ${i === -1
-                    ? `<button class="header-btn" onclick="multiaiAgentCommitNew()" style="justify-content: center; font-size: 0.74rem; padding: 4px 10px;">Add</button>
-                       <button onclick="multiaiAgentEdit(null)" style="background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 0.74rem;">Cancel</button>`
-                    : `<button class="header-btn" onclick="multiaiAgentEdit(null)" style="justify-content: center; font-size: 0.74rem; padding: 4px 10px;">Done</button>
-                       ${inLib ? '<span style="font-size: 0.7rem; color: #6b7280;">library agent — edits apply to every chat that uses it</span>'
-                               : `<button class="header-btn" onclick="multiaiAgentSaveToLibrary(${i})" title="Keep this agent for new chats" style="justify-content: center; font-size: 0.74rem; padding: 4px 10px;">Save to library</button><span style="font-size: 0.7rem; color: #6b7280;">chat-local</span>`}`}
-            </div>
+        <div class="multiai-roster-foot">
+            ${addMenu}
+            <button class="multiai-btn ghost" onclick="multiaiAgentsSetAll(true)" title="Enable all">all</button>
+            <button class="multiai-btn ghost" onclick="multiaiAgentsSetAll(false)" title="Disable all">none</button>
+            <button class="multiai-btn ghost" onclick="multiaiAgentMenuToggle()" title="Show the library (what new chats start with)">📚 library · ${lib.length}</button>
+            <button class="multiai-btn ghost" onclick="multiaiOpenPersonasFolder()" title="Open the folder of persona .md/.txt files">🎭 personas</button>
+            <button class="multiai-btn ghost" onclick="multiaiRefreshRoutes()" title="Re-read Settings (API mode, keys, models) and CLI availability">↻</button>
+            <span style="flex: 1;"></span>
+            <span>${enabledN}/${agents.length} enabled · ${multiaiEscape(mode)}</span>
+            ${libManage}
         </div>`;
 }
 
@@ -1187,6 +1181,13 @@ function multiaiAgentMenuToggle() {
     multiaiState.agentMenuOpen = !multiaiState.agentMenuOpen;
     const chat = multiaiCurrentChat();
     if (chat) multiaiRenderParticipants(chat);
+}
+
+// The "+ add agent…" menu: "lib:<uid>" or "new:<provider>".
+function multiaiAgentAddFromMenu(value) {
+    if (!value) return;
+    if (value.startsWith('lib:')) multiaiAgentAddFromLibrary(value.slice(4));
+    else if (value.startsWith('new:')) multiaiAgentAdd(value.slice(4));
 }
 
 function multiaiAgentToggle(i, on) {
@@ -1246,44 +1247,16 @@ function multiaiAgentAddFromLibrary(uid) {
     multiaiRerenderAgents(chat);
 }
 
-// "+ Custom…": open an empty editor; the agent is added on "Add to chat".
-function multiaiAgentNew() {
-    const chat = multiaiCurrentChat();
-    if (!chat) return;
-    multiaiState.agentMenuOpen = false;
-    multiaiState.agentEditor = { index: -1, draft: multiaiAgentPreset('chatgpt') };
-    multiaiRenderParticipants(chat);
-}
-
-function multiaiAgentCommitNew() {
-    const chat = multiaiCurrentChat();
-    const ed = multiaiState.agentEditor;
-    if (!chat || !ed || ed.index !== -1) return;
-    multiaiEnsureAgents(chat);
-    const a = Object.assign({}, ed.draft, { id: '' });
-    if (!a.name) a.name = multiaiDefaultAgentName(a.provider, a.model, a.effort);
-    chat.agents.push(a);
-    multiaiEnsureAgents(chat);
-    multiaiLibrarySave(a);
-    multiaiState.agentEditor = null;
-    multiaiPersist();
-    multiaiRerenderAgents(chat);
-}
-
-function multiaiAgentEdit(i) {
-    const chat = multiaiCurrentChat();
-    if (!chat) return;
-    const cur = multiaiState.agentEditor;
-    multiaiState.agentEditor = (i == null || (cur && cur.index === i)) ? null : { index: i };
-    multiaiRenderParticipants(chat);
-}
+// Kept for callers of the old inline editor: a "custom" agent is just a
+// new ChatGPT row edited in place.
+function multiaiAgentNew() { multiaiAgentAdd('chatgpt'); }
+function multiaiAgentEdit() { /* rows are edited inline now */ }
 
 function multiaiAgentSaveToLibrary(i) {
     const chat = multiaiCurrentChat();
     if (!chat || !chat.agents || !chat.agents[i]) return;
     multiaiLibrarySave(chat.agents[i]);
     multiaiPersist();
-    showToast(`"${chat.agents[i].name}" saved to the agent library.`);
     multiaiRenderParticipants(chat);
 }
 
@@ -1295,9 +1268,10 @@ function multiaiAgentDuplicate(i) {
     chat.agents.splice(i + 1, 0, copy);
     if (src.uid) multiaiLibrarySave(copy);   // a copy of a library agent is a library agent too
     multiaiEnsureAgents(chat);
-    multiaiState.agentEditor = { index: i + 1 };
     multiaiPersist();
     multiaiRerenderAgents(chat);
+    const nameBox = document.querySelectorAll('#multiai-participants td.nm input')[i + 1];
+    if (nameBox) { nameBox.focus(); nameBox.select(); }
 }
 
 function multiaiAgentRemove(i) {
@@ -1305,7 +1279,6 @@ function multiaiAgentRemove(i) {
     if (!chat || !chat.agents) return;
     chat.agents.splice(i, 1);
     multiaiEnsureAgents(chat);
-    multiaiState.agentEditor = null;
     multiaiPersist();
     multiaiRerenderAgents(chat);
 }
@@ -1314,8 +1287,7 @@ function multiaiAgentRemove(i) {
 function multiaiAgentField(i, field, value) {
     const chat = multiaiCurrentChat();
     if (!chat) return;
-    const ed = multiaiState.agentEditor;
-    const a = i === -1 ? (ed && ed.index === -1 ? ed.draft : null) : (chat.agents || [])[i];
+    const a = (chat.agents || [])[i];
     if (!a) return;
     const autoNamed = !a.name || a.name === multiaiDefaultAgentName(a.provider, a.model, a.effort);
     a[field] = value;
@@ -1325,27 +1297,26 @@ function multiaiAgentField(i, field, value) {
         if (isCli) { a.model = value === 'codex-cli' ? 'gpt-5.5' : 'sonnet'; a.effort = a.effort || 'high'; }
         else if (value !== 'gemini') a.model = '';
     }
-    if (field !== 'name' && autoNamed) { a.name = multiaiDefaultAgentName(a.provider, a.model, a.effort); if (i !== -1) a.id = ''; }
-    if (field === 'name' && i !== -1) a.id = '';   // re-slug from the new name (so @mentions follow the label)
-    if (i !== -1) {
-        if (a.uid) multiaiLibrarySave(a);   // library agent: the edit is the library's now
-        multiaiEnsureAgents(chat);
-        if (field === 'name') multiaiPersistSoon(); else multiaiPersist();
-    }
-    // Text fields keep focus; structural fields re-render the editor.
+    if (field !== 'name' && autoNamed) { a.name = multiaiDefaultAgentName(a.provider, a.model, a.effort); a.id = ''; }
+    if (field === 'name') a.id = '';   // re-slug from the new name (so @mentions follow the label)
+    if (a.uid) multiaiLibrarySave(a);   // library agent: the edit is the library's now
+    multiaiEnsureAgents(chat);
+    if (field === 'name') multiaiPersistSoon(); else multiaiPersist();
+    // Text cells keep focus; structural cells re-render the row (the name may
+    // have been re-derived, the route/effort cells may enable or disable).
     if (field !== 'name' && field !== 'model') multiaiRerenderAgents(chat);
-    else if (i !== -1) { multiaiRenderOptionsSummary(chat); multiaiRenderStatusLine(chat); }
+    else { multiaiRenderOptionsSummary(chat); multiaiRenderStatusLine(chat); }
 }
 
 function multiaiAgentPersona(i, personaName) {
     const chat = multiaiCurrentChat();
     if (!chat) return;
-    const ed = multiaiState.agentEditor;
-    const a = i === -1 ? (ed && ed.index === -1 ? ed.draft : null) : (chat.agents || [])[i];
+    const a = (chat.agents || [])[i];
     if (!a) return;
     if (!personaName) { delete a.personaKey; delete a.persona; }
     else { a.personaKey = personaName; a.persona = multiaiAllPersonas()[personaName] || ''; }
-    if (i !== -1) { if (a.uid) multiaiLibrarySave(a); multiaiPersist(); multiaiRenderParticipants(chat); }
+    if (a.uid) multiaiLibrarySave(a);
+    multiaiPersist();
 }
 
 async function multiaiRefreshRoutes() {
@@ -1425,8 +1396,7 @@ function multiaiSetMode(mode, skipSave) {
 
     document.getElementById('multiai-mode-classic').classList.toggle('active', mode === 'classic');
     document.getElementById('multiai-mode-orch').classList.toggle('active', mode === 'orchestrated');
-    document.getElementById('multiai-classic-controls').style.display = mode === 'classic' ? 'block' : 'none';
-    document.getElementById('multiai-orch-controls').style.display = mode === 'orchestrated' ? 'block' : 'none';
+    multiaiApplyOptionsState();
     if (chat) { multiaiRenderOptionsSummary(chat); multiaiApplyModeLock(chat); }
 }
 
@@ -1544,11 +1514,10 @@ function multiaiApplyRunningUi() {
     // a disabled button with no way to interrupt from the input row.
     if (sendBtn) {
         sendBtn.disabled = false;
-        sendBtn.textContent = on ? '■' : '➤';
-        sendBtn.title = on ? 'Stop' : 'Send';
+        sendBtn.textContent = on ? '■ Stop' : '▶ Send';
+        sendBtn.title = on ? 'Stop the run' : 'Send (Enter; Shift+Enter for a new line)';
         sendBtn.onclick = on ? multiaiStop : multiaiSend;
-        sendBtn.style.background = on ? 'rgba(239,68,68,0.15)' : '';
-        sendBtn.style.borderColor = on ? 'rgba(239,68,68,0.4)' : '';
+        sendBtn.classList.toggle('stop', on);
     }
 }
 
