@@ -152,6 +152,29 @@ test('workspace tools: each level maps to the right permission flags per CLI; no
     assert.deepEqual(cli.TOOLS_LEVELS, ['none', 'read', 'write', 'full']);
 });
 
+test('resolveCodex: newest of the desktop-app bundle and the PATH codex wins, ties go to the bundle', async () => {
+    assert.deepEqual(cli.parseVersion('codex-cli 0.152.1'), [0, 152, 1]);
+    assert.deepEqual(cli.parseVersion('0.142'), [0, 142, 0]);
+    assert.equal(cli.parseVersion('garbage'), null);
+    assert.ok(cli.cmpVersion([0, 152, 1], [0, 142, 5]) > 0);
+    assert.ok(cli.cmpVersion([1, 0, 0], [0, 999, 9]) > 0);
+    assert.equal(cli.cmpVersion([0, 1, 0], [0, 1, 0]), 0);
+    assert.ok(cli.cmpVersion(null, [0, 1, 0]) < 0, 'unknown version loses');
+    // the same ordering resolveCodex applies
+    const order = (list) => list.slice().sort((a, b) => cli.cmpVersion(b.semver, a.semver) || (a.source === 'bundle' ? -1 : (b.source === 'bundle' ? 1 : 0))).map(x => x.source);
+    assert.deepEqual(order([{ source: 'path', semver: [0, 142, 5] }, { source: 'bundle', semver: [0, 152, 1] }]), ['bundle', 'path']);
+    assert.deepEqual(order([{ source: 'path', semver: [0, 160, 0] }, { source: 'bundle', semver: [0, 152, 1] }]), ['path', 'bundle'], 'a newer standalone CLI still wins');
+    assert.deepEqual(order([{ source: 'path', semver: [0, 152, 1] }, { source: 'bundle', semver: [0, 152, 1] }]), ['bundle', 'path'], 'tie → bundle (it can sandbox)');
+    assert.deepEqual(order([{ source: 'path', semver: null }, { source: 'bundle', semver: null }]), ['bundle', 'path']);
+    const cands = cli.codexCandidates({ force: true });
+    assert.ok(Array.isArray(cands));
+    cands.forEach(c => assert.ok(['bundle', 'path'].includes(c.source) && typeof c.exe === 'string'));
+    if (process.platform !== 'win32') assert.ok(cands.every(c => c.source === 'path'), 'the bundle is a Windows thing');
+    const pick = await cli.resolveCodex({ force: true });
+    if (cands.length) { assert.ok(pick && pick.exe); assert.ok(Array.isArray(pick.alternatives)); assert.equal(cli.codexExe(), pick.exe); }
+    else assert.equal(pick, null);
+});
+
 test('codexSandboxSupport: native off Windows; on Windows the desktop app bundle stands in when the PATH codex lacks its helpers', () => {
     const dir = cli.codexSandboxHelperDir({ force: true });
     assert.equal(cli.hasCodexHelpers('/definitely/not/here'), false);
@@ -161,10 +184,9 @@ test('codexSandboxSupport: native off Windows; on Windows the desktop app bundle
         assert.equal(cli.codexSandboxBundle(), null);
         return;
     }
-    const sup = cli.codexSandboxSupport({ force: true });
+    const sup = cli.codexSandboxSupport();
     assert.ok(['native', 'bundle', 'missing'].includes(sup.mode));
     if (sup.mode === 'bundle') { assert.ok(/codex\.exe$/i.test(sup.exe)); assert.ok(cli.hasCodexHelpers(cli.codexSandboxBundle().dir)); }
-    if (sup.mode === 'native') assert.equal(sup.exe, null);
     // With a helper present the codex child env starts with its folder; other CLIs are untouched.
     if (dir) {
         const env = cli.childEnv('codex');

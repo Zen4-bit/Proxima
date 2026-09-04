@@ -120,17 +120,62 @@ function codexSandboxBundle({ force = false } = {}) {
 }
 function codexSandboxHelperDir(opts) { const b = codexSandboxBundle(opts); return b ? b.dir : null; }
 
-// How a sandboxed (read/write) Codex turn can run on this machine:
-//   native  — the codex on PATH has its helpers (or not Windows)
-//   bundle  — run the desktop app's bundled codex.exe instead
-//   missing — neither; read/write cannot be enforced (full still works)
-function codexSandboxSupport({ force = false } = {}) {
-    if (!IS_WIN) return { mode: 'native', exe: null };
-    const exe = which('codex');
-    if (exe && hasCodexHelpers(path.dirname(exe))) return { mode: 'native', exe: null };
+// Which codex binary to run. Candidates: the desktop app's bundle (has the
+// Windows sandbox helpers, usually newest) and the codex on PATH. The newest
+// version wins; a tie or unknown versions go to the bundle, since only it can
+// sandbox read/write turns. Resolved once (async: it runs `--version`),
+// cached; before the first resolution the bundle is preferred when present.
+let _codexPick = null;
+let _codexPickPromise = null;
+function parseVersion(v) {
+    const m = String(v || '').match(/(\d+)\.(\d+)(?:\.(\d+))?/);
+    return m ? [Number(m[1]), Number(m[2]), Number(m[3] || 0)] : null;
+}
+function cmpVersion(a, b) {
+    if (!a && !b) return 0;
+    if (!a) return -1;
+    if (!b) return 1;
+    for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] - b[i];
+    return 0;
+}
+function codexCandidates({ force = false } = {}) {
+    const out = [];
     const b = codexSandboxBundle({ force });
-    if (b) return { mode: 'bundle', exe: b.exe };
-    return { mode: 'missing', exe: null };
+    if (b) out.push({ exe: b.exe, source: 'bundle', helpers: true });
+    const p = which('codex');
+    if (p && !(b && p.toLowerCase() === b.exe.toLowerCase())) out.push({ exe: p, source: 'path', helpers: !IS_WIN || hasCodexHelpers(path.dirname(p)) });
+    return out;
+}
+function resolveCodex({ force = false } = {}) {
+    if (_codexPick && !force) return Promise.resolve(_codexPick);
+    if (_codexPickPromise && !force) return _codexPickPromise;
+    _codexPickPromise = (async () => {
+        const cands = codexCandidates({ force });
+        for (const c of cands) {
+            const r = await runQuick('codex', ['--version'], 8000, c.exe);
+            c.version = (r.stdout.trim().replace(/^codex-cli\s*/i, '').split(/\s+/)[0] || '').trim();
+            c.semver = parseVersion(c.version);
+        }
+        cands.sort((a, b) => cmpVersion(b.semver, a.semver) || (a.source === 'bundle' ? -1 : (b.source === 'bundle' ? 1 : 0)));
+        _codexPick = cands[0] ? Object.assign({}, cands[0], { alternatives: cands.slice(1) }) : null;
+        _codexPickPromise = null;
+        return _codexPick;
+    })();
+    return _codexPickPromise;
+}
+// Sync view: the resolved pick, else the best guess (bundle, then PATH).
+function codexExe() {
+    if (_codexPick) return _codexPick.exe;
+    const c = codexCandidates();
+    return c.length ? c[0].exe : null;
+}
+// Kept for callers of the old API: how a sandboxed (read/write) turn can run.
+function codexSandboxSupport() {
+    if (!IS_WIN) return { mode: 'native', exe: null };
+    const exe = codexExe();
+    if (!exe || !hasCodexHelpers(path.dirname(exe))) return { mode: 'missing', exe };
+    const b = codexSandboxBundle();
+    return { mode: b && exe.toLowerCase() === b.exe.toLowerCase() ? 'bundle' : 'native', exe };
 }
 
 // Where the CLIs usually live when they are not on PATH at all.
@@ -168,7 +213,7 @@ function which(bin) {
 function availability() {
     return {
         claude: !!which('claude'),
-        codex: !!which('codex'),
+        codex: !!which('codex') || !!codexSandboxBundle(),
         gemini: !!which('gemini'),
     };
 }
@@ -176,14 +221,16 @@ function availability() {
 function resetAvailabilityCache() {
     for (const k of Object.keys(_avail)) delete _avail[k];
     _discovered = null;
+    _codexPick = null;
+    _codexBundleCache = undefined;
 }
 
 // ---- discovery ------------------------------------------------------------
 
-function runQuick(bin, args, timeoutMs = 8000) {
+function runQuick(bin, args, timeoutMs = 8000, exe) {
     return new Promise((resolve) => {
         let child;
-        try { child = spawnCli(bin, args, os.tmpdir()); } catch (e) { return resolve({ code: -1, stdout: '', stderr: String(e.message || e) }); }
+        try { child = spawnCli(bin, args, os.tmpdir(), exe); } catch (e) { return resolve({ code: -1, stdout: '', stderr: String(e.message || e) }); }
         let stdout = '', stderr = '';
         const timer = setTimeout(() => { killTree(child); resolve({ code: -1, stdout, stderr: stderr + '\n(timed out)' }); }, timeoutMs);
         child.stdout.on('data', d => { stdout += d.toString('utf8'); });
@@ -310,23 +357,26 @@ async function discover({ force = false } = {}) {
             };
         } else out.claude = { available: false, label: LABELS.claude };
         if (avail.codex) {
-            const ver = await runQuick('codex', ['--version']);
+            const pick = await resolveCodex({ force: true });
             const cache = parseCodexModelsCache(readJson(path.join(home, '.codex', 'models_cache.json')));
             const cfg = parseCodexConfig(readText(path.join(home, '.codex', 'config.toml')));
             const efforts = [];
             cache.forEach(m => m.efforts.forEach(e => { if (!efforts.includes(e)) efforts.push(e); }));
             out.codex = {
                 available: true, label: LABELS.codex,
-                version: (ver.stdout.trim().replace(/^codex-cli\s*/i, '').split(/\s+/)[0] || '').trim(),
+                version: pick ? pick.version : '',
                 efforts: efforts.length ? efforts : ['low', 'medium', 'high', 'xhigh'],
                 models: cache,
                 defaultModel: cfg.model, defaultEffort: cfg.effort,
                 profiles: cfg.profiles,
                 defaultModelListed: !cfg.model || cache.some(m => m.id === cfg.model),
-                // Windows: read/write workspace levels need the sandbox helper
-                // (see childEnv); `full` bypasses the sandbox and always works.
-                sandbox: codexSandboxSupport({ force: true }).mode,
-                sandboxBundle: (() => { const b = codexSandboxBundle(); return b ? b.dir : undefined; })(),
+                // Which binary runs the seats (newest of the desktop app's
+                // bundle and the codex on PATH) and whether it can sandbox
+                // read/write turns on Windows; `full` always works.
+                exe: pick ? pick.exe : undefined,
+                source: pick ? pick.source : undefined,
+                alternatives: pick ? pick.alternatives.map(a => ({ exe: a.exe, source: a.source, version: a.version })) : [],
+                sandbox: !IS_WIN ? 'native' : (pick && pick.helpers ? 'native' : 'missing'),
                 note: cache.length ? 'Models from your account\'s list (~/.codex/models_cache.json).' : 'No model list cached yet — run codex once.',
             };
         } else out.codex = { available: false, label: LABELS.codex };
@@ -408,7 +458,7 @@ function killTree(child) {
 // Windows needs a shell to run the npm .cmd/.ps1 shims (claude); quote args.
 // The resolved path is used when the binary is not on PATH.
 function spawnCli(bin, args, cwd, exeOverride) {
-    const exe = exeOverride || which(bin) || bin;
+    const exe = exeOverride || (bin === 'codex' ? codexExe() : null) || which(bin) || bin;
     if (IS_WIN) {
         const q = (a) => (/[\s"]/.test(a) ? `"${String(a).replace(/"/g, '\\"')}"` : a);
         return spawn(`${q(exe)} ${args.map(q).join(' ')}`, { cwd, shell: true, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: childEnv(bin) });
@@ -425,8 +475,9 @@ function runProcess(kind, bin, args, { cwd, prompt, timeoutMs, exe }) {
         await acquire(kind);
         if (aborted) { release(kind); throw Object.assign(new Error('Cancelled by user'), { cancelled: true }); }
         try {
+            const exeResolved = typeof exe === 'function' ? await exe() : exe;
             return await new Promise((resolve, reject) => {
-                child = spawnCli(bin, args, cwd, exe);
+                child = spawnCli(bin, args, cwd, exeResolved);
                 let stdout = '';
                 let stderr = '';
                 child.stdout.on('data', d => { stdout += d.toString('utf8'); });
@@ -536,11 +587,10 @@ function runCodex({ model, effort, prompt, systemPrompt, cwd, workspace, timeout
     const args = codexArgs({ model, effort, workspace: level !== 'none' ? workspace : null }, dir, outFile);
     // The system prompt is prepended because exec has no system-prompt flag.
     const full = `${systemPrompt || (level !== 'none' ? workspaceSystemPrompt(workspace) : DISCUSSION_SYSTEM_PROMPT)}\n\n${prompt}`;
-    // read/write rely on Codex's sandbox; on Windows that may only exist in
-    // the desktop app's bundled codex.exe (see codexSandboxSupport).
-    const sandboxed = level === 'read' || level === 'write';
-    const support = sandboxed ? codexSandboxSupport() : null;
-    const run = runProcess('codex', 'codex', args, { cwd: level !== 'none' ? workspace.root : dir, prompt: full, timeoutMs, exe: support && support.mode === 'bundle' ? support.exe : undefined });
+    // spawnCli runs the resolved codex (newest of the desktop app's bundle and
+    // the one on PATH — see resolveCodex); resolve first so the first turn
+    // after startup doesn't guess.
+    const run = runProcess('codex', 'codex', args, { cwd: level !== 'none' ? workspace.root : dir, prompt: full, timeoutMs, exe: () => resolveCodex().then(p => (p ? p.exe : undefined)) });
     const promise = run.promise.then(({ code, stdout, stderr }) => {
         let text = '';
         try { text = fs.readFileSync(outFile, 'utf8').trim(); fs.unlinkSync(outFile); } catch { /* no file */ }
@@ -614,5 +664,6 @@ module.exports = {
     run, runClaude, runCodex, runGemini, availability, resetAvailabilityCache, which, discover, discovered, childEnv, knownLocations,
     parseClaudeHelp, parseCodexModelsCache, parseCodexConfig, geminiAuthFrom, codexEffortFor,
     claudeArgs, codexArgs, geminiArgs, workspaceSystemPrompt, codexSandboxHelperDir, codexSandboxBundle, codexSandboxSupport, hasCodexHelpers,
+    codexCandidates, resolveCodex, codexExe, parseVersion, cmpVersion,
     EFFORT_MAP, DISCUSSION_SYSTEM_PROMPT, MAX_PARALLEL, KINDS, BINS, LABELS, TOOLS_LEVELS, CLAUDE_TOOLS,
 };

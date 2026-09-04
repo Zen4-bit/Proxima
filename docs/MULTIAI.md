@@ -111,11 +111,17 @@ Codex's `read`/`write` levels need two helpers next to `codex.exe`
 (`codex-windows-sandbox-setup.exe`, `codex-command-runner.exe`). The standalone
 CLI installer ships without them; the Codex desktop app bundles a complete
 `codex.exe` + helpers under `%LOCALAPPDATA%\OpenAI\Codex\bin\<hash>\`.
-`cli.codexSandboxSupport()` picks `native` (PATH codex has them), `bundle`
-(sandboxed turns run the app's bundled `codex.exe` instead — same `~/.codex`
-login, config and model list) or `missing`; discovery reports it as
-`cliInfo.codex.sandbox`, and the Tools cell explains either way. `full`
-bypasses the sandbox and always works. Gemini CLI may ask to trust the folder the first
+
+**Which codex runs.** `cli.resolveCodex()` looks at both the app bundle and
+the `codex` on PATH, runs `--version` on each once, and uses the newest for
+everything — seats, variants, discovery (a tie or unknown versions go to the
+bundle, since only it can sandbox). Same `~/.codex` login, config and model
+list either way. Discovery reports `cliInfo.codex.exe / source
+(bundle|path) / version / alternatives / sandbox (native|missing)`; the
+Agents footer shows "Codex 0.152.1 (desktop app) · also 0.142.5 on PATH —
+newest wins", and warns when the chosen binary has no sandbox helpers
+(read/write unavailable; `full` bypasses the sandbox and always works). A
+machine with only the desktop app (no `codex` on PATH) still gets Codex seats. Gemini CLI may ask to trust the folder the first
 time. Review with `git log multiai/…`; merge or delete the branch when done.
 
 Over REST/MCP: `POST /v1/multiai/chats` and `multiai_create_chat` accept

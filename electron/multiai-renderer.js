@@ -1229,7 +1229,7 @@ function multiaiRenderParticipants(chat) {
         const toolsTitle = !isCli ? 'File tools — CLI seats only (Claude Code, Codex, Gemini CLI)'
             : (!hasWs && tools !== 'none' ? `No workspace folder chosen (Workspace tab) — this seat runs without tools until one is set.\n\n${MULTIAI_TOOLS_HELP[tools]}`
                 : (codexNoSandbox ? `Codex's Windows sandbox helpers (codex-windows-sandbox-setup.exe + codex-command-runner.exe) are neither next to the codex on PATH nor bundled by the Codex desktop app, so read/write cannot be enforced — Codex will report it cannot read files. Install the Codex app, or use "full" (no sandbox).\n\n${MULTIAI_TOOLS_HELP[tools]}`
-                    : (a.provider === 'codex-cli' && cliInfo && cliInfo.sandbox === 'bundle' && (tools === 'read' || tools === 'write') ? `${MULTIAI_TOOLS_HELP[tools]}\n\nRuns through the Codex desktop app's bundled CLI (${cliInfo.sandboxBundle || 'bundle'}), which has the Windows sandbox helpers the codex on PATH lacks.` : MULTIAI_TOOLS_HELP[tools])));
+                    : MULTIAI_TOOLS_HELP[tools]));
         const toolsCell = isCli
             ? `<select onchange="multiaiAgentField(${i}, 'tools', this.value)" title="${multiaiEscapeAttr(toolsTitle)}" ${toolsWarn ? 'style="border-color: rgba(245,158,11,0.7);"' : ''}>${MULTIAI_TOOLS.map(t => opt(t, t === 'none' ? 'none' : (t === 'full' ? 'full ⚡' : t) + (toolsWarn ? ' ⚠' : ''), tools === t)).join('')}</select>`
             : `<select disabled title="${multiaiEscapeAttr(toolsTitle)}">${opt('', '—', true)}</select>`;
@@ -1267,8 +1267,10 @@ function multiaiRenderParticipants(chat) {
     const cliLine = ['claude-cli', 'codex-cli', 'gemini-cli'].map(pv => {
         const info = multiaiCliInfo(pv);
         if (!multiaiCliAvailable(pv)) return null;
-        const bits = [MULTIAI_CLI_PROVIDERS[pv] + (info && info.version ? ' ' + info.version : '')];
+        const bits = [MULTIAI_CLI_PROVIDERS[pv] + (info && info.version ? ' ' + info.version : '') + (info && info.source === 'bundle' ? ' (desktop app)' : '')];
         if (info && info.loggedIn === false) bits.push('not logged in');
+        if (info && info.alternatives && info.alternatives.length) bits.push(`also ${info.alternatives.map(x => `${x.version || '?'} on ${x.source === 'path' ? 'PATH' : x.source}`).join(', ')} — newest wins`);
+        if (pv === 'codex-cli' && info && info.sandbox === 'missing') bits.push('⚠ no sandbox helpers: read/write tools unavailable, full works');
         else if (info && info.models && info.models.length) bits.push(`${info.models.length} model${info.models.length === 1 ? '' : 's'}`);
         if (info && info.defaultModelListed === false && info.defaultModel) bits.push(`⚠ default ${info.defaultModel} not in its list`);
         return bits.join(' · ');
