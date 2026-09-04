@@ -44,8 +44,10 @@ const fakeSender = {
 const cliCalls = [];
 let cliReplyFn = async (provider, opts) => `${provider} says ${opts.model || 'default'}/${opts.effort || 'none'}`;
 const fakeCli = {
-    availability: () => ({ claude: true, codex: true }),
+    availability: () => ({ claude: true, codex: true, gemini: false }),
     resetAvailabilityCache() { },
+    discovered: () => null,
+    discover: async () => ({ claude: { available: true, version: '2.1.259', efforts: ['low', 'medium', 'high', 'xhigh', 'max'], models: [{ id: 'opus' }, { id: 'sonnet' }] }, codex: { available: true, version: '0.142.5', models: [{ id: 'gpt-5.5', efforts: ['low', 'medium', 'high', 'xhigh'] }], defaultModel: 'gpt-5.6-sol', defaultModelListed: false }, gemini: { available: false } }),
     run(provider, opts) {
         const call = { provider, opts, aborted: false };
         cliCalls.push(call);
@@ -577,13 +579,28 @@ test('agents: CLI agents run through the local CLI with model + effort; Stop kil
 
 test('routes: multiai-routes reports Settings API mode, selected models and CLI availability', async () => {
     byokState.enabled = true;
-    const r = await invoke('multiai-routes');
+    const r = await invoke('multiai-routes', { probe: true });
     assert.equal(r.apiMode, true);
     assert.equal(r.providers.chatgpt.hasKey, true);
     assert.equal(r.providers.chatgpt.model, 'gpt-5.5');
     assert.equal(r.providers.gemini.hasKey, false);
-    assert.deepEqual(r.cli, { claude: true, codex: true });
+    assert.deepEqual(r.cli, { claude: true, codex: true, gemini: false });
+    assert.equal(r.cliInfo.codex.version, '0.142.5', 'discovery (versions, models, efforts) rides along for the editor');
+    assert.deepEqual(r.cliInfo.codex.models.map(m => m.id), ['gpt-5.5']);
     byokState.enabled = false;
+});
+
+test('agents: a gemini-cli agent runs through the Gemini CLI kind with no effort', async () => {
+    cliCalls.length = 0;
+    cliReplyFn = async (p, o) => `${p} ${o.model}`;
+    const chat = newChat({ participants: [], agents: [{ name: 'Gem CLI', provider: 'gemini-cli', model: 'gemini-3.1-pro', effort: 'high' }], stopWhenAllAgree: false });
+    userMsg(chat.id, 'go');
+    await invoke('multiai-run-round', { chatId: chat.id, rounds: 1 });
+    assert.equal(cliCalls.length, 1);
+    assert.equal(cliCalls[0].provider, 'gemini-cli');
+    assert.equal(cliCalls[0].opts.model, 'gemini-3.1-pro');
+    const m = messagesOf(chat.id).filter(x => x.role === 'assistant')[0];
+    assert.deepEqual([m.who, m.code, m.route], ['Gem CLI', 'GC', 'cli']);
 });
 
 test('legacy participants still work and judge can be an agent id', async () => {

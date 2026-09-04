@@ -377,7 +377,17 @@ function registerMultiAiHandlers(deps) {
         return { success: true };
     });
     ipcMain.handle('multiai-enabled-providers', () => enabledProviders());
-    ipcMain.handle('multiai-routes', () => { cli.resetAvailabilityCache(); return routeInfo(); });
+    // Route info for the agent editor. `probe` re-runs CLI discovery
+    // (version, models, effort levels, login) — slow-ish, so the editor asks
+    // for it in the background after first paint, and on ↻; otherwise the
+    // cached discovery (or null) rides along.
+    ipcMain.handle('multiai-routes', async (event, opts) => {
+        const probe = !!(opts && opts.probe);
+        if (probe) cli.resetAvailabilityCache();
+        const info = routeInfo();
+        try { info.cliInfo = probe ? await cli.discover({ force: true }) : (cli.discovered() || null); } catch { info.cliInfo = null; }
+        return info;
+    });
     ipcMain.handle('multiai-running', () => Array.from(runSignals.keys()));
 
     ipcMain.handle('multiai-stop-run', (event, { chatId }) => {

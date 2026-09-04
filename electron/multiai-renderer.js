@@ -77,7 +77,7 @@ function multiaiDefaultChat() {
 // the ledger's R# filter key; the raw id itself is never shown as its own
 // column, per design.
 
-const MULTIAI_PROVIDER_CODE = { chatgpt: 'CG', claude: 'CL', gemini: 'GM', perplexity: 'PX', codex: 'CX', 'claude-code': 'CC', 'claude-cli': 'CC', 'codex-cli': 'CX', human: 'US', external: 'EX' };
+const MULTIAI_PROVIDER_CODE = { chatgpt: 'CG', claude: 'CL', gemini: 'GM', perplexity: 'PX', codex: 'CX', 'claude-code': 'CC', 'claude-cli': 'CC', 'codex-cli': 'CX', 'gemini-cli': 'GC', human: 'US', external: 'EX' };
 
 function multiaiGenMsgId() {
     return 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -155,6 +155,16 @@ async function multiaiInit() {
         (agentHub.multiaiRoutes ? agentHub.multiaiRoutes() : Promise.resolve(null)).catch(() => null),
     ]);
     multiaiState.routes = routes || { apiMode: false, providers: {}, cli: {} };
+    // CLI discovery (versions, models, effort levels, login) takes a second or
+    // two; fetch it after first paint and refresh the roster when it lands.
+    if (agentHub.multiaiRoutes && !(routes && routes.cliInfo)) {
+        agentHub.multiaiRoutes({ probe: true }).then(r => {
+            if (!r) return;
+            multiaiState.routes = r;
+            const chat = multiaiCurrentChat();
+            if (chat) { multiaiRenderParticipants(chat); multiaiRenderOptionsSummary(chat); }
+        }).catch(() => { /* older main */ });
+    }
     multiaiState.data = data && data.projects ? data : { projects: [{ id: 'default', name: 'General', chats: [] }] };
     if (!multiaiState.data.uiPrefs) multiaiState.data.uiPrefs = {};
     multiaiState.enabledProviders = providers || [];
@@ -930,13 +940,49 @@ function multiaiOnLedgerFilterChange() {
 // whole library switched on. Agents that arrive without a uid (legacy
 // participants, REST-created chats) are chat-local.
 
-const MULTIAI_CLI_PROVIDERS = { 'claude-cli': 'Claude Code', 'codex-cli': 'Codex' };
+const MULTIAI_CLI_PROVIDERS = { 'claude-cli': 'Claude Code', 'codex-cli': 'Codex', 'gemini-cli': 'Gemini CLI' };
+const MULTIAI_CLI_KIND = { 'claude-cli': 'claude', 'codex-cli': 'codex', 'gemini-cli': 'gemini' };
 const MULTIAI_EFFORTS = ['', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+// Fallbacks when discovery (multiaiState.routes.cliInfo) has nothing.
 const MULTIAI_MODEL_HINTS = {
-    'claude-cli': ['fable', 'opus', 'sonnet', 'haiku', 'opus[1m]', 'sonnet[1m]'],
-    'codex-cli': ['gpt-5.5', 'gpt-5.5-codex', 'gpt-5.4'],
+    'claude-cli': ['opus', 'sonnet', 'haiku'],
+    'codex-cli': ['gpt-5.5', 'gpt-5.4'],
+    'gemini-cli': [],
     gemini: ['3.5-flash', '3.1-pro', '3.1-flash-lite', 'auto'],
 };
+
+// What the local CLI behind a provider reports (from ↻ / startup discovery):
+// { available, version, models: [{id, label, efforts}], efforts, defaultModel,
+//   defaultEffort, loggedIn?, note }. Null when unknown.
+function multiaiCliInfo(provider) {
+    const kind = MULTIAI_CLI_KIND[provider];
+    const info = multiaiState.routes && multiaiState.routes.cliInfo;
+    return kind && info && info[kind] ? info[kind] : null;
+}
+
+function multiaiCliAvailable(provider) {
+    const kind = MULTIAI_CLI_KIND[provider];
+    const r = multiaiState.routes || { cli: {} };
+    return !!(kind && r.cli && r.cli[kind]);
+}
+
+// Model choices for a CLI agent: discovered list first, hard-coded fallback.
+function multiaiCliModels(provider) {
+    const info = multiaiCliInfo(provider);
+    if (info && info.models && info.models.length) return info.models;
+    return (MULTIAI_MODEL_HINTS[provider] || []).map(id => ({ id, label: id, efforts: null }));
+}
+
+// Effort levels a CLI agent may pick: the model's own list (Codex), the CLI's
+// list (Claude Code), or none (Gemini CLI). Null = the generic list.
+function multiaiCliEfforts(provider, model) {
+    const info = multiaiCliInfo(provider);
+    if (provider === 'gemini-cli') return [];
+    if (!info) return null;
+    const m = (info.models || []).find(x => x.id === model);
+    if (m && Array.isArray(m.efforts) && m.efforts.length) return m.efforts;
+    return Array.isArray(info.efforts) && info.efforts.length ? info.efforts : null;
+}
 const MULTIAI_AGENT_FIELDS = ['uid', 'name', 'provider', 'route', 'model', 'effort', 'persona', 'personaKey', 'enabled'];
 const MULTIAI_AGENT_SYNC_FIELDS = ['name', 'provider', 'route', 'model', 'effort', 'persona', 'personaKey'];
 
@@ -1073,8 +1119,13 @@ function multiaiSeedAgentsFromLibrary(chat) {
 function multiaiRouteLabel(agent) {
     const r = multiaiState.routes || { apiMode: false, providers: {}, cli: {} };
     if (MULTIAI_CLI_PROVIDERS[agent.provider]) {
-        const ok = agent.provider === 'claude-cli' ? r.cli.claude : r.cli.codex;
-        return ok ? `${MULTIAI_CLI_PROVIDERS[agent.provider]} (local, subscription)` : `⚠ ${MULTIAI_CLI_PROVIDERS[agent.provider]} CLI not found`;
+        const ok = multiaiCliAvailable(agent.provider);
+        const info = multiaiCliInfo(agent.provider);
+        if (!ok) return `⚠ ${MULTIAI_CLI_PROVIDERS[agent.provider]} CLI not found`;
+        if (info && info.loggedIn === false) return `⚠ ${MULTIAI_CLI_PROVIDERS[agent.provider]} is not logged in — ${info.note || 'run it once and sign in'}`;
+        const ver = info && info.version ? ` ${info.version}` : '';
+        const known = info && info.models && info.models.length && agent.model && !info.models.some(m => m.id === agent.model) ? ' · ⚠ model not in this CLI\'s list' : '';
+        return `${MULTIAI_CLI_PROVIDERS[agent.provider]}${ver} (local, subscription)${known}`;
     }
     const p = r.providers[agent.provider] || {};
     const apiOk = r.apiMode && p.hasKey;
@@ -1100,7 +1151,7 @@ function multiaiRenderParticipants(chat) {
     const agents = multiaiEnsureAgents(chat);
     const routes = multiaiState.routes || { apiMode: false, providers: {}, cli: {} };
     const personaNames = Object.keys(multiaiAllPersonas());
-    const providerOptions = ['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli'];
+    const providerOptions = ['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli', 'gemini-cli'];
     const takenCodes = new Set();
     const opt = (v, label, sel, dis) => `<option value="${multiaiEscapeAttr(v)}" ${sel ? 'selected' : ''} ${dis ? 'disabled' : ''}>${multiaiEscape(label)}</option>`;
     const rows = agents.map((a, i) => {
@@ -1109,23 +1160,30 @@ function multiaiRenderParticipants(chat) {
         const isCli = !!MULTIAI_CLI_PROVIDERS[a.provider];
         const p = routes.providers[a.provider] || {};
         const apiOk = routes.apiMode && p.hasKey;
-        const cliOk = !isCli || (a.provider === 'claude-cli' ? routes.cli.claude : routes.cli.codex);
-        const hints = isCli ? MULTIAI_MODEL_HINTS[a.provider] : (apiOk ? (p.models || []) : (a.provider === 'gemini' ? MULTIAI_MODEL_HINTS.gemini : []));
-        const effortOn = isCli || apiOk || a.route === 'api';
+        const cliInfo = isCli ? multiaiCliInfo(a.provider) : null;
+        const cliOk = !isCli || multiaiCliAvailable(a.provider);
+        const cliModels = isCli ? multiaiCliModels(a.provider) : [];
+        const hints = isCli ? cliModels.map(m => m.id) : (apiOk ? (p.models || []) : (a.provider === 'gemini' ? MULTIAI_MODEL_HINTS.gemini : []));
+        const cliEfforts = isCli ? multiaiCliEfforts(a.provider, a.model) : null;
+        const effortList = isCli ? (cliEfforts === null ? MULTIAI_EFFORTS.filter(Boolean) : cliEfforts) : MULTIAI_EFFORTS.filter(Boolean);
+        const effortOn = (isCli && effortList.length > 0) || (!isCli && (apiOk || a.route === 'api'));
         const modelOn = isCli || apiOk || a.route === 'api' || a.provider === 'gemini';
+        const modelUnknown = isCli && !!a.model && cliInfo && cliInfo.models && cliInfo.models.length && !cliInfo.models.some(m => m.id === a.model) && a.provider !== 'claude-cli';
+        const cliBad = isCli && (!cliOk || (cliInfo && cliInfo.loggedIn === false));
         const resolved = isCli ? 'cli' : (a.route === 'browser' ? 'tab' : (a.route === 'api' ? (apiOk ? 'api' : 'api ⚠ → tab') : (apiOk ? 'api' : 'tab')));
         const routeOpts = isCli
-            ? opt('cli', cliOk ? 'cli' : 'cli ⚠ not found', true)
+            ? opt('cli', !cliOk ? 'cli ⚠ not found' : (cliInfo && cliInfo.loggedIn === false ? 'cli ⚠ login' : `cli${cliInfo && cliInfo.version ? ' ' + cliInfo.version : ''}`), true)
             : opt('auto', `auto → ${apiOk ? 'api' : 'tab'}`, a.route === 'auto') + opt('browser', 'browser tab', a.route === 'browser') + opt('api', apiOk ? 'api' : 'api ⚠ (Settings)', a.route === 'api');
-        const modelPh = isCli ? 'alias' : (apiOk || a.route === 'api' ? (p.model ? `${p.model} (Settings)` : 'Settings default') : (a.provider === 'gemini' ? 'engine' : '—'));
+        const cliDefault = cliInfo && cliInfo.defaultModel ? `${cliInfo.defaultModel} (CLI default)` : 'CLI default';
+        const modelPh = isCli ? cliDefault : (apiOk || a.route === 'api' ? (p.model ? `${p.model} (Settings)` : 'Settings default') : (a.provider === 'gemini' ? 'engine' : '—'));
         return `
             <tr class="${on ? '' : 'off'}" title="${multiaiEscapeAttr(multiaiRouteLabel(a))}">
                 <td style="width: 24px;"><input type="checkbox" ${on ? 'checked' : ''} onchange="multiaiAgentToggle(${i}, this.checked)" title="${on ? 'Taking turns in this chat — untick to bench' : 'Benched — tick to include'}"></td>
                 <td class="nm" style="min-width: 150px;"><div style="display: flex; align-items: center; gap: 6px;"><span class="code" title="Label code">${multiaiEscape(code)}</span><input type="text" value="${multiaiEscapeAttr(a.name)}" oninput="multiaiAgentField(${i}, 'name', this.value)" title="Name — also the @mention id"></div></td>
                 <td style="width: 122px;"><select onchange="multiaiAgentField(${i}, 'provider', this.value)" title="Provider">${providerOptions.map(pv => opt(pv, MULTIAI_CLI_PROVIDERS[pv] || multiaiProviderLabel(pv), a.provider === pv)).join('')}</select></td>
                 <td style="width: 118px;"><select onchange="multiaiAgentField(${i}, 'route', this.value)" ${isCli ? 'disabled' : ''} title="Route — auto follows Settings (API mode on + key → API, else the browser tab); resolved: ${multiaiEscapeAttr(resolved)}">${routeOpts}</select></td>
-                <td style="width: 130px;"><input type="text" list="multiai-models-${i}" value="${multiaiEscapeAttr(a.model || '')}" placeholder="${multiaiEscapeAttr(modelPh)}" oninput="multiaiAgentField(${i}, 'model', this.value)" ${modelOn ? '' : 'disabled'} title="${isCli ? 'CLI model alias (opus, sonnet, gpt-5.5…)' : (a.provider === 'gemini' && !apiOk ? 'Gemini engine (3.1-pro, 3.5-flash…)' : 'API model id — blank uses the model selected in Settings')}"><datalist id="multiai-models-${i}">${hints.map(h => `<option value="${multiaiEscapeAttr(h)}">`).join('')}</datalist></td>
-                <td style="width: 96px;"><select onchange="multiaiAgentField(${i}, 'effort', this.value)" ${effortOn ? '' : 'disabled'} title="Reasoning effort — API and CLI routes only">${MULTIAI_EFFORTS.map(e => opt(e, e || 'default', (a.effort || '') === e)).join('')}</select></td>
+                <td style="width: 130px;"><input type="text" list="multiai-models-${i}" value="${multiaiEscapeAttr(a.model || '')}" placeholder="${multiaiEscapeAttr(modelPh)}" oninput="multiaiAgentField(${i}, 'model', this.value)" onchange="multiaiAgentField(${i}, 'model:commit', this.value)" ${modelOn ? '' : 'disabled'} ${modelUnknown ? 'style="border-color: rgba(245,158,11,0.7);"' : ''} title="${multiaiEscapeAttr(isCli ? (modelUnknown ? `Not in this CLI's model list — ${cliInfo.note || ''}` : (cliInfo && cliInfo.note ? cliInfo.note : 'CLI model (blank = its default)')) : (a.provider === 'gemini' && !apiOk ? 'Gemini engine (3.1-pro, 3.5-flash…)' : 'API model id — blank uses the model selected in Settings'))}"><datalist id="multiai-models-${i}">${cliModels.length ? cliModels.map(m => `<option value="${multiaiEscapeAttr(m.id)}">${multiaiEscape(m.label && m.label !== m.id ? m.label : '')}</option>`).join('') : hints.map(h => `<option value="${multiaiEscapeAttr(h)}">`).join('')}</datalist></td>
+                <td style="width: 96px;"><select onchange="multiaiAgentField(${i}, 'effort', this.value)" ${effortOn ? '' : 'disabled'} title="${multiaiEscapeAttr(isCli ? (effortList.length ? `Reasoning effort — levels this ${MULTIAI_CLI_PROVIDERS[a.provider]} model accepts` : `${MULTIAI_CLI_PROVIDERS[a.provider]} has no effort switch`) : 'Reasoning effort — API and CLI routes only')}">${opt('', 'default', !a.effort)}${effortList.map(e => opt(e, e, a.effort === e)).join('')}${a.effort && !effortList.includes(a.effort) ? opt(a.effort, a.effort + ' ⚠', true) : ''}</select></td>
                 <td style="width: 120px;"><select onchange="multiaiAgentPersona(${i}, this.value)" title="Persona">${opt('', 'none', !a.personaKey)}${personaNames.map(n => opt(n, n, a.personaKey === n)).join('')}</select></td>
                 <td class="act"><button onclick="multiaiAgentDuplicate(${i})" title="Duplicate (same provider, e.g. another effort)">⧉</button><button class="rm" onclick="multiaiAgentRemove(${i})" title="Remove from this chat (stays in the library)">✕</button></td>
             </tr>`;
@@ -1134,8 +1192,8 @@ function multiaiRenderParticipants(chat) {
     const lib = multiaiAgentLibrary();
     const inChat = new Set(agents.map(a => a.uid).filter(Boolean));
     const libFree = lib.filter(a => !inChat.has(a.uid));
-    const presets = ['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli'];
-    const cliOkFor = (pv) => pv === 'claude-cli' ? routes.cli.claude : (pv === 'codex-cli' ? routes.cli.codex : true);
+    const presets = ['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli', 'gemini-cli'];
+    const cliOkFor = (pv) => MULTIAI_CLI_PROVIDERS[pv] ? multiaiCliAvailable(pv) : true;
     const addMenu = `<select onchange="multiaiAgentAddFromMenu(this.value); this.value='';" title="Add an agent to this chat" style="min-width: 150px;">
             <option value="">+ add agent…</option>
             ${libFree.length ? `<optgroup label="Library">${libFree.map(a => opt('lib:' + a.uid, `${a.name} — ${multiaiAgentMeta(a)}`)).join('')}</optgroup>` : ''}
@@ -1148,6 +1206,15 @@ function multiaiRenderParticipants(chat) {
             <span style="font-size: 0.7rem; color: #6b7280;">— new chats start with all of these</span>
         </div>` : '';
     const mode = routes.apiMode ? 'API mode ON in Settings' : 'API mode OFF in Settings — auto agents use the browser tabs';
+    const cliLine = ['claude-cli', 'codex-cli', 'gemini-cli'].map(pv => {
+        const info = multiaiCliInfo(pv);
+        if (!multiaiCliAvailable(pv)) return null;
+        const bits = [MULTIAI_CLI_PROVIDERS[pv] + (info && info.version ? ' ' + info.version : '')];
+        if (info && info.loggedIn === false) bits.push('not logged in');
+        else if (info && info.models && info.models.length) bits.push(`${info.models.length} model${info.models.length === 1 ? '' : 's'}`);
+        if (info && info.defaultModelListed === false && info.defaultModel) bits.push(`⚠ default ${info.defaultModel} not in its list`);
+        return bits.join(' · ');
+    }).filter(Boolean).join('  ·  ');
     box.innerHTML = `
         <div style="overflow-x: auto;">
         <table class="multiai-roster">
@@ -1164,6 +1231,7 @@ function multiaiRenderParticipants(chat) {
             <button class="multiai-btn ghost" onclick="multiaiRefreshRoutes()" title="Re-read Settings (API mode, keys, models) and CLI availability">↻</button>
             <span style="flex: 1;"></span>
             <span>${enabledN}/${agents.length} enabled · ${multiaiEscape(mode)}</span>
+            ${cliLine ? `<span style="flex-basis: 100%; font-size: 0.68rem; color: #4b4b60;" title="What the local CLIs report (↻ re-probes them)">${multiaiEscape(cliLine)}</span>` : ''}
             ${libManage}
         </div>`;
 }
@@ -1213,8 +1281,8 @@ function multiaiAgentsSetAll(on) {
 
 function multiaiAgentPreset(provider) {
     const isCli = !!MULTIAI_CLI_PROVIDERS[provider];
-    const model = provider === 'codex-cli' ? 'gpt-5.5' : (provider === 'claude-cli' ? 'sonnet' : '');
-    const a = { id: '', name: '', route: isCli ? 'cli' : 'auto', provider, model, effort: isCli ? 'high' : '', enabled: true };
+    const model = multiaiCliPresetModel(provider);
+    const a = { id: '', name: '', route: isCli ? 'cli' : 'auto', provider, model, effort: multiaiCliPresetEffort(provider, model), enabled: true };
     a.name = multiaiDefaultAgentName(provider, model, a.effort);
     return a;
 }
@@ -1290,12 +1358,17 @@ function multiaiAgentField(i, field, value) {
     const a = (chat.agents || [])[i];
     if (!a) return;
     const autoNamed = !a.name || a.name === multiaiDefaultAgentName(a.provider, a.model, a.effort);
-    a[field] = value;
+    if (field === 'model:commit') a.model = value; else a[field] = value;
     if (field === 'provider') {
         const isCli = !!MULTIAI_CLI_PROVIDERS[value];
         a.route = isCli ? 'cli' : (a.route === 'cli' ? 'auto' : a.route);
-        if (isCli) { a.model = value === 'codex-cli' ? 'gpt-5.5' : 'sonnet'; a.effort = a.effort || 'high'; }
+        if (isCli) { a.model = multiaiCliPresetModel(value); a.effort = multiaiCliPresetEffort(value, a.model, a.effort); }
         else if (value !== 'gemini') a.model = '';
+    }
+    if (field === 'model:commit') {
+        // Codex models carry their own effort list: keep the effort legal.
+        const list = multiaiCliEfforts(a.provider, a.model);
+        if (Array.isArray(list) && a.effort && !list.includes(a.effort)) a.effort = list.includes('high') ? 'high' : (list[list.length - 1] || '');
     }
     if (field !== 'name' && autoNamed) { a.name = multiaiDefaultAgentName(a.provider, a.model, a.effort); a.id = ''; }
     if (field === 'name') a.id = '';   // re-slug from the new name (so @mentions follow the label)
@@ -1306,6 +1379,31 @@ function multiaiAgentField(i, field, value) {
     // have been re-derived, the route/effort cells may enable or disable).
     if (field !== 'name' && field !== 'model') multiaiRerenderAgents(chat);
     else { multiaiRenderOptionsSummary(chat); multiaiRenderStatusLine(chat); }
+}
+
+// Preset model / effort for a new CLI agent: the CLI's configured default if
+// it is on its list, else the first listed model; effort = the model's
+// default level (Codex) or "high".
+function multiaiCliPresetModel(provider) {
+    if (!MULTIAI_CLI_PROVIDERS[provider]) return '';
+    const info = multiaiCliInfo(provider);
+    const models = multiaiCliModels(provider);
+    if (provider === 'gemini-cli') return '';
+    if (info && info.defaultModel && (info.defaultModelListed !== false)) return info.defaultModel;
+    if (provider === 'claude-cli') return 'sonnet';
+    return models.length ? models[0].id : (provider === 'codex-cli' ? 'gpt-5.5' : '');
+}
+
+function multiaiCliPresetEffort(provider, model, current) {
+    if (!MULTIAI_CLI_PROVIDERS[provider]) return current || '';
+    const list = multiaiCliEfforts(provider, model);
+    if (Array.isArray(list) && !list.length) return '';
+    if (current && (!Array.isArray(list) || list.includes(current))) return current;
+    const info = multiaiCliInfo(provider);
+    const m = info && (info.models || []).find(x => x.id === model);
+    if (m && m.defaultEffort && (!Array.isArray(list) || list.includes(m.defaultEffort))) return m.defaultEffort;
+    if (Array.isArray(list)) return list.includes('high') ? 'high' : list[list.length - 1];
+    return 'high';
 }
 
 function multiaiAgentPersona(i, personaName) {
@@ -1320,13 +1418,13 @@ function multiaiAgentPersona(i, personaName) {
 }
 
 async function multiaiRefreshRoutes() {
-    try { multiaiState.routes = await agentHub.multiaiRoutes(); } catch { /* older main */ }
+    try { multiaiState.routes = await agentHub.multiaiRoutes({ probe: true }); } catch { /* older main */ }
     const chat = multiaiCurrentChat();
     if (chat) { multiaiRenderParticipants(chat); multiaiRenderOptionsSummary(chat); }
 }
 
 function multiaiProviderLabel(p) {
-    const names = { chatgpt: 'ChatGPT', claude: 'Claude', gemini: 'Gemini', perplexity: 'Perplexity', codex: 'Codex', 'claude-code': 'Claude Code', 'claude-cli': 'Claude Code', 'codex-cli': 'Codex', human: 'You', external: 'External' };
+    const names = { chatgpt: 'ChatGPT', claude: 'Claude', gemini: 'Gemini', perplexity: 'Perplexity', codex: 'Codex', 'claude-code': 'Claude Code', 'claude-cli': 'Claude Code', 'codex-cli': 'Codex', 'gemini-cli': 'Gemini CLI', human: 'You', external: 'External' };
     const base = String(p || '').split(':')[0];
     return names[base] || base;
 }

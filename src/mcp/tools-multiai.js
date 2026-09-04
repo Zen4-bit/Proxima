@@ -78,7 +78,7 @@ export function register(server, deps) {
 
     server.registerTool('multiai_create_chat', {
         title: 'Multi-AI Chat: create a chat',
-        description: 'Create a new Multi-AI chat. Optionally give it an opening message (topic), agents, discuss/debate mode and a context mode (bounded | delta | full). An agent is a name + provider + route + model + effort: several agents may share one provider ("GPT high" and "GPT low"). Routes: auto (follows the app\'s Settings — API mode on with a key → API, else the browser tab), browser, api, cli (claude-cli = Claude Code, codex-cli = Codex, run locally on the user\'s subscription). `participants` is the legacy shorthand: one browser-tab agent per provider.',
+        description: 'Create a new Multi-AI chat. Optionally give it an opening message (topic), agents, discuss/debate mode and a context mode (bounded | delta | full). An agent is a name + provider + route + model + effort: several agents may share one provider ("GPT high" and "GPT low"). Routes: auto (follows the app\'s Settings — API mode on with a key → API, else the browser tab), browser, api, cli (claude-cli = Claude Code, codex-cli = Codex, gemini-cli = Gemini CLI — run locally on the user\'s subscriptions). `participants` is the legacy shorthand: one browser-tab agent per provider.',
         inputSchema: {
             title: z.string().optional().describe('Chat title (defaults to the first words of the topic)'),
             topic: z.string().optional().describe('Opening message / brief, recorded as the first human message'),
@@ -86,9 +86,9 @@ export function register(server, deps) {
             participants: z.array(z.string()).optional().describe('Legacy shorthand: one agent per provider, e.g. ["chatgpt","claude"] (ignored when `agents` is given)'),
             agents: z.array(z.object({
                 name: z.string().optional().describe('Display name, e.g. "Opus · max" (default: provider · model · effort)'),
-                provider: z.enum(['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli']),
+                provider: z.enum(['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli', 'gemini-cli']),
                 route: z.enum(['auto', 'browser', 'api', 'cli']).optional().describe('auto (default) follows Settings; cli is implied for claude-cli/codex-cli'),
-                model: z.string().optional().describe('API model id, CLI alias (opus/sonnet/gpt-5.5) or Gemini engine (3.1-pro); blank = Settings default'),
+                model: z.string().optional().describe('API model id, CLI model (opus/sonnet aliases, a Codex model slug such as gpt-5.5, a Gemini CLI model id) or Gemini browser engine (3.1-pro); blank = the Settings / CLI default'),
                 effort: z.enum(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']).optional().describe('Reasoning effort — API and CLI routes only'),
                 persona: z.string().optional().describe('Persona / system instructions for this agent'),
                 enabled: z.boolean().optional().describe('false = on the roster but benched (takes no turns until the user ticks it)'),

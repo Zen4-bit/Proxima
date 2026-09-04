@@ -3,11 +3,22 @@
 // CLI instead of a browser tab or an API key:
 //   - claude-cli → Claude Code:  claude -p --model <alias> --effort <level> …
 //   - codex-cli  → Codex:        codex exec -m <model> -c model_reasoning_effort=<level> …
+//   - gemini-cli → Gemini CLI:   gemini -p … -m <model> -o json --approval-mode plan
 // Each call is one-shot, tool-less (as far as the CLI allows), runs in an
 // empty scratch folder so no CLAUDE.md / AGENTS.md is picked up, and reads the
 // prompt from stdin so long transcripts are fine on Windows. Concurrency per
 // CLI is capped (protects the 5-hour usage windows). Calls are abortable:
 // abort() kills the process tree.
+//
+// discover() pulls what each CLI actually offers on this machine — version,
+// the models ("variants") and effort levels it accepts, its configured
+// defaults, and whether it is logged in — so the agent editor can offer real
+// choices instead of a hard-coded list:
+//   - Claude Code: `--effort` levels and model aliases parsed from `claude --help`;
+//   - Codex: the account's model list from ~/.codex/models_cache.json (slug,
+//     display name, supported reasoning levels, default level) and the
+//     defaults / [profiles.*] from ~/.codex/config.toml;
+//   - Gemini CLI: version and the auth method from ~/.gemini/settings.json.
 
 const { spawn, execFileSync } = require('child_process');
 const fs = require('fs');
@@ -16,12 +27,18 @@ const os = require('os');
 
 const IS_WIN = process.platform === 'win32';
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
-const MAX_PARALLEL = { claude: 2, codex: 2 };
+const MAX_PARALLEL = { claude: 2, codex: 2, gemini: 2 };
+
+const KINDS = { 'claude-cli': 'claude', 'codex-cli': 'codex', 'gemini-cli': 'gemini' };
+const BINS = { claude: 'claude', codex: 'codex', gemini: 'gemini' };
+const LABELS = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI' };
 
 const EFFORT_MAP = {
     claude: { minimal: 'low', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' },
     codex: { minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'xhigh' },
+    gemini: {},   // the CLI has no effort switch
 };
+const CLAUDE_KNOWN_ALIASES = ['opus', 'sonnet', 'haiku'];
 
 const DISCUSSION_SYSTEM_PROMPT =
     'You are one participant in a multi-agent discussion run through a local chat app. You have no tools and no ' +
@@ -47,11 +64,200 @@ function availability() {
     return {
         claude: !!which('claude'),
         codex: !!which('codex'),
+        gemini: !!which('gemini'),
     };
 }
 
 function resetAvailabilityCache() {
     for (const k of Object.keys(_avail)) delete _avail[k];
+    _discovered = null;
+}
+
+// ---- discovery ------------------------------------------------------------
+
+function runQuick(bin, args, timeoutMs = 8000) {
+    return new Promise((resolve) => {
+        let child;
+        try { child = spawnCli(bin, args, os.tmpdir()); } catch (e) { return resolve({ code: -1, stdout: '', stderr: String(e.message || e) }); }
+        let stdout = '', stderr = '';
+        const timer = setTimeout(() => { killTree(child); resolve({ code: -1, stdout, stderr: stderr + '\n(timed out)' }); }, timeoutMs);
+        child.stdout.on('data', d => { stdout += d.toString('utf8'); });
+        child.stderr.on('data', d => { stderr += d.toString('utf8'); });
+        child.on('error', (e) => { clearTimeout(timer); resolve({ code: -1, stdout, stderr: String(e.message || e) }); });
+        child.on('close', (code) => { clearTimeout(timer); resolve({ code, stdout, stderr }); });
+        try { child.stdin.end(); } catch { /* ignore */ }
+    });
+}
+
+function readJson(p) {
+    try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; }
+}
+
+function readText(p) {
+    try { return fs.readFileSync(p, 'utf8'); } catch { return null; }
+}
+
+// `claude --help` → { efforts: [...], aliases: [...] }. The help text wraps,
+// so the description of a flag is everything up to the next flag.
+function parseClaudeHelp(text) {
+    const t = String(text || '').replace(/\r/g, '');
+    const section = (flag) => {
+        const m = new RegExp(`\\n\\s+${flag}\\s+<[^>]+>([\\s\\S]*?)(?=\\n\\s+-{1,2}[A-Za-z]|$)`).exec(t);
+        return m ? m[1].replace(/\s+/g, ' ') : '';
+    };
+    const effortSec = section('--effort');
+    const em = /\(([a-z][a-z0-9, ]*)\)/i.exec(effortSec);
+    const efforts = em ? em[1].split(',').map(x => x.trim()).filter(Boolean) : [];
+    const modelSec = section('--model');
+    const aliases = [];
+    const re = /'([a-z][a-z0-9-]*)'/g;
+    let m;
+    while ((m = re.exec(modelSec)) !== null) {
+        const a = m[1];
+        if (!/^claude-/.test(a) && !aliases.includes(a)) aliases.push(a);
+    }
+    for (const a of CLAUDE_KNOWN_ALIASES) if (!aliases.includes(a)) aliases.push(a);
+    return { efforts, aliases };
+}
+
+// ~/.codex/models_cache.json → listed models with their reasoning levels.
+function parseCodexModelsCache(json) {
+    const models = (json && Array.isArray(json.models)) ? json.models : [];
+    return models
+        .filter(m => m && m.slug && (m.visibility === undefined || m.visibility === 'list'))
+        .sort((a, b) => (a.priority || 0) - (b.priority || 0))
+        .map(m => ({
+            id: m.slug,
+            label: m.display_name || m.slug,
+            description: m.description || '',
+            efforts: Array.isArray(m.supported_reasoning_levels) ? m.supported_reasoning_levels.map(l => (typeof l === 'string' ? l : l.effort)).filter(Boolean) : [],
+            defaultEffort: m.default_reasoning_level || '',
+        }));
+}
+
+// ~/.codex/config.toml → top-level model / model_reasoning_effort and any
+// [profiles.<name>] with their own model / effort ("variants" by another name).
+function parseCodexConfig(toml) {
+    const out = { model: '', effort: '', profiles: [] };
+    const lines = String(toml || '').replace(/\r/g, '').split('\n');
+    let section = '';
+    let profile = null;
+    const kv = (line) => {
+        const m = /^\s*([A-Za-z0-9_.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^#\s]+))/.exec(line);
+        return m ? { key: m[1], value: m[2] !== undefined ? m[2] : (m[3] !== undefined ? m[3] : m[4]) } : null;
+    };
+    for (const raw of lines) {
+        const line = raw.trim();
+        if (!line || line.startsWith('#')) continue;
+        const sec = /^\[([^\]]+)\]$/.exec(line);
+        if (sec) {
+            section = sec[1].trim();
+            const pm = /^profiles\.(.+)$/.exec(section);
+            profile = pm ? { name: pm[1].replace(/^"|"$/g, ''), model: '', effort: '' } : null;
+            if (profile) out.profiles.push(profile);
+            continue;
+        }
+        const pair = kv(line);
+        if (!pair) continue;
+        if (!section) {
+            if (pair.key === 'model') out.model = pair.value;
+            if (pair.key === 'model_reasoning_effort') out.effort = pair.value;
+        } else if (profile) {
+            if (pair.key === 'model') profile.model = pair.value;
+            if (pair.key === 'model_reasoning_effort') profile.effort = pair.value;
+        }
+    }
+    return out;
+}
+
+// ~/.gemini/settings.json → is an auth method configured?
+function geminiAuthFrom(settings, env) {
+    const e = env || process.env;
+    if (e.GEMINI_API_KEY || e.GOOGLE_GENAI_USE_VERTEXAI || e.GOOGLE_GENAI_USE_GCA) return 'env';
+    const s = settings || {};
+    const t = s.selectedAuthType || (s.security && s.security.auth && s.security.auth.selectedType) || (s.auth && s.auth.selectedType) || '';
+    return t ? String(t) : '';
+}
+
+let _discovered = null;
+let _discovering = null;
+
+// What each CLI offers on this machine. Cached; force to re-probe.
+async function discover({ force = false } = {}) {
+    if (_discovered && !force) return _discovered;
+    if (_discovering) return _discovering;
+    _discovering = (async () => {
+        const home = os.homedir();
+        const out = { claude: null, codex: null, gemini: null, at: Date.now() };
+        const avail = availability();
+        if (avail.claude) {
+            const [ver, help] = await Promise.all([runQuick('claude', ['--version']), runQuick('claude', ['--help'])]);
+            const parsed = parseClaudeHelp(help.stdout);
+            const settings = readJson(path.join(home, '.claude', 'settings.json')) || {};
+            out.claude = {
+                available: true, label: LABELS.claude,
+                version: (ver.stdout.trim().split(/\s+/)[0] || '').trim(),
+                efforts: parsed.efforts.length ? parsed.efforts : ['low', 'medium', 'high', 'xhigh', 'max'],
+                models: parsed.aliases.map(a => ({ id: a, label: a, efforts: null })),
+                defaultModel: settings.model || '',
+                defaultEffort: '',
+                note: 'Aliases or full model names (claude-…); add [1m] for the 1M-context variant where offered.',
+            };
+        } else out.claude = { available: false, label: LABELS.claude };
+        if (avail.codex) {
+            const ver = await runQuick('codex', ['--version']);
+            const cache = parseCodexModelsCache(readJson(path.join(home, '.codex', 'models_cache.json')));
+            const cfg = parseCodexConfig(readText(path.join(home, '.codex', 'config.toml')));
+            const efforts = [];
+            cache.forEach(m => m.efforts.forEach(e => { if (!efforts.includes(e)) efforts.push(e); }));
+            out.codex = {
+                available: true, label: LABELS.codex,
+                version: (ver.stdout.trim().replace(/^codex-cli\s*/i, '').split(/\s+/)[0] || '').trim(),
+                efforts: efforts.length ? efforts : ['low', 'medium', 'high', 'xhigh'],
+                models: cache,
+                defaultModel: cfg.model, defaultEffort: cfg.effort,
+                profiles: cfg.profiles,
+                defaultModelListed: !cfg.model || cache.some(m => m.id === cfg.model),
+                note: cache.length ? 'Models from your account\'s list (~/.codex/models_cache.json).' : 'No model list cached yet — run codex once.',
+            };
+        } else out.codex = { available: false, label: LABELS.codex };
+        if (avail.gemini) {
+            const ver = await runQuick('gemini', ['--version']);
+            const settings = readJson(path.join(home, '.gemini', 'settings.json')) || {};
+            const auth = geminiAuthFrom(settings);
+            out.gemini = {
+                available: true, label: LABELS.gemini,
+                version: (ver.stdout.trim().split(/\s+/).pop() || '').trim(),
+                efforts: [],
+                models: [],
+                defaultModel: (settings.model && (settings.model.name || settings.model)) || '',
+                defaultEffort: '',
+                auth,
+                loggedIn: !!auth,
+                note: auth ? 'Model ids as the CLI accepts them (blank = its default). No effort switch.' : 'Not configured: run `gemini` once and choose a login method (Google account or API key).',
+            };
+        } else out.gemini = { available: false, label: LABELS.gemini };
+        _discovered = out;
+        _discovering = null;
+        return out;
+    })();
+    return _discovering;
+}
+
+function discovered() { return _discovered; }
+
+// Codex: the effort the model actually supports (falls back to the highest
+// supported level when the requested one is above it).
+function codexEffortFor(model, effort) {
+    const eff = effort && EFFORT_MAP.codex[effort];
+    if (!eff) return null;
+    const info = _discovered && _discovered.codex && _discovered.codex.models ? _discovered.codex.models.find(m => m.id === model) : null;
+    if (!info || !info.efforts.length) return eff;
+    if (info.efforts.includes(eff)) return eff;
+    const order = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+    const want = order.indexOf(eff);
+    const supported = info.efforts.slice().sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    return supported.filter(e => order.indexOf(e) <= want).pop() || supported[0];
 }
 
 // ---- concurrency ----------------------------------------------------------
@@ -187,7 +393,7 @@ function runCodex({ model, effort, prompt, systemPrompt, cwd, timeoutMs }) {
     // run anything; it is prepended because exec has no system-prompt flag.
     const args = ['exec', '--dangerously-bypass-approvals-and-sandbox', '--skip-git-repo-check', '-C', dir, '--output-last-message', outFile];
     if (model) args.push('-m', String(model));
-    const eff = effort && EFFORT_MAP.codex[effort];
+    const eff = codexEffortFor(model, effort);
     if (eff) args.push('-c', `model_reasoning_effort=${eff}`);
     const full = `${systemPrompt || DISCUSSION_SYSTEM_PROMPT}\n\n${prompt}`;
     const run = runProcess('codex', 'codex', args, { cwd: dir, prompt: full, timeoutMs });
@@ -205,11 +411,45 @@ function runCodex({ model, effort, prompt, systemPrompt, cwd, timeoutMs }) {
     return { promise, abort: run.abort };
 }
 
+// ---- Gemini CLI ----------------------------------------------------------------
+
+function runGemini({ model, prompt, systemPrompt, cwd, timeoutMs }) {
+    const dir = scratchDir(cwd);
+    // Headless mode: `-p` is appended to whatever arrives on stdin, so the
+    // system prompt + transcript go on stdin and -p carries the cue. Plan
+    // mode keeps the CLI read-only; there is no effort switch.
+    const args = ['-p', 'Follow the instructions above and reply now.', '-o', 'json', '--approval-mode', 'plan'];
+    if (model) args.push('-m', String(model));
+    const full = `${systemPrompt || DISCUSSION_SYSTEM_PROMPT}\n\n${prompt}`;
+    const run = runProcess('gemini', 'gemini', args, { cwd: dir, prompt: full, timeoutMs });
+    const promise = run.promise.then(({ code, stdout, stderr }) => {
+        const text = stdout.trim();
+        let parsed = null;
+        const i = text.indexOf('{');
+        if (i !== -1) { try { parsed = JSON.parse(text.slice(i)); } catch { /* not JSON */ } }
+        if (parsed && typeof parsed === 'object') {
+            if (parsed.error) throw new Error(`Gemini CLI: ${parsed.error.message || parsed.error.type || 'error'}`);
+            const response = typeof parsed.response === 'string' ? parsed.response : '';
+            if (!response.trim()) throw new Error('Gemini CLI returned no text');
+            return { text: response, model: (parsed.stats && parsed.stats.models && Object.keys(parsed.stats.models)[0]) || model || null };
+        }
+        if (code !== 0) throw new Error(`Gemini CLI exited ${code}: ${tailOf(stderr || stdout)}`);
+        if (!text) throw new Error('Gemini CLI returned no output');
+        return { text, model: model || null };
+    });
+    return { promise, abort: run.abort };
+}
+
 function run(provider, opts) {
     const base = String(provider || '').split(':')[0];
     if (base === 'claude-cli') return runClaude(opts);
     if (base === 'codex-cli') return runCodex(opts);
+    if (base === 'gemini-cli') return runGemini(opts);
     return { promise: Promise.reject(new Error(`Unknown CLI provider: ${provider}`)), abort() { } };
 }
 
-module.exports = { run, runClaude, runCodex, availability, resetAvailabilityCache, which, EFFORT_MAP, DISCUSSION_SYSTEM_PROMPT, MAX_PARALLEL };
+module.exports = {
+    run, runClaude, runCodex, runGemini, availability, resetAvailabilityCache, which, discover, discovered,
+    parseClaudeHelp, parseCodexModelsCache, parseCodexConfig, geminiAuthFrom, codexEffortFor,
+    EFFORT_MAP, DISCUSSION_SYSTEM_PROMPT, MAX_PARALLEL, KINDS, BINS, LABELS,
+};

@@ -27,13 +27,25 @@ HANDOFFs, the judge picker and the provider-side thread key on.
 | `auto` (default) | Follows **Settings → API mode**: on, with a key for that provider → the provider's API; otherwise the browser tab | API: the agent's model when Settings lists it (a browser-side name like the Gemini engine `3.1-pro` is ignored), else the model selected in Settings; effort honoured. Browser: model ignored except Gemini's engine picker; effort ignored |
 | `browser` | Always the logged-in browser tab | as above |
 | `api` | The provider's API; falls back to the browser tab (with a ⚠ in the editor) if API mode is off or no key | model + effort |
-| `cli` (implied for `claude-cli`, `codex-cli`) | `claude -p` / `codex exec` on this machine, one-shot, tool-less, in an empty scratch folder, ≤2 in parallel per CLI | Claude Code aliases `opus` `sonnet` `haiku` `fable` (+ `[1m]`), `--effort low…max`; Codex `gpt-5.5` etc., `model_reasoning_effort` (`max` → `xhigh`) |
+| `cli` (implied for `claude-cli`, `codex-cli`, `gemini-cli`) | `claude -p` / `codex exec` / `gemini -p` on this machine, one-shot, tool-less, in an empty scratch folder, ≤2 in parallel per CLI | Claude Code aliases `opus` `sonnet` `haiku` `fable` (+ `[1m]`) or full names, `--effort low…max`; Codex model slugs from your account list, `model_reasoning_effort` clamped to what that model supports; Gemini CLI model ids, no effort switch |
 
 Settings is the single source of truth for API mode, keys and default models —
 the tab never stores keys and never overrides the mode; it only reads it
 (`↻` in the Agents block re-reads Settings and re-probes the CLIs). Effort maps to
 `reasoning_effort` for OpenAI and to an extended-thinking budget for Anthropic
 (1k → 32k tokens for `minimal` → `max`).
+
+**What the CLIs offer is discovered, not hard-coded.** `cli.discover()`
+(`electron/providers/cli.cjs`) probes each installed CLI — on startup in the
+background and on ↻ — and the agent table uses the result: the model column's
+suggestions, the effort column's levels, the placeholder default, and the
+warnings.
+
+| CLI | Discovered from | What you get |
+|---|---|---|
+| Claude Code | `claude --version`, `claude --help` (the `--effort` levels and `--model` aliases), `~/.claude/settings.json` | version, effort levels, aliases (`fable`, `opus`, `sonnet`, `haiku`), configured default model |
+| Codex | `codex --version`, `~/.codex/models_cache.json` (your account's model list: slug, display name, supported reasoning levels, default level), `~/.codex/config.toml` (`model`, `model_reasoning_effort`, `[profiles.*]`) | version, per-model effort lists, defaults, profiles; a configured default that is not on the list is flagged; a typed model that is not on the list gets an amber border; the effort is clamped to what the model supports at run time |
+| Gemini CLI | `gemini --version`, `~/.gemini/settings.json` (auth method) | version, whether a login method is configured (the row and route show ⚠ until it is) |
 
 Route-specific behaviour:
 
@@ -46,8 +58,11 @@ Route-specific behaviour:
 - **Codex** has no "no tools" switch and its sandbox helper is missing on some
   Windows installs, so it runs with approvals/sandbox bypassed inside an empty
   scratch folder and a system prompt that forbids running anything. The Codex
-  account must support the model you pick (`gpt-5` is rejected on ChatGPT
-  subscriptions; `gpt-5.5` works).
+  account must support the model you pick — that is exactly what the
+  discovered model list tells you.
+- **Gemini CLI** runs headless (`-p … -o json --approval-mode plan`); the
+  system prompt and transcript go in on stdin. It needs a login method set once
+  in the CLI (`gemini`, then pick Google login or an API key).
 - **Labels.** Known providers keep their codes; other agents get initials of
   their name (`Opus · high` → `OH`).
 

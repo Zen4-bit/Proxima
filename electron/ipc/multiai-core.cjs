@@ -44,7 +44,7 @@ const CONTEXT_MODES = ['bounded', 'full', 'delta'];
 //   model:    api/cli model id (or the Gemini engine string for the browser route)
 //   effort:   '' | minimal | low | medium | high | xhigh | max (api/cli only)
 const ROUTES = ['auto', 'browser', 'api', 'cli'];
-const CLI_PROVIDERS = { 'claude-cli': { label: 'Claude Code', bin: 'claude' }, 'codex-cli': { label: 'Codex', bin: 'codex' } };
+const CLI_PROVIDERS = { 'claude-cli': { label: 'Claude Code', bin: 'claude' }, 'codex-cli': { label: 'Codex', bin: 'codex' }, 'gemini-cli': { label: 'Gemini CLI', bin: 'gemini' } };
 const EFFORTS = ['', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
 function slugify(s) {
@@ -138,12 +138,12 @@ const KNOWN_PROVIDERS = ['chatgpt', 'claude', 'gemini', 'perplexity'];
 
 const PROVIDER_LABELS = {
     chatgpt: 'ChatGPT', claude: 'Claude', gemini: 'Gemini', perplexity: 'Perplexity',
-    codex: 'Codex', 'claude-code': 'Claude Code', 'claude-cli': 'Claude Code', 'codex-cli': 'Codex', human: 'You',
+    codex: 'Codex', 'claude-code': 'Claude Code', 'claude-cli': 'Claude Code', 'codex-cli': 'Codex', 'gemini-cli': 'Gemini CLI', human: 'You',
 };
 
 const PROVIDER_CODES = {
     chatgpt: 'CG', claude: 'CL', gemini: 'GM', perplexity: 'PX',
-    codex: 'CX', 'claude-code': 'CC', 'claude-cli': 'CC', 'codex-cli': 'CX', human: 'US', external: 'EX',
+    codex: 'CX', 'claude-code': 'CC', 'claude-cli': 'CC', 'codex-cli': 'CX', 'gemini-cli': 'GC', human: 'US', external: 'EX',
 };
 
 function providerLabel(p) {
