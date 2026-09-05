@@ -198,3 +198,26 @@ test('codexSandboxSupport: native off Windows; on Windows the desktop app bundle
         assert.equal(cli.childEnv('codex').PATH, process.env.PATH);
     }
 });
+
+// A Windows CLI shim (.cmd/.bat) has to go through cmd.exe, which interprets
+// & | < > ( ) ^ — so every token is quoted whole. cmd has no in-quote escape
+// for a literal double quote, so that is refused rather than silently mangled.
+// Real .exe binaries skip cmd entirely and get a plain argv array.
+// Verified out-of-band against a shim that echoes its argv: before this, each
+// payload below executed `whoami`; after it, every one arrives as a literal.
+test('cmdCommandLine: shell metacharacters stay inside the argument', () => {
+    for (const bad of ['opus&whoami', 'opus|whoami', 'opus^&whoami', 'opus>out.txt', 'a b', 'opus $(whoami)']) {
+        assert.equal(cli.cmdCommandLine('C:/x/claude.cmd', ['--model', bad]),
+            `"C:/x/claude.cmd" "--model" "${bad}"`, `${bad} must be quoted whole`);
+    }
+    // % is left alone: ^% does not escape inside quotes and would corrupt the value.
+    assert.equal(cli.cmdCommandLine('e.cmd', ['50%done']), '"e.cmd" "50%done"');
+    assert.throws(() => cli.cmdCommandLine('e.cmd', ['a"b']), /double quote/);
+});
+
+test('winQuote: a trailing backslash run is doubled so it cannot escape the closing quote', () => {
+    assert.equal(cli.winQuote('plain'), '"plain"');
+    assert.equal(cli.winQuote('a b'), '"a b"');
+    assert.equal(cli.winQuote('C:/path/'), '"C:/path/"');
+    assert.equal(cli.winQuote('sonnet[1m]'), '"sonnet[1m]"');
+});

@@ -455,15 +455,42 @@ function killTree(child) {
     } catch { /* ignore */ }
 }
 
-// Windows needs a shell to run the npm .cmd/.ps1 shims (claude); quote args.
-// The resolved path is used when the binary is not on PATH.
+// Quote one token for CommandLineToArgvW: wrap in quotes, double the run of
+// backslashes that precedes a quote (or ends the token), escape inner quotes.
+function winQuote(arg) {
+    const s = String(arg);
+    return `"${s.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, '$1$1')}"`;
+}
+
+// Windows only: a command line for `cmd.exe /d /s /c`. Every token is quoted,
+// which is what stops cmd interpreting & | < > ( ) ^ inside it.
+//
+// A literal double quote is refused rather than escaped: cmd has no in-quote
+// escape for it (\" is a C convention cmd does not honour), so any encoding
+// silently mangles the argument. Windows filenames cannot contain one and the
+// validated model/effort fields cannot either, so this only ever fires on input
+// that was already malformed. `%` is deliberately left alone — ^% does not
+// escape inside quotes and would corrupt the value; %VAR% expansion can
+// substitute an environment value but cannot execute anything.
+function cmdCommandLine(exe, args) {
+    for (const a of [exe, ...args]) {
+        if (String(a).includes('"')) throw new Error('cannot pass a double quote to a Windows CLI shim');
+    }
+    return [exe, ...args].map(winQuote).join(' ');
+}
+
+// The resolved path from which() is a real path, so an .exe is spawned directly
+// with an argv array and no shell — nothing on that path can be reinterpreted
+// as a command. Only npm's .cmd/.bat shims (claude) need cmd.exe, and those get
+// an explicitly quoted command line rather than a concatenated string.
 function spawnCli(bin, args, cwd, exeOverride) {
     const exe = exeOverride || (bin === 'codex' ? codexExe() : null) || which(bin) || bin;
-    if (IS_WIN) {
-        const q = (a) => (/[\s"]/.test(a) ? `"${String(a).replace(/"/g, '\\"')}"` : a);
-        return spawn(`${q(exe)} ${args.map(q).join(' ')}`, { cwd, shell: true, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: childEnv(bin) });
+    const opts = { cwd, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: childEnv(bin) };
+    if (IS_WIN && /\.(cmd|bat)$/i.test(exe)) {
+        return spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${cmdCommandLine(exe, args)}"`],
+            { ...opts, windowsVerbatimArguments: true });
     }
-    return spawn(exe, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], env: childEnv(bin) });
+    return spawn(exe, args, opts);
 }
 
 // Runs a process with the prompt on stdin. Returns { promise, abort }.
@@ -664,6 +691,6 @@ module.exports = {
     run, runClaude, runCodex, runGemini, availability, resetAvailabilityCache, which, discover, discovered, childEnv, knownLocations,
     parseClaudeHelp, parseCodexModelsCache, parseCodexConfig, geminiAuthFrom, codexEffortFor,
     claudeArgs, codexArgs, geminiArgs, workspaceSystemPrompt, codexSandboxHelperDir, codexSandboxBundle, codexSandboxSupport, hasCodexHelpers,
-    codexCandidates, resolveCodex, codexExe, parseVersion, cmpVersion,
+    codexCandidates, resolveCodex, codexExe, parseVersion, cmpVersion, spawnCli, winQuote, cmdCommandLine,
     EFFORT_MAP, DISCUSSION_SYSTEM_PROMPT, MAX_PARALLEL, KINDS, BINS, LABELS, TOOLS_LEVELS, CLAUDE_TOOLS,
 };
