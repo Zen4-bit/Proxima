@@ -573,7 +573,23 @@ function runProcess(kind, bin, args, { cwd, prompt, timeoutMs, exe }) {
     })();
     return {
         promise,
-        abort() { aborted = true; if (child) killTree(child); },
+        // Returns a promise that settles once the child is actually gone (or
+        // after a short deadline). Callers that commit the workspace must await
+        // it: killTree only *asks* Windows to kill the tree, so a fire-and-forget
+        // abort left `git add -A` racing a process that was still writing —
+        // committing half-written files, and releasing the writer lock while a
+        // zombie kept editing, which defeats the serialisation the workspace
+        // design rests on.
+        abort() {
+            aborted = true;
+            if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+            const gone = new Promise(resolve => {
+                child.once('close', resolve);
+                setTimeout(resolve, 5000).unref?.();
+            });
+            killTree(child);
+            return gone;
+        },
     };
 }
 

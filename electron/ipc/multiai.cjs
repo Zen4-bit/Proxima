@@ -387,7 +387,10 @@ function registerMultiAiHandlers(deps) {
         try {
             const p = handle.promise.then(r => ({ response: r.text, model: r.model || agent.model || null, route: 'cli', costUsd: r.costUsd }));
             const raced = await raceProvider(chat.id, p);
-            if (raced.cancelled) handle.abort();
+            // Wait for the process to actually die before returning: the caller
+            // may commit the workspace on the very next tick, and a child that
+            // is still writing would land half-written files in that commit.
+            if (raced.cancelled) await handle.abort();
             return raced;
         } finally {
             untrack();
@@ -553,6 +556,17 @@ function registerMultiAiHandlers(deps) {
         const ws = workspaceFor(chat, agent);
         const writer = !!(ws && (ws.tools === 'write' || ws.tools === 'full'));
         const releaseWriter = writer ? await acquireWriter(chatId) : null;
+        // Waiting for the lock can take a whole CLI turn, and Stop may have
+        // landed meanwhile. Without this, a parallel round still spawns
+        // writers 2..n as the lock drains — each aborted a moment later, but
+        // each having already started and already reached commitAll.
+        const turnSig = runSignals.get(chatId);
+        if (turnSig && turnSig.cancelled) {
+            if (releaseWriter) releaseWriter();
+            record(chatId, Object.assign({ who: `${agent.name} (stopped)`, text: 'Stopped before this turn started.', role: 'error' },
+                { provider: agent.provider, agentId: agent.id, code: agent.code, route, cycle, round }));
+            return { cancelled: true };
+        }
         let raced;
         let change = null;
         try {
