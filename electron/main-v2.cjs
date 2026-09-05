@@ -1053,6 +1053,11 @@ function cleanupSpawnedChildren() {
     _childrenCleanedUp = true;
     try { stopRestAPI(); } catch (e) { }
     if (ipcServer) { try { ipcServer.close(); } catch { } }
+    // Kill any CLI turn still running. Without this a seat with file tools
+    // outlives the app: it keeps editing the user's repo with no parent and no
+    // timeout (its timer went with us), and the next workspace.prepare()
+    // commits whatever it produced as "WIP left by an interrupted turn".
+    try { require('./providers/cli.cjs').killAll(); } catch { }
 }
 
 app.on('before-quit', cleanupSpawnedChildren);

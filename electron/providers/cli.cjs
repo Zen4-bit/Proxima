@@ -452,12 +452,25 @@ function release(kind) {
 
 // ---- process helpers ------------------------------------------------------
 
+// One private folder per run. It used to be a single shared directory, which
+// broke in three ways: the system-prompt filename was pid + milliseconds with
+// no random part, so seats starting in the same tick (normal in a parallel
+// first round) overwrote each other's prompt — handing a `none` seat the
+// workspace prompt, or the reverse, which is a privilege-label mix-up rather
+// than a cosmetic race; failed turns left their prompt on disk forever; and
+// mcp_empty.json — what --strict-mcp-config points at — sat in a directory a
+// Codex `none` seat runs inside with its sandbox bypassed, so a seat that
+// wrote real MCP servers into it changed what the next Claude seat loaded.
 function scratchDir(base) {
-    const dir = path.join(base || os.tmpdir(), 'multiai-cli');
-    fs.mkdirSync(dir, { recursive: true });
-    const empty = path.join(dir, 'mcp_empty.json');
-    if (!fs.existsSync(empty)) fs.writeFileSync(empty, '{"mcpServers":{}}', 'utf-8');
+    const root = path.join(base || os.tmpdir(), 'multiai-cli');
+    fs.mkdirSync(root, { recursive: true });
+    const dir = fs.mkdtempSync(path.join(root, 'run-'));
+    fs.writeFileSync(path.join(dir, 'mcp_empty.json'), '{"mcpServers":{}}', 'utf-8');
     return dir;
+}
+
+function removeScratch(dir) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
 }
 
 function killTree(child) {
@@ -466,6 +479,18 @@ function killTree(child) {
         if (IS_WIN) spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore', windowsHide: true });
         else child.kill('SIGKILL');
     } catch { /* ignore */ }
+}
+
+// Every live CLI child, so quitting the app does not leave them running. A
+// `full` seat that outlives Proxima keeps editing the user's repo with no
+// parent, no timeout (its timer died with us) and no attribution — and the
+// next workspace.prepare() commits whatever it produced as "WIP left by an
+// interrupted turn". On Windows nothing else reaps these.
+const _live = new Set();
+
+function killAll() {
+    for (const child of _live) killTree(child);
+    _live.clear();
 }
 
 // Quote one token for CommandLineToArgvW: wrap in quotes, double the run of
@@ -516,8 +541,15 @@ function runProcess(kind, bin, args, { cwd, prompt, timeoutMs, exe }) {
         if (aborted) { release(kind); throw Object.assign(new Error('Cancelled by user'), { cancelled: true }); }
         try {
             const exeResolved = typeof exe === 'function' ? await exe() : exe;
+            // Resolving the executable can take seconds (resolveCodex runs
+            // --version on two candidates), so re-check: a Stop during that
+            // window would otherwise spawn a process abort() can no longer
+            // reach, which then runs to its full timeout writing to the repo.
+            if (aborted) throw Object.assign(new Error('Cancelled by user'), { cancelled: true });
             return await new Promise((resolve, reject) => {
                 child = spawnCli(bin, args, cwd, exeResolved);
+                _live.add(child);
+                child.once('close', () => _live.delete(child));
                 let stdout = '';
                 let stderr = '';
                 child.stdout.on('data', d => { stdout += d.toString('utf8'); });
@@ -571,12 +603,14 @@ function claudeArgs({ model, effort, workspace }, dir, sysFile) {
 function runClaude({ model, effort, prompt, systemPrompt, cwd, workspace, timeoutMs }) {
     const dir = scratchDir(cwd);
     const level = workspace && workspace.root && workspace.tools && workspace.tools !== 'none' ? workspace.tools : 'none';
-    const sysFile = path.join(dir, `system-${process.pid}-${Date.now()}.txt`);
+    const sysFile = path.join(dir, 'system.txt');
     fs.writeFileSync(sysFile, systemPrompt || (level !== 'none' ? workspaceSystemPrompt(workspace) : DISCUSSION_SYSTEM_PROMPT), 'utf-8');
     const args = claudeArgs({ model, effort, workspace: level !== 'none' ? workspace : null }, dir, sysFile);
     const run = runProcess('claude', 'claude', args, { cwd: level !== 'none' ? workspace.root : dir, prompt, timeoutMs });
+    // finally, not then: an aborted or timed-out turn used to leave its system
+    // prompt behind forever.
+    run.promise.finally(() => removeScratch(dir)).catch(() => {});
     const promise = run.promise.then(({ code, stdout, stderr }) => {
-        try { fs.unlinkSync(sysFile); } catch { /* ignore */ }
         let parsed = null;
         const text = stdout.trim();
         try { parsed = JSON.parse(text); } catch {
@@ -623,7 +657,7 @@ function codexArgs({ model, effort, workspace }, dir, outFile) {
 function runCodex({ model, effort, prompt, systemPrompt, cwd, workspace, timeoutMs }) {
     const dir = scratchDir(cwd);
     const level = workspace && workspace.root && workspace.tools && workspace.tools !== 'none' ? workspace.tools : 'none';
-    const outFile = path.join(dir, `codex-last-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.txt`);
+    const outFile = path.join(dir, 'codex-last.txt');
     const args = codexArgs({ model, effort, workspace: level !== 'none' ? workspace : null }, dir, outFile);
     // The system prompt is prepended because exec has no system-prompt flag.
     const full = `${systemPrompt || (level !== 'none' ? workspaceSystemPrompt(workspace) : DISCUSSION_SYSTEM_PROMPT)}\n\n${prompt}`;
@@ -631,6 +665,7 @@ function runCodex({ model, effort, prompt, systemPrompt, cwd, workspace, timeout
     // the one on PATH — see resolveCodex); resolve first so the first turn
     // after startup doesn't guess.
     const run = runProcess('codex', 'codex', args, { cwd: level !== 'none' ? workspace.root : dir, prompt: full, timeoutMs, exe: () => resolveCodex().then(p => (p ? p.exe : undefined)) });
+    run.promise.finally(() => removeScratch(dir)).catch(() => {});
     const promise = run.promise.then(({ code, stdout, stderr }) => {
         let text = '';
         try { text = fs.readFileSync(outFile, 'utf8').trim(); fs.unlinkSync(outFile); } catch { /* no file */ }
@@ -667,6 +702,7 @@ function runGemini({ model, prompt, systemPrompt, cwd, workspace, timeoutMs }) {
     const args = geminiArgs({ model, workspace: level !== 'none' ? workspace : null });
     const full = `${systemPrompt || (level !== 'none' ? workspaceSystemPrompt(workspace) : DISCUSSION_SYSTEM_PROMPT)}\n\n${prompt}`;
     const run = runProcess('gemini', 'gemini', args, { cwd: level !== 'none' ? workspace.root : dir, prompt: full, timeoutMs });
+    run.promise.finally(() => removeScratch(dir)).catch(() => {});
     const promise = run.promise.then(({ code, stdout, stderr }) => {
         const text = stdout.trim();
         let parsed = null;
@@ -704,6 +740,6 @@ module.exports = {
     run, runClaude, runCodex, runGemini, availability, resetAvailabilityCache, which, discover, discovered, childEnv, knownLocations,
     parseClaudeHelp, parseCodexModelsCache, parseCodexConfig, geminiAuthFrom, codexEffortFor,
     claudeArgs, codexArgs, geminiArgs, workspaceSystemPrompt, codexSandboxHelperDir, codexSandboxBundle, codexSandboxSupport, hasCodexHelpers,
-    codexCandidates, resolveCodex, codexExe, parseVersion, cmpVersion, spawnCli, winQuote, cmdCommandLine,
+    codexCandidates, resolveCodex, codexExe, parseVersion, cmpVersion, spawnCli, winQuote, cmdCommandLine, killAll,
     EFFORT_MAP, DISCUSSION_SYSTEM_PROMPT, MAX_PARALLEL, KINDS, BINS, LABELS, TOOLS_LEVELS, CLAUDE_TOOLS,
 };
