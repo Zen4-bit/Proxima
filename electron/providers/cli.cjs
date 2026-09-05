@@ -221,6 +221,9 @@ function availability() {
 function resetAvailabilityCache() {
     for (const k of Object.keys(_avail)) delete _avail[k];
     _discovered = null;
+    // Also drop an in-flight (possibly rejected) discovery, so ↻ genuinely
+    // starts over rather than re-awaiting the run that just failed.
+    _discovering = null;
     _codexPick = null;
     _codexBundleCache = undefined;
 }
@@ -337,7 +340,9 @@ let _discovering = null;
 // What each CLI offers on this machine. Cached; force to re-probe.
 async function discover({ force = false } = {}) {
     if (_discovered && !force) return _discovered;
-    if (_discovering) return _discovering;
+    // `force` has to beat the in-flight check too, or ↻ cannot recover from a
+    // discovery that failed — the rejected promise would be handed back forever.
+    if (_discovering && !force) return _discovering;
     _discovering = (async () => {
         const home = os.homedir();
         const out = { claude: null, codex: null, gemini: null, at: Date.now() };
@@ -397,10 +402,18 @@ async function discover({ force = false } = {}) {
             };
         } else out.gemini = { available: false, label: LABELS.gemini };
         _discovered = out;
-        _discovering = null;
         return out;
     })();
-    return _discovering;
+    // Clearing in a finally, not on the success path: one throw in the body
+    // (a permission-denied readdir under %LOCALAPPDATA%, a which() failure)
+    // used to leave a permanently rejected promise here, and every later call
+    // — including the ↻ button's — got that same rejection until restart. The
+    // agent editor then silently lost the CLI version, the login state and the
+    // "no sandbox helpers" warning while still looking healthy, and
+    // GET /v1/multiai/variants and the cli_variants MCP tool failed outright.
+    const inflight = _discovering;
+    inflight.finally(() => { if (_discovering === inflight) _discovering = null; }).catch(() => {});
+    return inflight;
 }
 
 function discovered() { return _discovered; }

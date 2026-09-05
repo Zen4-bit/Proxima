@@ -21,10 +21,25 @@ It should not merge as it stands. There is one **confirmed arbitrary command
 execution** path reachable from any MCP client, a **default privilege level that
 does not do what its label says** on both CLIs, and a **workspace safety contract
 that is bypassed on every code path except one**. Separately, the app's own help
-text makes four safety claims the code contradicts.
+text makes five safety claims the code contradicts.
 
 Everything below is grounded in a file and line a reviewer opened, or in a
 command that was actually run.
+
+### Implementation status
+
+| Item | State |
+|---|---|
+| #4 `P-R2-22` — false safety copy (all five strings) | **Done** — `4b3eb00` |
+| #1 `P-R1-6` — model/effort validation | **Done** — `9a80389` |
+| #2 `P-R1-15` — system prompt append-not-replace | **Done** — `9a80389` |
+| #1 `P-R1-6` — `shell:true` removal | **Done** — `5414ae9` |
+| #3 `P-EX-1`/`P-R1-7` — Codex `none` label | **Done** (in `4b3eb00`); behavioural half deferred with `P-R3-2` |
+| everything else | Not started |
+
+The suite is **733 pass / 0 fail** after the above (731 before; the three
+assertions that pinned the old prompt behaviour were rewritten, and five new
+tests added covering the quoting layer and the rejected payloads).
 
 ---
 
@@ -160,15 +175,28 @@ genuinely removed; Codex `none` has a real unsandboxed shell restrained only by
 prompt text** — the same prompt `P-R1-15` shows is deletable. And `none` is the
 default (`multiai-core.cjs:101`).
 
-**Fix**: prefer `--sandbox read-only -C <scratch>` for Codex `none` where the
-helpers exist; where they do not, either refuse the seat or **label it honestly**.
-The label must not say the opposite of the flag. Plus retain `P-EX-1`'s
-proposals (3) and (4): strip/flag `<invoke …>` blocks in recorded runner output,
-and a regression test. Proposals (1) and (2) are retired (see Corrections).
+**Fix — scope decided (this item is behavioural only).** The label half moved to
+item #4 and has shipped; `multiai-renderer.js:1012` now describes what the flag
+actually does. What remains here is: prefer `--sandbox read-only -C <scratch>`
+for Codex `none` where the helpers exist, and where they do not, refuse the seat
+or warn as loudly as `read`/`write` already do.
 
-### 4. `P-R2-22` † — The app's help text makes four safety claims the code contradicts
+**That behavioural half is deferred and scheduled with `P-R3-2`**, because
+`codexArgs` cannot see helper presence: it is synchronous and built at
+`runCodex:587`, *before* `resolveCodex()` resolves via the `exe` thunk at `:594`.
+Reading `discovered()` instead returns `null` in a cold standalone
+`variants-server.js` process — `P-R3-2`'s exact bug — and the fallback would
+silently be bypass-the-sandbox. Consequently `cli.test.js:130-131` does **not**
+break in this merge.
+
+Also retained from `P-EX-1`: proposals (3) and (4) — strip/flag `<invoke …>`
+blocks in recorded runner output, and a regression test. Proposal (1) is retired;
+proposal (2) is retired for `cli.cjs` only and was **accepted** for
+`variants.cjs`, where it shipped as part of item #2.
+
+### 4. `P-R2-22` † — The app's help text makes five safety claims the code contradicts
 Independently verified by the executive in the working tree; all strings present
-verbatim. R2 cited three; a fourth was found.
+verbatim. R2 cited three across the modal and Workspace pane; the executive verified them and found a fourth, and a fifth (the `none` tooltip) was moved in from item #3.
 
 | Where | Claim | Contradicted by |
 |---|---|---|
@@ -224,9 +252,14 @@ R3 established the blast radius is **local UI only** — Orchestrated has no RES
 route and no MCP tool — which lowers it below `P-R1-6`/`P-R1-8` but does not
 retire it.
 
-**Fix**: resolve bare provider strings by provider only; reserve name lookup for
-`@mentions` and explicit agent-id fields. `sendAux` must never inherit a `tools`
-level. Force `tools:'none'` in Orchestrated (Conflict 5).
+**Fix**, in order of load-bearing-ness:
+1. **`sendAux` must never inherit a `tools` level** — aux calls (judge, summary,
+   auto-summary, title) are one-shot and must always resolve to `tools:'none'`.
+   This is the half that actually closes the hazard.
+2. Force `tools:'none'` in Orchestrated (Conflict 5).
+3. Add a **separate provider-only resolver** for the call sites that pass a bare
+   provider string, and exclude CLI providers from the provider-label alias
+   match. Note this alone is *not* sufficient — see the correction below.
 
 > **Signoff correction (R1) — the finding is larger and the fix above is
 > insufficient.** Three things, all verified by running the code:
@@ -427,7 +460,7 @@ Real, evidenced, and worth scheduling. None corrupts state or executes code.
 | `P-R2-21` † | The agent library is the public model catalogue of the REST port and MCP server, and the UI presents it as a local convenience. Renaming changes a published model id; the unconfirmed ✕ breaks external callers. | S |
 | `P-R2-23` † | ↻ is the only recovery for three stale states, blocks the main process, and has no busy/success/failure state — indistinguishable from `P-R1-11`'s permanent failure. | S |
 | `P-R1-14` / `P-R3-3` | Variant calls have no cancellation and an unbounded queue; `timeoutSeconds` bounds the process, never the queue wait. Per `P-R3-14`, the deadline error must carry `.status = 503`. | M |
-| `P-R3-15` † | `sendJSON`/`sendError` need a `res.writableEnded \|\| res.destroyed` guard — land it *with* the abort-on-disconnect wiring, not after. | S |
+| `P-R3-15` † | `sendJSON`/`sendError` need a `res.writableEnded \|\| res.destroyed` guard. Same defect as `P-R3-6`'s missing guard at a second call site: the live unguarded write is `multiai.cjs:1308-1315`, while `rest-api.cjs:218-226` only becomes reachable once abort-on-disconnect (`P-R1-14`) lands. Fix both sites in one change, scheduled with `P-R1-14`. | S |
 | `P-R1-12` | `execFileSync('where')` blocks the Electron main thread — window, BrowserViews, REST server and IPC freeze together, up to 3 × 5s, fired from the ↻ button. | M |
 | `P-R1-13` | Timeout timer not cleared on failure paths; unbounded `stdout`. (Recycled-PID risk **refuted** by R1 — `child.pid` is normally undefined there.) | S |
 | `P-R2-15` | Replies render as raw text — no markdown, no code blocks. The judge verdict and the structured summary are the worst cases. | M |
@@ -465,7 +498,7 @@ With the reason, so these do not resurface.
 | Proposal | Why rejected |
 |---|---|
 | `P-EX-1` (1) — deny by explicit tool name instead of `*` | Measurement shows `*` already removes the tools. A hard-coded list is a maintenance trap that silently **grants** every tool Claude Code adds later. |
-| `P-EX-1` (2) — add a no-tools line to the system prompt | Already implemented at `cli.cjs:43-46`. No-op. |
+| `P-EX-1` (2) — add a no-tools line to the system prompt | **Rejected for `cli.cjs` only** — already implemented at `:43-46`, a no-op there. **Accepted for `variants.cjs`**, whose `ONE_SHOT_SYSTEM_PROMPT` lacked the "Never run commands" sentence entirely; shipped with item #2. |
 | `P-R1-5` (b) — auto-switch the tree back to base | Contradicts documented design (`docs/MULTIAI.md:114-135`). Unanimous. Replace with an explicit "return to `<base>`" button. |
 | `P-R1-8` (2) — allowlist `workspace.root` to dialog-picked folders | Breaks the headless workflow the docs advertise; unenforceable for the standalone server. Use a first-run confirmation instead. |
 | `P-R2-16` — unify the agent model across modes | A design change, not a defect fix, in a mode with none of Classic's safety infrastructure. Expanding `tools:'full'` reach into three unguarded paths multiplies the risk the panel is closing. |
@@ -508,16 +541,18 @@ right function. Grep the string rather than the number.
 | Master says | Actually |
 |---|---|
 | `multiai-renderer.js:1367` ("Folder is on") | **`:1365`** |
-| `workspace.cjs:87` (`inspect()` warning) | **`:86`** |
-| `multiai.cjs:1252` (swallowing `.catch`) | **`:1251`** |
 | `runClassic:672-676` (benched-agent `note()`) | **`:678`** |
 | `main-v2.cjs:1050-1058` (`cleanupSpawnedChildren`) | **`:1051`** |
+
+Two further "corrections" were themselves wrong and are withdrawn: `out.warning`
+really is at `workspace.cjs:87`, and the swallowing `.catch` really is at
+`multiai.cjs:1252`. The original citations stand.
 
 R2's original `index-v2.html:1710`/`:1707` were wrong and are corrected to
 `:1719`/`:1687` in the table above; all four strings re-verified verbatim by two
 reviewers and the executive.
 
-### Seven passing tests will break
+### Six passing tests will break
 
 The suite is 731/0 today. These assertions encode the behaviour being changed and
 must be rewritten **in the same commit** as the fix, not discovered in CI.
@@ -527,7 +562,7 @@ must be rewritten **in the same commit** as the fix, not discovered in CI.
 | `multiai-handlers.test.js:642` | `P-R1-15` | asserts `systemPrompt.startsWith('Custom system.')` |
 | `multiai-handlers.test.js:683` | `P-R1-15` | asserts `systemPrompt.startsWith('Terse.')` |
 | `variants.test.js:63` | `P-R1-15` | asserts `systemPrompt.startsWith('Custom.')` |
-| `cli.test.js:130-131` | `P-EX-1`+`P-R1-7` **behavioural half only** | asserts Codex `none` emits the bypass flag; the label-only half does not touch it |
+| `cli.test.js:130-131` | `P-EX-1`+`P-R1-7` **behavioural half, deferred with `P-R3-2`** | asserts Codex `none` emits the bypass flag. Does **not** break in this merge |
 | `workspace.test.js:73-90` | `P-R1-5` | asserts `prepare()` commits leftovers as WIP with `wip.wip` truthy |
 | `multiai-core.test.js:279-297` | `P-R1-16` **only if implemented wrongly** | locks `findAgent`'s name matching for `@mentions`. If this goes red, the fix touched the wrong function |
 
@@ -618,8 +653,8 @@ would silently be bypass-the-sandbox. Schedule the behavioural half with
 2. **#1 `P-R1-6` in two commits** — the `resolveVariant` character class closes the injection and touches nothing else; removing `shell: true` rewrites `spawnCli:460-467` on the path of every CLI run. The regex is safe against the current suite and already accommodates the `[1m]` suffix.
 3. **#2 `P-R1-15` before #3** — both settle what a `none` seat actually gets; #2 decides which string is pinned. Resolve the `ONE_SHOT`/`DISCUSSION` discrepancy here. Land with the three test rewrites.
 4. **#5 before #9** — shrinking what can claim a repo before keying the lock per-repo; otherwise a leaky resolver just relocates the failure.
-5. **#9 + `P-R3-13` are one change. Never split.** `P-R1-18` touches the same `api.run` lines — do it here too.
-6. **#6's renderer reordering before #9's refusal** — `multiai-renderer.js:1859` persists and bumps `cycle` before awaiting IPC at `:1872`; a repo-conflict refusal would corrupt `cycle` the same way an external run does today. Defer only the persist and the bump, **not** the optimistic render, or the feed goes dead for a round-trip.
+5. **#6 before #9.** `multiai-renderer.js:1859` persists and bumps `cycle` before awaiting IPC at `:1872`, so a repo-conflict refusal would corrupt `cycle` the same way an external run does today. #6's reordering has to exist before #9 can start refusing. Defer only the persist and the bump, **not** the optimistic render, or the feed goes dead for a round-trip.
+6. **#9 + `P-R3-13` are one change. Never split.** `P-R1-18` touches the same `api.run` lines — do it here too.
 7. **#7 before #10** — same fifteen lines, and #10's "record head + dirty-file list at the end of each writer turn" is only meaningful once the turn terminates deterministically, which is what #7 provides. Reversed, #10 records a list a zombie is still invalidating.
 8. **#8 after #7, reusing it** — `killAll()` must use the same awaitable kill, or quit-time teardown races `commitAll` exactly as Stop does today.
 9. **#12 absorbs `P-R2-23`'s main-side half** (one owner for `cliError`). **`P-R3-15` merges with `P-R3-6`'s guard** — same defect at two call sites; today's unguarded write is `multiai.cjs:1308-1315`, and `rest-api.cjs:218-226` only becomes reachable once abort-on-disconnect lands.
@@ -629,6 +664,17 @@ would silently be bypass-the-sandbox. Schedule the behavioural half with
 
 - **#12, #13 and #14 are in the set on "cheap enough that deferring costs more" grounds, not peer severity with #1-#7.** Do not mis-price them.
 - **One unresolved asymmetry about confirmation dialogs.** #14 defers `P-R2-3`'s confirm, while #6's replacement for the rejected allowlist *is* a confirmation dialog — so a confirm is inside the gate for the rarer remote path and outside it for the common local one (a user picking `full` next to a folder they just attached). R2's preference, unopposed: keep both out of the gate and ship them together afterwards, so there is one confirmation design rather than two.
+
+### Items restored after the confirmation pass
+
+A final verification pass against the source files found five things raised in
+Round 2 that did not survive consolidation. All are **Accepted, not blocking**.
+
+- **A pre-flight collision warning for `P-R1-4`** (R2). `multiaiWorkspaceSet` stores a workspace root with no check against other chats, and the renderer already holds every chat: `chats.filter(c => c.workspace?.root === root)` is a two-line "2 other chats use this folder — runs will collide." It does not fix the race — per-root keying does — but it removes the common way in. **S.**
+- **A cross-client run-visibility regression test** (R3). Nothing today verifies that `GET /v1/multiai/running` reflects a run started by a *different* MCP client. Belongs with item #6. **S.**
+- **Report the resolved effort, not the requested one** (R2). `completionFor` (`variants.cjs:150`) echoes `effort` from the request rather than what was passed to `-c model_reasoning_effort=`, so a clamped and an unclamped run are indistinguishable from either end. One line, folded into `P-R3-2`. **S.**
+- **Label the change card that follows a failed turn** (R2). `recordChange()` runs on the cancelled path (`multiai.cjs:568-570`), so a Stop racing the commit shows a red "(stopped)" card immediately followed by a 🛠 card containing a half-written file — the bad outcome with no signal that it is bad. This is `Q-R2-4`'s presentation fix; attach it to item #7. **S.**
+- **Mirror a rejected run into the feed** (R1). `multiaiSend`'s "a run is already in progress" rejection surfaces only as a toast that can be overwritten in 100 ms. Partly covered by `P-R2-14`. **S.**
 
 ### One item restored to Accepted
 

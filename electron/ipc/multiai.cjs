@@ -415,7 +415,16 @@ function registerMultiAiHandlers(deps) {
             throw r.error;
         }
         if (route === 'cli') {
-            const r = await sendCli(chat, agent, prompt);
+            // Aux turns — judge, summary, auto-summary, title — are one-shot
+            // and never run through prepareWorkspace, so they get no repo
+            // check, no dirty-tree refusal, no branch switch, no writer lock
+            // and no commit. A seat reached here must therefore never carry a
+            // tools level: with one, its edits land on whatever branch the
+            // folder happens to be on and are left for the next writer turn's
+            // `git add -A` to claim. Reaching here with tools set is easy —
+            // `maybeAutoSummary` falls back to the roster's first seat when no
+            // judge is configured, and agent ids collide with provider names.
+            const r = await sendCli(chat, { ...agent, tools: 'none' }, prompt);
             if (r.ok) return r.value;
             if (r.cancelled) throw new Error('Cancelled by user');
             throw r.error;
@@ -647,7 +656,17 @@ function registerMultiAiHandlers(deps) {
             // Browser-route agents need their provider tab enabled in Settings;
             // API and CLI agents don't.
             let agents = all.filter(a => resolveRoute(a) !== 'browser' || enabled.includes(a.provider));
-            if (!agents.length) agents = all.slice();
+            // Say so in the transcript: the roster still ticks these seats and
+            // the composer hint still names them, so dropping them silently is
+            // the one way a configured capability can fail with no trace.
+            const dropped = all.filter(a => !agents.includes(a));
+            if (dropped.length && agents.length) {
+                note(chatId, `${dropped.map(a => a.name).join(', ')} ${dropped.length === 1 ? 'is' : 'are'} sitting out — ${dropped.length === 1 ? 'its' : 'their'} provider tab is switched off in Settings.`);
+            }
+            if (!agents.length) {
+                if (all.length) note(chatId, 'No provider tabs are enabled in Settings, so every seat is running on its own route.');
+                agents = all.slice();
+            }
             if (!agents.length) throw new Error('No participants selected.');
             try { await prepareWorkspace(chatId, chat0, agents); }
             catch (e) {
@@ -828,7 +847,12 @@ function registerMultiAiHandlers(deps) {
     async function chat(chatId, provider, prompt) {
         const c = store.getChat(chatId);
         if (!c) throw new Error('Chat not found');
-        const raced = await sendAgent(c, agentFrom(c, provider), prompt);
+        // Orchestrated steps never run prepareWorkspace, and the Workspace tab
+        // is hidden in this mode — so the user cannot see the attached folder,
+        // the tools levels, or clear the workspace, while workspaceFor would
+        // still honour chat.workspace on every step. Pin every step to
+        // tools:'none' rather than let file access run where nothing shows it.
+        const raced = await sendAgent(c, { ...agentFrom(c, provider), tools: 'none' }, prompt);
         if (raced.cancelled) {
             const err = new Error('Stopped before this reply arrived.');
             err.wasCancelled = true;

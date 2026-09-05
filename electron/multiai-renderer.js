@@ -1154,7 +1154,13 @@ function multiaiRouteLabel(agent) {
         if (!ok) return `⚠ ${MULTIAI_CLI_PROVIDERS[agent.provider]} CLI not found`;
         if (info && info.loggedIn === false) return `⚠ ${MULTIAI_CLI_PROVIDERS[agent.provider]} is not logged in — ${info.note || 'run it once and sign in'}`;
         const ver = info && info.version ? ` ${info.version}` : '';
-        const known = info && info.models && info.models.length && agent.model && !info.models.some(m => m.id === agent.model) ? ' · ⚠ model not in this CLI\'s list' : '';
+        // Claude Code is excluded for the same reason the roster cell excludes
+        // it: discover() fills `models` from the --help aliases only, and the
+        // CLI also accepts full `claude-…` ids, so a legitimate model name can
+        // never be on the list and would always trip this warning.
+        const known = info && info.models && info.models.length && agent.model
+            && agent.provider !== 'claude-cli'
+            && !info.models.some(m => m.id === agent.model) ? ' · ⚠ model not in this CLI\'s list' : '';
         return `${MULTIAI_CLI_PROVIDERS[agent.provider]}${ver} (local, subscription)${known}`;
     }
     const p = r.providers[agent.provider] || {};
