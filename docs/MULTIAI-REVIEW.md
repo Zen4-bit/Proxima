@@ -28,18 +28,33 @@ command that was actually run.
 
 ### Implementation status
 
-| Item | State |
-|---|---|
-| #4 `P-R2-22` — false safety copy (all five strings) | **Done** — `4b3eb00` |
-| #1 `P-R1-6` — model/effort validation | **Done** — `9a80389` |
-| #2 `P-R1-15` — system prompt append-not-replace | **Done** — `9a80389` |
-| #1 `P-R1-6` — `shell:true` removal | **Done** — `5414ae9` |
-| #3 `P-EX-1`/`P-R1-7` — Codex `none` label | **Done** (in `4b3eb00`); behavioural half deferred with `P-R3-2` |
-| everything else | Not started |
+| # | Item | State |
+|---|---|---|
+| 4 | `P-R2-22` — false safety copy, all five strings | **Done** `4b3eb00` |
+| 1 | `P-R1-6` — model/effort validation | **Done** `9a80389` |
+| 2 | `P-R1-15` — system prompt appended, not replaced; `ONE_SHOT` aligned | **Done** `9a80389` |
+| 1 | `P-R1-6` — `shell:true` removed | **Done** `5414ae9` |
+| 3 | `P-EX-1`/`P-R1-7` — Codex `none` label | **Done** (in `4b3eb00`); behavioural half deferred with `P-R3-2` |
+| 5 | `P-R1-2`/`P-R1-16` — `sendAux` and Orchestrated pinned to `tools:'none'` | **Done** `4cc548e` (load-bearing half; stricter resolver still open) |
+| 11 | `P-R2-2` — silent agent drop now noted | **Done** `4cc548e` |
+| 12 | `P-R1-11` — discovery poisoning | **Done** `4cc548e` |
+| — | `Q-R2-1` — Claude Code model tooltip | **Done** `4cc548e` |
+| 8 | `P-R1-1` — `killAll()` on quit | **Done** `ef02589` |
+| 13 | `P-R1-10` — per-run scratch dir, all three limbs | **Done** `ef02589` |
+| 7 | `P-R1-3`/`P-R1-9` — awaitable abort, re-check after the writer lock | **Done** `d74d615` |
+| 6 | `P-R1-8`/`P-R2-19`/`P-R1-17` — `multiai-run-started` | Open |
+| 9 | `P-R1-4` + `P-R3-13` + `P-R1-18` — per-repo lock | Open |
+| 10 | `P-R1-5` — WIP attribution + `inspect()` warning | Open |
+| 14 | `P-R2-3` — persistent marking for `write`/`full` | Open |
 
-The suite is **733 pass / 0 fail** after the above (731 before; the three
-assertions that pinned the old prompt behaviour were rewritten, and five new
-tests added covering the quoting layer and the rejected payloads).
+Ten of fourteen done. The four open ones are the interdependent cluster: #6
+must precede #9, #7 (done) precedes #10, and #14 shares an extraction with
+`P-R2-7`.
+
+Suite: **733 pass / 0 fail**, from 731 before. The three assertions that pinned
+the old substitute-the-prompt behaviour were rewritten to assert the new order,
+and five tests were added covering the quoting layer, the rejected injection
+payloads, and the legitimate ids that must still pass.
 
 ---
 
