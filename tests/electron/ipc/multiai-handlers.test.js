@@ -639,7 +639,8 @@ test('variants: library CLI agents + discovery; askVariant resolves names, short
     await assert.rejects(multiaiApi.askVariant({ variant: 'gemini-3.1-pro', message: 'hi' }), /Gemini CLI is not installed/, 'gemini* shorthand → Gemini CLI, which this harness reports as absent');
     const over = await multiaiApi.askVariant({ variant: 'sonnet:low', effort: 'xhigh', system: 'Custom system.', message: 'hi' });
     assert.deepEqual([over.provider, over.model, over.effort], ['claude-cli', 'sonnet', 'xhigh'], 'explicit effort overrides the shorthand');
-    assert.ok(cliCalls[cliCalls.length - 1].opts.systemPrompt.startsWith('Custom system.'));
+    assert.ok(cliCalls[cliCalls.length - 1].opts.systemPrompt.includes('Custom system.'), 'the caller system prompt is kept');
+    assert.ok(/never emit tool-call syntax/i.test(cliCalls[cliCalls.length - 1].opts.systemPrompt), 'the no-tools clause survives a caller override');
     const plain = await multiaiApi.askVariant({ provider: 'codex-cli', model: 'gpt-5.4', message: 'hi' });
     assert.equal(plain.model, 'gpt-5.4');
 
@@ -680,7 +681,8 @@ test('REST: variants list, ask, ask-many, and OpenAI-compatible /v1/chat/complet
     assert.equal(r.data.object, 'chat.completion');
     assert.equal(r.data.model, 'cli:opus:max');
     assert.equal(r.data.choices[0].message.content, 'claude-cli opus/max');
-    assert.ok(cliCalls[cliCalls.length - 1].opts.systemPrompt.startsWith('Terse.'), 'system messages become the system prompt');
+    assert.ok(cliCalls[cliCalls.length - 1].opts.systemPrompt.includes('Terse.'), 'system messages are folded into the system prompt');
+    assert.ok(/never emit tool-call syntax/i.test(cliCalls[cliCalls.length - 1].opts.systemPrompt), 'the no-tools clause survives an OpenAI-style system message');
     assert.equal(cliCalls[cliCalls.length - 1].opts.prompt, 'why?');
     assert.equal(await ext('POST', url('/v1/chat/completions'), { model: 'Opus max', messages: [{ role: 'user', content: 'hi' }] }, {}, helpers), true, 'a library seat name works as the model');
     calls.pop();

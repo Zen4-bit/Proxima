@@ -60,10 +60,37 @@ test('resolveVariant + askVariant: name, "cli:" prefix, shorthand, explicit seat
     assert.deepEqual([b.provider, b.model, b.effort], ['codex-cli', 'gpt-5.5', 'xhigh']);
     const c = await v.askVariant({ variant: 'variant: sonnet:low', message: 'hi', system: 'Custom.' });
     assert.deepEqual([c.provider, c.model, c.effort], ['claude-cli', 'sonnet', 'low']);
-    assert.ok(cli.calls[2].opts.systemPrompt.startsWith('Custom.'));
+    // A caller's system prompt is appended to the no-tools clause, never
+    // substituted for it — every OpenAI-compatible client sends one, and
+    // letting it win puts the seat back into fabricating tool calls.
+    assert.ok(cli.calls[2].opts.systemPrompt.includes('Custom.'), 'the caller system prompt is kept');
+    assert.ok(/never emit tool-call syntax/i.test(cli.calls[2].opts.systemPrompt), 'the no-tools clause survives a caller override');
+    assert.ok(cli.calls[2].opts.systemPrompt.indexOf('never emit tool-call') < cli.calls[2].opts.systemPrompt.indexOf('Custom.'), 'the no-tools clause comes first');
     const d = await v.askVariant({ provider: 'codex-cli', model: 'gpt-5.4', message: 'hi' });
     assert.equal(d.model, 'gpt-5.4');
     await assert.rejects(v.askVariant({ variant: 'no such seat here', message: 'hi' }), /Unknown variant/);
+
+    // model/effort become argv for a spawned CLI, and on Windows spawnCli uses
+    // shell:true — so cmd.exe metacharacters in these fields are command
+    // injection reachable from REST, WebSocket and the ask_variant MCP tool.
+    // Every payload below was verified to execute before this validation.
+    for (const bad of ['opus&whoami', 'opus|whoami', 'opus^&whoami', 'a"&whoami&"b', 'opus>out.txt', 'opus%PATH%', 'a b']) {
+        await assert.rejects(
+            v.askVariant({ provider: 'claude-cli', model: bad, message: 'hi' }),
+            /model may only contain/,
+            `model "${bad}" must be rejected`);
+        await assert.rejects(
+            v.askVariant({ variant: 'Opus max', model: bad, message: 'hi' }),
+            /model may only contain/,
+            `model override "${bad}" must be rejected`);
+    }
+    await assert.rejects(
+        v.askVariant({ provider: 'claude-cli', model: 'opus', effort: 'max&whoami', message: 'hi' }),
+        /effort may only contain/);
+    // Legitimate ids still pass, including Claude Code's [1m] context suffix.
+    for (const good of ['opus', 'sonnet[1m]', 'gpt-5.5', 'gemini-2.5-flash', 'claude-opus-4.1']) {
+        assert.equal(v.resolveVariant({ provider: 'claude-cli', model: good }).model, good, `model "${good}" must be accepted`);
+    }
     await assert.rejects(v.askVariant({ variant: 'gemini-2.5-flash', message: 'hi' }), /Gemini CLI is not installed/);
     await assert.rejects(v.askVariant({ variant: 'opus', message: '  ' }), /message is required/);
     await assert.rejects(v.askVariant({ provider: 'chatgpt', message: 'hi' }), /provider must be/);

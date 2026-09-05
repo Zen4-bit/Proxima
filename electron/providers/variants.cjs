@@ -10,11 +10,34 @@
 //     (Codex; gpt*/o*/codex* names), "gemini-2.5-flash" (Gemini CLI),
 //   - provider + model + effort given explicitly.
 
+// The no-tools clause is the only thing preventing a tool-less seat from
+// emitting fabricated <invoke> blocks and inventing tool results, so it is
+// always sent — a caller-supplied `system` is appended to it, never substituted
+// for it (see NO_TOOLS_CLAUSE below). Kept in step with DISCUSSION_SYSTEM_PROMPT
+// in electron/providers/cli.cjs, including "Never run commands."
+const NO_TOOLS_CLAUSE =
+    'You have no tools and no filesystem. Do not narrate what you would do with tools, and never emit tool-call ' +
+    'syntax or invent the results of a tool call. Never run commands.';
+
 const ONE_SHOT_SYSTEM_PROMPT =
-    'You are answering one question from another program through a local CLI. You have no tools and no filesystem; ' +
-    'reply in plain text (light Markdown is fine). Answer directly and completely; do not narrate what you would do with tools.';
+    'You are answering one question from another program through a local CLI. ' + NO_TOOLS_CLAUSE +
+    ' Reply in plain text (light Markdown is fine). Answer directly and completely.';
 
 const VARIANT_PREFIX = /^(cli|variant):\s*/i;
+
+// Model ids and effort levels become argv elements for a spawned CLI, so they
+// are validated here rather than trusted. `body.model` / `body.effort` arrive
+// from callers we do not control — REST /v1/multiai/variants/ask,
+// /v1/chat/completions, the WebSocket ask_variant action and the ask_variant
+// MCP tool — i.e. potentially from another model. The class matches what the
+// shorthand form already allowed, including Claude Code's `[1m]` suffix.
+const SAFE_CLI_ARG = /^[A-Za-z0-9._:[\]-]+$/;
+
+function safeCliArg(value, field) {
+    const s = String(value);
+    if (!SAFE_CLI_ARG.test(s)) throw err(400, `${field} may only contain letters, digits and . _ : - [ ]`);
+    return s;
+}
 
 function err(status, message) {
     const e = new Error(message);
@@ -83,10 +106,10 @@ function createVariants({ cli, core, loadLibrary, dataDir }) {
         } else {
             const provider = String(body.provider || 'claude-cli');
             if (!core.CLI_PROVIDERS[provider]) throw err(400, `provider must be one of ${Object.keys(core.CLI_PROVIDERS).join(', ')}`);
-            agent = core.normalizeAgents({ agents: [{ provider, model: body.model || '', effort: body.effort || '' }] })[0];
+            agent = core.normalizeAgents({ agents: [{ provider, model: body.model ? safeCliArg(body.model, 'model') : '', effort: body.effort ? safeCliArg(body.effort, 'effort') : '' }] })[0];
         }
-        if (body.model && ref) agent.model = String(body.model);
-        if (body.effort !== undefined && body.effort !== null && body.effort !== '') agent.effort = String(body.effort);
+        if (body.model && ref) agent.model = safeCliArg(body.model, 'model');
+        if (body.effort !== undefined && body.effort !== null && body.effort !== '') agent.effort = safeCliArg(body.effort, 'effort');
         return agent;
     }
 
@@ -97,7 +120,14 @@ function createVariants({ cli, core, loadLibrary, dataDir }) {
         if (!message) throw err(400, 'message is required');
         const kind = core.CLI_PROVIDERS[agent.provider].bin;
         if (!cli.availability()[kind]) throw err(503, `${core.providerLabel(agent.provider)} is not installed (no \`${kind}\` on PATH)`);
-        const system = [body.system || ONE_SHOT_SYSTEM_PROMPT, agent.persona ? `\n[Persona]\n${agent.persona}` : ''].join('');
+        // A caller's own system prompt is appended, not substituted: every
+        // OpenAI-compatible client sends one, and letting it replace the
+        // no-tools clause puts the seat back into fabricating tool calls.
+        const callerSystem = body.system ? String(body.system).trim() : '';
+        const system = [
+            callerSystem ? `${NO_TOOLS_CLAUSE}\n\n${callerSystem}` : ONE_SHOT_SYSTEM_PROMPT,
+            agent.persona ? `\n[Persona]\n${agent.persona}` : '',
+        ].join('');
         const started = Date.now();
         const timeoutMs = Math.max(30000, Math.min(20 * 60 * 1000, Number(body.timeoutMs) || 10 * 60 * 1000));
         const handle = cli.run(agent.provider, { model: agent.model || undefined, effort: agent.effort || undefined, prompt: message, systemPrompt: system, cwd: dataDir(), timeoutMs });
