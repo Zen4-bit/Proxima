@@ -17,11 +17,15 @@ The branch is a large, coherent, well-documented feature with a real test suite
 and a spec that mostly matches the code. Reviewers confirmed seven substantial
 things as correctly built (see *Verified sound* at the end).
 
-It should not merge as it stands. There is one **confirmed arbitrary command
-execution** path reachable from any MCP client, a **default privilege level that
-does not do what its label says** on both CLIs, and a **workspace safety contract
-that is bypassed on every code path except one**. Separately, the app's own help
-text makes five safety claims the code contradicts.
+As reviewed, it should not have merged. There was one **confirmed arbitrary
+command execution** path reachable from any MCP client, a **default privilege
+level that did not do what its label said** on both CLIs, and a **workspace
+safety contract bypassed on every code path except one**. Separately, the app's
+own help text made five safety claims the code contradicted.
+
+All fourteen ship-blockers below are now fixed (see *Implementation status*).
+The findings are kept in the present tense as written, so the evidence and the
+reasoning stay readable; the status table is the authority on what has shipped.
 
 Everything below is grounded in a file and line a reviewer opened, or in a
 command that was actually run.
@@ -42,19 +46,22 @@ command that was actually run.
 | 8 | `P-R1-1` — `killAll()` on quit | **Done** `ef02589` |
 | 13 | `P-R1-10` — per-run scratch dir, all three limbs | **Done** `ef02589` |
 | 7 | `P-R1-3`/`P-R1-9` — awaitable abort, re-check after the writer lock | **Done** `d74d615` |
-| 6 | `P-R1-8`/`P-R2-19`/`P-R1-17` — `multiai-run-started` | Open |
-| 9 | `P-R1-4` + `P-R3-13` + `P-R1-18` — per-repo lock | Open |
-| 10 | `P-R1-5` — WIP attribution + `inspect()` warning | Open |
-| 14 | `P-R2-3` — persistent marking for `write`/`full` | Open |
+| 6 | `P-R1-8`/`P-R2-19`/`P-R1-17` — `multiai-run-started` | **Done** `6083215` |
+| 9 | `P-R1-4` + `P-R3-13` + `P-R1-18` — per-repo lock, synchronous 409, real errors | **Done** `b575c10` |
+| 10 | `P-R1-5` — WIP attribution + `inspect()` warning | **Done** `e9dd4d7` |
+| 14 | `P-R2-3` — armed seats marked distinctly from inert ones | **Done** `ab24845` |
 
-Ten of fourteen done. The four open ones are the interdependent cluster: #6
-must precede #9, #7 (done) precedes #10, and #14 shares an extraction with
-`P-R2-7`.
+**All fourteen done.** Remaining open items are the *Accepted, not blocking*
+list, the deferred behavioural half of #3 (scheduled with `P-R3-2`), the
+stricter provider-only resolver from #5, and the two confirmation dialogs,
+which the panel agreed to ship together as one design rather than piecemeal.
 
-Suite: **733 pass / 0 fail**, from 731 before. The three assertions that pinned
+Suite: **737 pass / 0 fail**, from 731 before. The three assertions that pinned
 the old substitute-the-prompt behaviour were rewritten to assert the new order,
-and five tests were added covering the quoting layer, the rejected injection
-payloads, and the legitimate ids that must still pass.
+and eleven tests were added: the quoting layer and the rejected injection
+payloads, cross-client run visibility, the per-repo refusal over both REST and
+IPC, an immediately-failing run not reporting success, WIP attribution with and
+without a marker, and the previously-silent dirty-branch warning.
 
 ---
 
@@ -87,7 +94,7 @@ string.**
 
 **R2's "the branch change is invisible outside git" was wrong** —
 `multiaiRefreshWorkspaceStatus` does print `Folder is on <branch>`
-(`multiai-renderer.js:1367`). The real defects are narrower: that line refreshes
+(`multiai-renderer.js:1365`). The real defects are narrower: that line refreshes
 only on chat render, `inspect()` sets no warning for `cur === branch && dirty`,
 and the surrounding copy asserts the opposite of what the code does.
 
