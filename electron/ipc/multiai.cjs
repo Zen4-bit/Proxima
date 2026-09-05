@@ -120,13 +120,29 @@ function registerMultiAiHandlers(deps) {
         return !!sig;
     }
 
-    function startSignal(chatId) {
+    // `startedBy` distinguishes a run the user launched from one a local agent
+    // launched over REST or MCP. Without the event below, the renderer only
+    // learned a chat was running from a one-shot poll at load: an external run
+    // streamed turns into the open chat with no ● and no Stop button, kept
+    // running when the chat was deleted, and absorbed the user's next Send
+    // (with its cycle bump) into a discussion they could not see.
+    function startSignal(chatId, startedBy = 'ui') {
         if (runSignals.has(chatId)) throw new Error('A run is already in progress for this chat.');
         let resolveFn;
         const promise = new Promise((res) => { resolveFn = res; });
-        const sig = { cancelled: false, resolve: resolveFn, promise };
+        const sig = { cancelled: false, resolve: resolveFn, promise, startedBy, at: Date.now() };
         runSignals.set(chatId, sig);
+        emit('multiai-run-started', { chatId, startedBy });
         return sig;
+    }
+
+    // Shape kept ahead of the per-agent status strip: `agents` is empty for now
+    // and the renderer ignores it, so filling it in later needs no second
+    // version of this payload.
+    function runningState() {
+        return Array.from(runSignals.entries()).map(([chatId, s]) => ({
+            chatId, startedBy: s.startedBy || 'ui', agents: [],
+        }));
     }
 
     function endSignal(chatId) {
@@ -471,7 +487,7 @@ function registerMultiAiHandlers(deps) {
         try { info.cliInfo = probe ? await cli.discover({ force: true }) : (cli.discovered() || null); } catch { info.cliInfo = null; }
         return info;
     });
-    ipcMain.handle('multiai-running', () => Array.from(runSignals.keys()));
+    ipcMain.handle('multiai-running', () => runningState());
 
     ipcMain.handle('multiai-stop-run', (event, { chatId }) => {
         stopChat(chatId);
@@ -660,10 +676,10 @@ function registerMultiAiHandlers(deps) {
     // Runs `rounds` rounds on a chat using its stored settings. `latestText`
     // is the human message that triggered this cycle (already recorded by the
     // caller) — used only for @mention parsing.
-    async function runClassic({ chatId, rounds, latestText }) {
+    async function runClassic({ chatId, rounds, latestText, startedBy }) {
         const chat0 = store.getChat(chatId);
         if (!chat0) throw new Error('Chat not found');
-        const sig = startSignal(chatId);
+        const sig = startSignal(chatId, startedBy || 'ui');
         try {
             const enabled = enabledProviders();
             const all = agentsOf(chat0);
@@ -1287,7 +1303,7 @@ function registerMultiAiHandlers(deps) {
                 store.updateChat(chatId, { cycle: 1 });
             }
             const rounds = body.rounds != null ? Number(body.rounds) : undefined;
-            const runP = runClassic({ chatId, rounds, latestText: text }).catch(e => { console.error('[MultiAI] API run failed:', e.message); return []; });
+            const runP = runClassic({ chatId, rounds, latestText: text, startedBy: 'agent' }).catch(e => { console.error('[MultiAI] API run failed:', e.message); return []; });
             if (body.wait) return { messages: withLabels(await runP) };
             return { started: true, chatId };
         },

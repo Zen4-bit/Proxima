@@ -15,6 +15,7 @@ let multiaiState = {
     personas: {},
     pendingAttachments: [], // [{name, text, isImage, dataUrl}] queued for the next send
     runningChats: new Set(), // chat ids with a run in flight (main process is the source of truth)
+    externalRuns: new Set(), // of those, the ones a local agent started over REST/MCP
 };
 
 const MULTIAI_GEMINI_ENGINES = ['gemini', 'gemini:3.5-flash', 'gemini:3.1-pro', 'gemini:3.1-flash-lite', 'gemini:auto'];
@@ -214,12 +215,27 @@ async function multiaiInit() {
         if (step.chatId === multiaiState.currentChatId) multiaiRenderOrchStep(step);
     });
     agentHub.onMultiaiOrchDone(({ chatId }) => multiaiSetRunning(chatId, false));
+    // Every run announces itself now, including one a local agent started over
+    // REST or MCP. Idempotent on purpose: the UI's own runs already set this
+    // locally before the IPC round-trip, so this arrives as a no-op for them.
+    if (agentHub.onMultiaiRunStarted) {
+        agentHub.onMultiaiRunStarted(({ chatId, startedBy }) => {
+            if (startedBy && startedBy !== 'ui') multiaiState.externalRuns.add(chatId);
+            multiaiSetRunning(chatId, true);
+        });
+    }
 
     // Runs started before this renderer loaded (or from the REST API) are
     // still owned by the main process — pick up their state.
     try {
         const running = await agentHub.multiaiRunning();
-        (running || []).forEach(id => multiaiState.runningChats.add(id));
+        (running || []).forEach(r => {
+            // Older main processes returned a bare array of chat ids.
+            const id = typeof r === 'string' ? r : r && r.chatId;
+            if (!id) return;
+            multiaiState.runningChats.add(id);
+            if (r && r.startedBy && r.startedBy !== 'ui') multiaiState.externalRuns.add(id);
+        });
     } catch { /* older main without the handler */ }
 
     if (!multiaiState.currentChatId) {
@@ -449,7 +465,7 @@ function multiaiRenderChatList() {
                  style="display: flex; align-items: center; gap: 4px; padding: 9px 10px 9px 22px; font-size: 0.83rem; background: ${c.id === multiaiState.currentChatId ? 'rgba(255,255,255,0.06)' : 'transparent'};">
                 <span onclick="multiaiOpenChat('${c.id}')"
                     style="flex: 1; min-width: 0; cursor: pointer; color: ${c.id === multiaiState.currentChatId ? '#fff' : '#9ca3af'}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                    ${multiaiIsRunning(c.id) ? '<span title="Running" style="color:#34d399;">●</span> ' : ''}${c.mode === 'orchestrated' ? '🧩' : '💬'} ${multiaiEscape(c.title || 'Untitled')}
+                    ${multiaiIsRunning(c.id) ? `<span title="${multiaiIsExternalRun(c.id) ? 'Running — started by a local agent over the REST API or MCP' : 'Running'}" style="color:${multiaiIsExternalRun(c.id) ? '#f59e0b' : '#34d399'};">●</span> ` : ''}${c.mode === 'orchestrated' ? '🧩' : '💬'} ${multiaiEscape(c.title || 'Untitled')}
                 </span>
                 <span class="multiai-chat-actions" style="display: flex; gap: 2px; flex-shrink: 0;">
                     <button onclick="event.stopPropagation(); multiaiRenameChat('${c.id}')" title="Rename chat" style="background: none; border: none; color: #6b7280; cursor: pointer; font-size: 0.78rem; padding: 2px 4px;">✏</button>
@@ -484,7 +500,11 @@ function multiaiDeleteChat(chatId) {
     if (!chat) return;
     const ok = window.confirm(`Delete "${chat.title || 'this chat'}"? This can't be undone.`);
     if (!ok) return;
-    if (multiaiIsRunning(chatId)) agentHub.multiaiStopRun({ chatId });
+    // Stop unconditionally rather than only when the renderer thinks it is
+    // running: a run started over REST or MCP that this window has not heard
+    // about would otherwise keep going with no transcript to land in, holding
+    // CLI slots and still committing to the workspace for a chat that is gone.
+    agentHub.multiaiStopRun({ chatId });
     for (const project of multiaiState.data.projects) {
         const idx = project.chats.findIndex(c => c.id === chatId);
         if (idx !== -1) { project.chats.splice(idx, 1); break; }
@@ -1779,9 +1799,31 @@ function multiaiDiffHtml(diff) {
 // clears it — it used to, which let a second run start in the same thread.
 function multiaiSetRunning(chatId, on) {
     if (!chatId) return;
-    if (on) multiaiState.runningChats.add(chatId); else multiaiState.runningChats.delete(chatId);
+    if (on) multiaiState.runningChats.add(chatId);
+    else { multiaiState.runningChats.delete(chatId); multiaiState.externalRuns.delete(chatId); }
     multiaiRenderChatList();
     if (chatId === multiaiState.currentChatId) multiaiApplyRunningUi();
+}
+
+function multiaiIsExternalRun(chatId) {
+    return !!chatId && multiaiState.externalRuns.has(chatId);
+}
+
+// A run failure used to exist only as a 2.5s toast, and two errors close
+// together meant the second was visible for about 100ms. Put it in the
+// transcript as well, where it survives.
+function multiaiReportRunFailure(chat, message) {
+    showToast('Run failed: ' + message);
+    if (!chat) return;
+    const msg = {
+        id: multiaiGenMsgId(), who: 'Run', text: message, role: 'error',
+        ts: Date.now(), cycle: chat.cycle || 1, round: 0,
+    };
+    chat.messages = chat.messages || [];
+    chat.messages.push(msg);
+    multiaiAppendFeedItem(msg);
+    multiaiRenderLedger(chat);
+    multiaiPersist();
 }
 
 function multiaiApplyRunningUi() {
@@ -1836,6 +1878,22 @@ async function multiaiRunRound() {
         showToast(multiaiEnsureAgents(chat).length ? 'Enable at least one agent (tick a box in Agents).' : 'Add at least one agent.');
         return;
     }
+    // Ask main, not our cached set: a run started over REST or MCP may be in
+    // flight that this window never heard about. Everything below mutates the
+    // chat and persists it *before* the IPC round-trip, so without this the
+    // message and its cycle bump merge into the store and the live run reads
+    // them back as its newest instruction — joining a discussion the user
+    // cannot see, under a cycle number its other turns do not share.
+    try {
+        const live = await agentHub.multiaiRunning();
+        const busy = (live || []).some(r => (typeof r === 'string' ? r : r && r.chatId) === chat.id);
+        if (busy) {
+            multiaiSetRunning(chat.id, true);
+            showToast('A run is already in progress for this chat — press Stop first.');
+            return;
+        }
+    } catch { /* older main without the handler: fall through */ }
+
     const isFirstMessage = !(chat.messages || []).length;
     if (topic && !chat.topic) chat.topic = topic;   // the brief = first message; later sends are instructions
     multiaiReadClassicFields(chat);
@@ -1876,9 +1934,9 @@ async function multiaiRunRound() {
         // context settings from the store (persisted just above) and records
         // every produced message itself; `latestText` is only for @mentions.
         const result = await agentHub.multiaiRunRound({ chatId: chat.id, rounds: chat.rounds, latestText: topic });
-        if (result && result.success === false && result.error) showToast(result.error);
+        if (result && result.success === false && result.error) multiaiReportRunFailure(chat, result.error);
     } catch (e) {
-        showToast('Run failed: ' + (e.message || e));
+        multiaiReportRunFailure(chat, e.message || String(e));
     } finally {
         multiaiSetRunning(chat.id, false);
     }

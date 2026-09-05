@@ -223,7 +223,13 @@ test('run-round: refuses a second concurrent run on the same chat; stop cancels'
     const second = await invoke('multiai-run-round', { chatId: chat.id, rounds: 1 });
     assert.equal(second.success, false);
     assert.match(second.error, /already in progress/);
-    assert.deepEqual(await invoke('multiai-running'), [chat.id]);
+    // The renderer's channel carries who started the run, so a run launched by
+    // a local agent over REST/MCP can be shown differently and cannot be
+    // mistaken for one this window started. `agents` is reserved for the
+    // per-agent status strip and is empty for now. The REST contract
+    // (GET /v1/multiai/running → {running:[chatId]}) is deliberately unchanged.
+    assert.deepEqual(await invoke('multiai-running'), [{ chatId: chat.id, startedBy: 'ui', agents: [] }]);
+    assert.deepEqual(multiaiApi.running(), [chat.id], 'REST keeps its documented shape');
     await invoke('multiai-stop-run', { chatId: chat.id });
     const r = await running;
     assert.equal(r.success, true);
@@ -907,4 +913,31 @@ test('workspace seats: a second chat on the same folder starts fresh from the ba
 
     const bad = await invoke('multiai-workspace-info', { root: path.join(os.tmpdir(), 'nope-' + Date.now()), chatId: b.id });
     assert.equal(bad.ok, false);
+});
+
+// A run started by a local agent over REST/MCP has to be visible to the window
+// straight away. It used to reach the renderer only through a one-shot poll at
+// load, so an external run streamed turns into the open chat with no running
+// marker and no Stop button, and the user's next Send merged a message and a
+// cycle bump into a discussion they could not see.
+test('runs: a run started over REST announces itself, is attributed, and is stoppable', async () => {
+    const chat = newChat({ participants: ['chatgpt'], rounds: 3 });
+    let release;
+    replyFn = () => new Promise(r => { release = r; });
+    sent.length = 0;
+    const started = multiaiApi.run(chat.id, { text: 'go' });
+    await delay(20);
+
+    const ev = sent.filter(s => s.ch === 'multiai-run-started').map(s => s.p);
+    assert.deepEqual(ev, [{ chatId: chat.id, startedBy: 'agent' }], 'the window is told, and told who started it');
+
+    const live = await invoke('multiai-running');
+    assert.deepEqual(live, [{ chatId: chat.id, startedBy: 'agent', agents: [] }]);
+    assert.deepEqual(multiaiApi.running(), [chat.id], 'REST keeps its documented shape');
+
+    assert.equal(multiaiApi.stop(chat.id).stopped, true, 'and it can be stopped from either side');
+    release('late');
+    await started;                       // run() is fire-and-forget without wait:true
+    for (let i = 0; i < 50 && (await invoke('multiai-running')).length; i++) await delay(10);
+    assert.deepEqual(await invoke('multiai-running'), [], 'the run signal is cleared once it winds down');
 });
