@@ -1009,7 +1009,7 @@ const MULTIAI_AGENT_SYNC_FIELDS = ['name', 'provider', 'route', 'model', 'effort
 // What a CLI seat may do inside the chat's workspace folder (mirrors multiai-core.TOOLS).
 const MULTIAI_TOOLS = ['none', 'read', 'write', 'full'];
 const MULTIAI_TOOLS_HELP = {
-    none: 'Discussion only — no file access (the CLI runs in a scratch folder).',
+    none: 'No workspace access. Claude Code runs with its tools denied. Codex has no tool-less mode: it runs with its sandbox bypassed in an empty scratch folder, held back only by its system prompt.',
     read: 'Read-only: list, read and search files in the workspace to verify claims.',
     write: 'Edit files in the workspace; every turn is committed on the chat branch and shown as a diff. Shell limited to git status/diff/log.',
     full: 'Edit files and run any shell command in the workspace (Claude: --dangerously-skip-permissions; Codex: --dangerously-bypass-approvals-and-sandbox; Gemini: --yolo).',
@@ -1341,7 +1341,7 @@ function multiaiRenderWorkspace(chat) {
                 ${seatLine}
             </div>
         </div>
-        <div class="multiai-hint" style="margin-top: 8px;">Needs git. Every chat is a fresh start: its branch is created from your base branch (the one the folder is on, or main/master when it is parked on another chat's branch), never from another chat's changes — merge a chat's branch into your base when you want to keep its work. The folder must be clean or already on the chat's branch; Proxima never sweeps your uncommitted work into it. One writer edits at a time; readers and discussion seats overlap. <b>read</b> = list/read/search · <b>write</b> = edit + git status/diff/log · <b>full</b> = edit + any shell command (no sandbox — use on a throwaway clone). Review with <code>git log ${multiaiEscape(multiaiWorkspaceBranch(chat))}</code>, merge or delete the branch when done.</div>`;
+        <div class="multiai-hint" style="margin-top: 8px;">Needs git. Every chat is a fresh start: its branch is created from your base branch (the one the folder is on, or main/master when it is parked on another chat's branch), never from another chat's changes — merge a chat's branch into your base when you want to keep its work. Uncommitted work on another branch blocks the run; uncommitted work on the chat's own branch is swept into a commit by the next run, labelled as an interrupted turn. One writer edits at a time; readers and discussion seats overlap. <b>read</b> = list/read/search · <b>write</b> = edit + git status/diff/log · <b>full</b> = edit + any shell command (no sandbox — use on a throwaway clone). Review with <code>git log ${multiaiEscape(multiaiWorkspaceBranch(chat))}</code>, merge or delete the branch when done.</div>`;
     if (root) multiaiRefreshWorkspaceStatus(chat, root);
 }
 
