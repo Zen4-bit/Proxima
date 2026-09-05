@@ -1251,13 +1251,24 @@ function multiaiRenderParticipants(chat) {
         const tools = isCli ? (MULTIAI_TOOLS.includes(a.tools) ? a.tools : 'none') : '';
         const hasWs = !!(chat.workspace && chat.workspace.root);
         const codexNoSandbox = a.provider === 'codex-cli' && cliInfo && cliInfo.sandbox === 'missing' && (tools === 'read' || tools === 'write');
+        // Two independent signals, deliberately not merged. `toolsWarn` (amber)
+        // means "configured but inert or unenforceable". `toolsArmed` (red)
+        // means the opposite — this seat really will read and write a real
+        // repository right now, and at `full` run any shell command in it.
+        // The armed case used to be the *unmarked* one: toolsWarn is false once
+        // a workspace is attached, so the single most dangerous configuration
+        // in the app looked calmer than the harmless one. Widening toolsWarn to
+        // cover it is not the fix — toolsTitle branches on the same condition
+        // and would then tell the user an armed `full` seat has no tools.
         const toolsWarn = isCli && tools !== 'none' && (!hasWs || codexNoSandbox);
+        const toolsArmed = isCli && hasWs && (tools === 'write' || tools === 'full');
         const toolsTitle = !isCli ? 'File tools — CLI seats only (Claude Code, Codex, Gemini CLI)'
             : (!hasWs && tools !== 'none' ? `No workspace folder chosen (Workspace tab) — this seat runs without tools until one is set.\n\n${MULTIAI_TOOLS_HELP[tools]}`
                 : (codexNoSandbox ? `Codex's Windows sandbox helpers (codex-windows-sandbox-setup.exe + codex-command-runner.exe) are neither next to the codex on PATH nor bundled by the Codex desktop app, so read/write cannot be enforced — Codex will report it cannot read files. Install the Codex app, or use "full" (no sandbox).\n\n${MULTIAI_TOOLS_HELP[tools]}`
-                    : MULTIAI_TOOLS_HELP[tools]));
+                    : (toolsArmed ? `ARMED — this seat edits ${chat.workspace.root} on branch ${(chat.workspace && chat.workspace.branch) || 'multiai/…'}, and every turn is committed there.\n\n${MULTIAI_TOOLS_HELP[tools]}`
+                        : MULTIAI_TOOLS_HELP[tools])));
         const toolsCell = isCli
-            ? `<select onchange="multiaiAgentField(${i}, 'tools', this.value)" title="${multiaiEscapeAttr(toolsTitle)}" ${toolsWarn ? 'style="border-color: rgba(245,158,11,0.7);"' : ''}>${MULTIAI_TOOLS.map(t => opt(t, t === 'none' ? 'none' : (t === 'full' ? 'full ⚡' : t) + (toolsWarn ? ' ⚠' : ''), tools === t)).join('')}</select>`
+            ? `<select onchange="multiaiAgentField(${i}, 'tools', this.value)" title="${multiaiEscapeAttr(toolsTitle)}" ${toolsWarn ? 'style="border-color: rgba(245,158,11,0.7);"' : (toolsArmed ? 'style="border-color: rgba(239,68,68,0.85); background: rgba(239,68,68,0.12);"' : '')}>${MULTIAI_TOOLS.map(t => opt(t, t === 'none' ? 'none' : (t === 'full' ? 'full ⚡' : t) + (toolsWarn ? ' ⚠' : ''), tools === t)).join('')}</select>`
             : `<select disabled title="${multiaiEscapeAttr(toolsTitle)}">${opt('', '—', true)}</select>`;
         return `
             <tr class="${on ? '' : 'off'}" title="${multiaiEscapeAttr(multiaiRouteLabel(a))}">
