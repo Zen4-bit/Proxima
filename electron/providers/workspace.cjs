@@ -85,16 +85,27 @@ async function inspect(root, branch) {
     const base = exists ? null : await baseBranch(root);
     const out = { ok: true, exists: true, isRepo: true, branch: cur, dirty, chatBranch: branch || null, chatBranchExists: exists, base, head: await head(root) };
     if (dirty && cur !== branch) out.warning = `Uncommitted changes on "${cur}" — commit or stash them before running, Proxima will not touch them.`;
+    // The other dirty case used to be silent, and it is the more likely one:
+    // a run leaves the folder checked out on the chat's branch, so the user's
+    // next piece of work lands there. Say what will happen to it.
+    else if (dirty && cur === branch) out.warning = `Uncommitted changes on this chat's own branch "${cur}". If Proxima left them behind mid-turn it will commit them as WIP on the next run; if they are yours, commit or stash them first.`;
     return out;
 }
 
 // Make the workspace ready for a run: must be a git repo; switches to the
 // chat's branch, created from the base branch (see baseBranch) the first
-// time — a fresh start, never another chat's leftovers. Uncommitted changes
-// on another branch are the user's — refuse rather than sweep them into the
-// chat's branch; leftovers on our own branch (an interrupted writer turn)
-// are committed as WIP.
-async function prepare(root, branch) {
+// time — a fresh start, never another chat's leftovers.
+//
+// Uncommitted changes are only ever committed as "WIP left by an interrupted
+// turn" when they really could be that. `pending` is the marker a writer turn
+// sets before it starts and clears once it has committed, carrying the HEAD it
+// saw; if it is present and still matches HEAD, an interrupted turn is the
+// explanation and the leftovers are ours to commit. Without it the changes are
+// the user's — the run refuses rather than committing their work under the
+// app's identity with --no-verify. This matters because a run deliberately
+// leaves the folder on the chat's branch, so the user's later work lands
+// exactly here.
+async function prepare(root, branch, { pending = null } = {}) {
     if (!root) return { ok: false, error: 'No workspace folder chosen.' };
     if (!fs.existsSync(root)) return { ok: false, error: `Workspace folder does not exist: ${root}` };
     if (!(await isRepo(root))) return { ok: false, error: `Workspace must be a git repository (run \`git init\` in ${root}) so every turn is committed and diffable.` };
@@ -115,6 +126,15 @@ async function prepare(root, branch) {
     }
     let wip = null;
     if (dirty) {
+        const at = await head(root);
+        const ours = pending && pending.head && pending.head === at;
+        if (!ours) {
+            return {
+                ok: false,
+                error: `Uncommitted changes on this chat's branch "${branch}" that Proxima did not make. `
+                    + 'A run leaves the folder on this branch, so these are probably yours — commit or stash them first.',
+            };
+        }
         const c = await commitAll(root, 'multiai: WIP left by an interrupted turn');
         wip = c.committed ? c.hash : null;
     }

@@ -81,12 +81,38 @@ test('prepare: refuses to move uncommitted work from another branch, but commits
 
     git(root, ['add', '-A']); git(root, ['commit', '-q', '-m', 'mine', '--no-verify']);
     assert.equal((await ws.prepare(root, 'multiai/abc')).ok, true);
+
+    // A run leaves the folder on the chat's branch, so the user's next piece of
+    // work lands here too. Leftovers are only committed as "an interrupted
+    // turn" when a writer turn really was interrupted — which is what `pending`
+    // records. Without that marker they are the user's and the run refuses.
     fs.writeFileSync(path.join(root, 'half.txt'), 'interrupted turn\n');
-    const wip = await ws.prepare(root, 'multiai/abc');
+    const unclaimed = await ws.prepare(root, 'multiai/abc');
+    assert.equal(unclaimed.ok, false, 'work Proxima did not make is not swept up');
+    assert.match(unclaimed.error, /Proxima did not make/);
+    assert.equal(await ws.isDirty(root), true, 'and it is still there');
+
+    const pending = { head: await ws.head(root), agent: 'A', at: Date.now() };
+    const wip = await ws.prepare(root, 'multiai/abc', { pending });
     assert.equal(wip.ok, true);
-    assert.ok(wip.wip, 'leftovers were committed');
+    assert.ok(wip.wip, 'leftovers from a turn we started are committed');
     assert.equal(await ws.isDirty(root), false);
     assert.match(git(root, ['log', '-1', '--format=%s']), /WIP left by an interrupted turn/);
+
+    // A stale marker from before some other commit does not license a sweep.
+    fs.writeFileSync(path.join(root, 'later.txt'), 'user work\n');
+    const stale = await ws.prepare(root, 'multiai/abc', { pending });
+    assert.equal(stale.ok, false, 'the marker must match the current HEAD');
+});
+
+test('inspect: warns about uncommitted changes on the chat\'s own branch, not just another branch', { skip: !gitOk && 'git not installed' }, async () => {
+    const root = repo();
+    assert.equal((await ws.prepare(root, 'multiai/abc')).ok, true);
+    assert.equal((await ws.inspect(root, 'multiai/abc')).warning, undefined, 'clean tree, nothing to say');
+    fs.writeFileSync(path.join(root, 'mine.txt'), 'still working\n');
+    const info = await ws.inspect(root, 'multiai/abc');
+    assert.equal(info.dirty, true);
+    assert.match(info.warning, /this chat's own branch/, 'the likelier dirty case used to be silent');
 });
 
 test('commitAll: commits everything under the Proxima identity and reports files, stat and a bounded patch', { skip: !gitOk && 'git not installed' }, async () => {

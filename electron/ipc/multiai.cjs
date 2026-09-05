@@ -586,6 +586,10 @@ function registerMultiAiHandlers(deps) {
         let raced;
         let change = null;
         try {
+            // Mark the turn in flight before anything can write, so that if we
+            // die here the next prepare() can recognise the leftovers as ours
+            // rather than committing the user's work under the app's identity.
+            if (writer) setWorkspacePending(chatId, { head: await workspace.head(ws.root), agent: agent.name, at: Date.now() });
             raced = await sendAgent(chat, agent, built.prompt, { st, lastId: cmode === 'delta' ? built.meta.lastId : null });
             if (writer) {
                 const label = core.refLabel({ cycle, round, code: agent.code, role: 'assistant' });
@@ -593,6 +597,7 @@ function registerMultiAiHandlers(deps) {
                 catch (e) { change = { committed: false, error: e.message }; }
             }
         } finally {
+            if (writer) setWorkspacePending(chatId, null);
             if (releaseWriter) releaseWriter();
         }
         const base = { provider: agent.provider, agentId: agent.id, code: agent.code, route, cycle, round };
@@ -665,6 +670,17 @@ function registerMultiAiHandlers(deps) {
         return null;
     }
 
+    // Marks a writer turn as in flight, carrying the HEAD it started from, so
+    // that leftovers found by a later prepare() can be told apart from the
+    // user's own uncommitted work. Cleared once the turn has committed.
+    function setWorkspacePending(chatId, pending) {
+        const chat = store.getChat(chatId);
+        if (!chat || !chat.workspace) return;
+        const ws = Object.assign({}, chat.workspace);
+        if (pending) ws.pending = pending; else delete ws.pending;
+        store.updateChat(chatId, { workspace: ws });
+    }
+
     // Before a run that has workspace seats: the folder must be a git repo,
     // on the chat's branch, with nothing of the user's uncommitted.
     async function prepareWorkspace(chatId, chat, agents) {
@@ -673,8 +689,9 @@ function registerMultiAiHandlers(deps) {
         const seats = agents.filter(a => workspaceFor(chat, a));
         if (!seats.length) return null;
         const branch = chat.workspace.branch || workspace.branchFor(chat.id);
-        const r = await workspace.prepare(root, branch);
+        const r = await workspace.prepare(root, branch, { pending: chat.workspace.pending || null });
         if (!r.ok) throw new Error(r.error);
+        if (chat.workspace.pending) setWorkspacePending(chatId, null);
         if (!chat.workspace.branch) store.updateChat(chatId, { workspace: Object.assign({}, chat.workspace, { branch }) });
         note(chatId, `Workspace ${root} on branch ${branch}${r.created ? ` (created from ${r.from})` : ''}${r.wip ? ' — leftover changes from an interrupted turn were committed as WIP' : ''}. Seats with tools: ${seats.map(a => `${a.name} (${a.tools})`).join(', ')}.`);
         return r;
