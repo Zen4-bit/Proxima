@@ -915,6 +915,53 @@ test('workspace seats: a second chat on the same folder starts fresh from the ba
     assert.equal(bad.ok, false);
 });
 
+// Two chats can point at one folder — one from the UI, one over REST, which is
+// exactly the concurrent-agents case this feature exists to enable. The working
+// tree is shared, so overlapping runs would check out different multiai/*
+// branches while the other's seats were mid-edit and each `git add -A` would
+// sweep up the other's work. The refusal has to be synchronous: without
+// wait:true the run is fire-and-forget, so a conflict found inside it would
+// come back as {started:true} and the caller would poll /wait forever.
+test('workspace: a second chat on the same folder is refused while the first is running', { skip: !gitOk && 'git not installed' }, async () => {
+    const root = tempRepo();
+    const a = newChat({ participants: ['chatgpt'], workspace: { root }, rounds: 3 });
+    const b = newChat({ participants: ['chatgpt'], workspace: { root }, rounds: 1 });
+    let release;
+    replyFn = () => new Promise(r => { release = r; });
+
+    const running = multiaiApi.run(a.id, { text: 'go' });
+    await delay(20);
+
+    await assert.rejects(() => multiaiApi.run(b.id, { text: 'go' }),
+        e => e.status === 409 && /in use by chat/.test(e.message),
+        'REST refuses with 409, synchronously');
+    const viaIpc = await invoke('multiai-run-round', { chatId: b.id, rounds: 1 });
+    assert.equal(viaIpc.success, false);
+    assert.match(viaIpc.error, /is in use by/, 'and the UI path is refused too, by name');
+
+    // A chat with no workspace is unaffected — the lock is per repository.
+    const c = newChat({ participants: ['chatgpt'], rounds: 1 });
+    assert.equal(multiaiApi.running().includes(c.id), false);
+
+    multiaiApi.stop(a.id);
+    release('done');
+    await running;
+    for (let i = 0; i < 50 && (await invoke('multiai-running')).length; i++) await delay(10);
+    replyFn = async () => 'ok';
+    assert.equal((await invoke('multiai-run-round', { chatId: b.id, rounds: 1 })).success, true, 'and allowed once the first finishes');
+});
+
+// A run that dies before producing anything used to return 200 {messages:[]}
+// with wait:true and 202 {started:true} without, with the reason only in the
+// Electron console — indistinguishable from "the panel had nothing to say".
+test('REST: a run that fails immediately reports the failure instead of {started:true}', async () => {
+    const chat = newChat({ participants: [], agents: [], rounds: 1 });
+    await assert.rejects(() => multiaiApi.run(chat.id, { text: 'go' }),
+        e => e.status === 409 && /No participants/.test(e.message));
+    await assert.rejects(() => multiaiApi.run(chat.id, { text: 'go', wait: true }),
+        e => e.status === 409 && /No participants/.test(e.message));
+});
+
 // A run started by a local agent over REST/MCP has to be visible to the window
 // straight away. It used to reach the renderer only through a one-shot poll at
 // load, so an external run streamed turns into the open chat with no running

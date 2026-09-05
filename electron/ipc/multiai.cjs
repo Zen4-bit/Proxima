@@ -626,14 +626,43 @@ function registerMultiAiHandlers(deps) {
         return { ok: true, handoff: chat.charterMode ? core.parseHandoff(text, opts.participants) : null };
     }
 
-    // One writer at a time per chat.
+    // One writer at a time per *repository*, not per chat. Two chats can point
+    // at the same folder — one driven from the UI, one over REST, which is the
+    // concurrent-agents case this feature exists to enable — and the working
+    // tree is shared: they would check out different multiai/* branches while
+    // the other's seats were mid-edit, and each `git add -A` would sweep the
+    // other's in-progress work into its own commit.
     const writerLocks = new Map();
+    function writerKey(chatId) {
+        const chat = store.getChat(chatId);
+        const root = chat && chat.workspace && chat.workspace.root;
+        return root ? `root:${path.resolve(root).toLowerCase()}` : `chat:${chatId}`;
+    }
     function acquireWriter(chatId) {
-        const prev = writerLocks.get(chatId) || Promise.resolve();
+        const key = writerKey(chatId);
+        const prev = writerLocks.get(key) || Promise.resolve();
         let release;
         const next = new Promise(res => { release = res; });
-        writerLocks.set(chatId, prev.then(() => next));
+        writerLocks.set(key, prev.then(() => next));
         return prev.then(() => release);
+    }
+
+    // Which running chat, if any, already claims this chat's workspace folder.
+    // Checked before a run starts so the refusal is synchronous and the caller
+    // gets a real status code, rather than surfacing later inside a run whose
+    // rejection the fire-and-forget path would swallow.
+    function workspaceClaimedBy(chatId) {
+        const chat = store.getChat(chatId);
+        const root = chat && chat.workspace && chat.workspace.root;
+        if (!root) return null;
+        const mine = path.resolve(root).toLowerCase();
+        for (const otherId of runSignals.keys()) {
+            if (otherId === chatId) continue;
+            const other = store.getChat(otherId);
+            const theirs = other && other.workspace && other.workspace.root;
+            if (theirs && path.resolve(theirs).toLowerCase() === mine) return otherId;
+        }
+        return null;
     }
 
     // Before a run that has workspace seats: the folder must be a git repo,
@@ -679,6 +708,11 @@ function registerMultiAiHandlers(deps) {
     async function runClassic({ chatId, rounds, latestText, startedBy }) {
         const chat0 = store.getChat(chatId);
         if (!chat0) throw new Error('Chat not found');
+        const claimed = workspaceClaimedBy(chatId);
+        if (claimed) {
+            const other = store.getChat(claimed);
+            throw new Error(`Workspace ${chat0.workspace.root} is in use by "${(other && other.title) || claimed}". Wait for that run to finish, or stop it.`);
+        }
         const sig = startSignal(chatId, startedBy || 'ui');
         try {
             const enabled = enabledProviders();
@@ -1293,6 +1327,12 @@ function registerMultiAiHandlers(deps) {
             const chat = store.getChat(chatId);
             if (!chat) throw apiError(404, 'Chat not found');
             if (isRunning(chatId)) throw apiError(409, 'A run is already in progress for this chat');
+            // Checked here, synchronously, for the same reason the line above
+            // is: the run itself is fire-and-forget without wait:true, so a
+            // conflict discovered inside it would come back as {started:true}
+            // and the caller would poll /wait forever.
+            const claimed = workspaceClaimedBy(chatId);
+            if (claimed) throw apiError(409, `Workspace ${chat.workspace.root} is in use by chat ${claimed}`);
             const text = String(body.text || '').trim();
             if (text) {
                 store.updateChat(chatId, { cycle: (chat.cycle || 0) + 1, topic: chat.topic || text });
@@ -1303,8 +1343,25 @@ function registerMultiAiHandlers(deps) {
                 store.updateChat(chatId, { cycle: 1 });
             }
             const rounds = body.rounds != null ? Number(body.rounds) : undefined;
-            const runP = runClassic({ chatId, rounds, latestText: text, startedBy: 'agent' }).catch(e => { console.error('[MultiAI] API run failed:', e.message); return []; });
-            if (body.wait) return { messages: withLabels(await runP) };
+            // A run that fails before producing anything — the dirty-tree
+            // refusal is the realistic case, and it is the feature's headline
+            // safety check — used to come back as 200 {messages:[]} with
+            // wait:true and 202 {started:true} without, with the reason only in
+            // the Electron console. A caller could not tell "the workspace
+            // refused" from "the panel had nothing to say".
+            let runErr = null;
+            const runP = runClassic({ chatId, rounds, latestText: text, startedBy: 'agent' })
+                .catch(e => { runErr = e; console.error('[MultiAI] API run failed:', e.message); return []; });
+            if (body.wait) {
+                const messages = withLabels(await runP);
+                if (runErr) throw apiError(runErr.status || 409, runErr.message);
+                return { messages };
+            }
+            // Give a synchronous failure (thrown before the first await inside
+            // runClassic) a tick to land, so an immediately-doomed run is not
+            // reported as started.
+            await Promise.resolve();
+            if (runErr) throw apiError(runErr.status || 409, runErr.message);
             return { started: true, chatId };
         },
 
