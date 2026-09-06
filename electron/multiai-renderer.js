@@ -147,6 +147,11 @@ async function multiaiInit() {
     if (multiaiState.initDone) {
         multiaiRenderChatList();
         multiaiRenderChat();
+        // Re-read Settings-derived state on every return to the tab: the usual
+        // flow is to notice "auto → tab", go to Settings, turn API mode on, and
+        // come back, and the roster used to keep claiming the old routing while
+        // the run resolved routes fresh in main.
+        multiaiRefreshRoutes({ probe: false });
         return;
     }
     multiaiState.initDone = true;
@@ -454,7 +459,7 @@ function multiaiRenderChatList() {
     if (!list) return;
     const allChats = multiaiState.data.projects.flatMap(p => p.chats);
     if (allChats.length === 0) {
-        list.innerHTML = '<div style="padding: 14px 22px; color: #6b7280; font-size: 0.8rem;">No chats yet.</div>';
+        list.innerHTML = '<div style="padding: 14px 22px; color: #9ca3af; font-size: 0.8rem;">No chats yet.</div>';
         return;
     }
     list.innerHTML = allChats
@@ -468,8 +473,8 @@ function multiaiRenderChatList() {
                     ${multiaiIsRunning(c.id) ? `<span title="${multiaiIsExternalRun(c.id) ? 'Running — started by a local agent over the REST API or MCP' : 'Running'}" style="color:${multiaiIsExternalRun(c.id) ? '#f59e0b' : '#34d399'};">●</span> ` : ''}${c.mode === 'orchestrated' ? '🧩' : '💬'} ${multiaiEscape(c.title || 'Untitled')}
                 </span>
                 <span class="multiai-chat-actions" style="display: flex; gap: 2px; flex-shrink: 0;">
-                    <button onclick="event.stopPropagation(); multiaiRenameChat('${c.id}')" title="Rename chat" style="background: none; border: none; color: #6b7280; cursor: pointer; font-size: 0.78rem; padding: 2px 4px;">✏</button>
-                    <button onclick="event.stopPropagation(); multiaiDeleteChat('${c.id}')" title="Delete chat" style="background: none; border: none; color: #6b7280; cursor: pointer; font-size: 0.78rem; padding: 2px 4px;">🗑</button>
+                    <button onclick="event.stopPropagation(); multiaiRenameChat('${c.id}')" title="Rename chat" style="background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 0.78rem; padding: 2px 4px;">✏</button>
+                    <button onclick="event.stopPropagation(); multiaiDeleteChat('${c.id}')" title="Delete chat" style="background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 0.78rem; padding: 2px 4px;">🗑</button>
                 </span>
             </div>
         `).join('');
@@ -737,11 +742,17 @@ function multiaiToggleOptions() {
 // Pick a tab; clicking one while collapsed also expands the panel.
 function multiaiSelectOptab(name) {
     const prefs = multiaiUiPrefs();
-    if (prefs.optab === name && prefs.optionsExpanded) { multiaiToggleOptions(); return; }
+    // Selecting a tab always selects it. It used to double as "collapse the
+    // panel" when the tab was already active, which reads as the panel breaking;
+    // the chevron is the control for that.
     prefs.optab = name;
     prefs.optionsExpanded = true;
     multiaiPersist();
     multiaiApplyOptionsState();
+    // The Workspace preview was a snapshot from whenever the chat was last
+    // rendered, so dirtying the repo in another window left it showing a stale
+    // answer with no way to re-check.
+    if (name === 'workspace') { const c = multiaiCurrentChat(); if (c) multiaiRefreshWorkspaceStatus(c); }
 }
 
 function multiaiApplyOptionsState() {
@@ -898,13 +909,13 @@ function multiaiRenderLedger(chat) {
         const roundLabel = `C${m.cycle || 1}·R${m.round || 0}`;
         return `
             <tr style="border-top: 1px solid rgba(255,255,255,0.06); cursor: pointer;" onclick="multiaiScrollToMessage('${m.id}')" oncontextmenu="return multiaiShowMsgMenu(event, '${m.id}')" title="Click to jump to this message in the transcript · right-click for more">
-                <td style="padding: 5px 8px; color: #6b7280; white-space: nowrap;">${multiaiEscape(roundLabel)}</td>
+                <td style="padding: 5px 8px; color: #9ca3af; white-space: nowrap;">${multiaiEscape(roundLabel)}</td>
                 <td style="padding: 5px 8px; color: #93c5fd;">${multiaiEscape(m.who || m.provider || '')}</td>
-                <td style="padding: 5px 8px; color: #6b7280; white-space: nowrap;">${time}</td>
+                <td style="padding: 5px 8px; color: #9ca3af; white-space: nowrap;">${time}</td>
                 <td style="padding: 5px 8px; color: #d1d5db;">${multiaiEscape(snippet)}${(m.text || '').length > 90 ? '…' : ''}</td>
             </tr>
         `;
-    }).join('') || '<tr><td colspan="4" style="padding: 10px; color: #6b7280;">No messages match the current filters.</td></tr>';
+    }).join('') || '<tr><td colspan="4" style="padding: 10px; color: #9ca3af;">No messages match the current filters.</td></tr>';
 }
 
 // Rebuilds the ledger's R#/Agent filter dropdowns from whatever's actually
@@ -1149,7 +1160,15 @@ function multiaiLibrarySave(agent) {
 function multiaiLibraryRemove(uid) {
     const lib = multiaiAgentLibrary();
     const i = lib.findIndex(x => x.uid === uid);
-    if (i !== -1) lib.splice(i, 1);
+    if (i === -1) return;
+    // The library is not just "what new chats start with": every entry is also
+    // published as a model id on the REST port and to MCP clients, so removing
+    // one stops that id resolving for anything calling it by name.
+    const gone = lib[i];
+    if (!window.confirm(`Remove "${gone.name || 'this agent'}" from the library?
+
+New chats will no longer start with it, and cli:${gone.id || ''} will stop resolving for local agents and OpenAI-compatible clients.`)) return;
+    lib.splice(i, 1);
     (multiaiState.data.projects || []).forEach(p => (p.chats || []).forEach(c => (c.agents || []).forEach(a => { if (a.uid === uid) delete a.uid; })));
     multiaiPersist();
     const chat = multiaiCurrentChat();
@@ -1296,9 +1315,9 @@ function multiaiRenderParticipants(chat) {
         </select>`;
     const libManage = multiaiState.agentMenuOpen && lib.length ? `
         <div style="flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 0 2px;">
-            <span style="font-size: 0.66rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: .6px;">Library</span>
-            ${lib.map(a => `<span style="display: inline-flex; align-items: center; gap: 4px; border: 1px solid rgba(255,255,255,0.12); border-radius: 999px; padding: 2px 6px 2px 8px; font-size: 0.72rem; color: #d1d5db;">${multiaiEscape(a.name)}${inChat.has(a.uid) ? ' <span style="color:#6b7280">· in chat</span>' : ''}<button onclick="multiaiLibraryRemove('${multiaiEscapeAttr(a.uid)}')" title="Remove from the library (chats keep their copy)" style="background: none; border: none; color: #6b7280; cursor: pointer; font-size: 0.8rem; padding: 0 2px;">✕</button></span>`).join('')}
-            <span style="font-size: 0.7rem; color: #6b7280;">— new chats start with all of these</span>
+            <span style="font-size: 0.66rem; font-weight: 700; color: #8b8ba0; text-transform: uppercase; letter-spacing: .6px;">Library</span>
+            ${lib.map(a => `<span style="display: inline-flex; align-items: center; gap: 4px; border: 1px solid rgba(255,255,255,0.12); border-radius: 999px; padding: 2px 6px 2px 8px; font-size: 0.72rem; color: #d1d5db;">${multiaiEscape(a.name)}${inChat.has(a.uid) ? ' <span style="color:#9ca3af">· in chat</span>' : ''}<button onclick="multiaiLibraryRemove('${multiaiEscapeAttr(a.uid)}')" title="Remove from the library (chats keep their copy)" style="background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 0.8rem; padding: 0 2px;">✕</button></span>`).join('')}
+            <span style="font-size: 0.7rem; color: #9ca3af;">— new chats start with all of these, and each is also served as <code>cli:&lt;id&gt;</code> on the REST port and to MCP clients (its persona goes along as the system prompt)</span>
         </div>` : '';
     const mode = routes.apiMode ? 'API mode ON in Settings' : 'API mode OFF in Settings — auto agents use the browser tabs';
     const cliLine = ['claude-cli', 'codex-cli', 'gemini-cli'].map(pv => {
@@ -1316,7 +1335,7 @@ function multiaiRenderParticipants(chat) {
         <div style="overflow-x: auto;">
         <table class="multiai-roster">
             <thead><tr><th></th><th>Agent</th><th>Provider</th><th>Route</th><th>Model</th><th>Effort</th><th title="Workspace file tools (CLI seats): none · read · write · full — see the Workspace tab">Tools</th><th>Persona</th><th></th></tr></thead>
-            <tbody>${rows || `<tr><td colspan="9" style="color: #6b7280; padding: 10px 6px;">No agents yet — add one below. Agents go into the library, so every new chat starts with them; tick / untick to choose who takes part in this one.</td></tr>`}</tbody>
+            <tbody>${rows || `<tr><td colspan="9" style="color: #9ca3af; padding: 10px 6px;">No agents yet — add one below. Agents go into the library, so every new chat starts with them; tick / untick to choose who takes part in this one.</td></tr>`}</tbody>
         </table>
         </div>
         <div class="multiai-roster-foot">
@@ -1325,10 +1344,10 @@ function multiaiRenderParticipants(chat) {
             <button class="multiai-btn ghost" onclick="multiaiAgentsSetAll(false)" title="Disable all">none</button>
             <button class="multiai-btn ghost" onclick="multiaiAgentMenuToggle()" title="Show the library (what new chats start with)">📚 library · ${lib.length}</button>
             <button class="multiai-btn ghost" onclick="multiaiOpenPersonasFolder()" title="Open the folder of persona .md/.txt files">🎭 personas</button>
-            <button class="multiai-btn ghost" onclick="multiaiRefreshRoutes()" title="Re-read Settings (API mode, keys, models) and CLI availability">↻</button>
+            <button id="multiai-refresh-routes" class="multiai-btn ghost" onclick="multiaiRefreshRoutes()" aria-label="Re-probe CLIs and re-read Settings" title="Re-read Settings (API mode, keys, models) and re-probe the local CLIs">↻</button>
             <span style="flex: 1;"></span>
             <span>${enabledN}/${agents.length} enabled · ${multiaiEscape(mode)}</span>
-            ${cliLine ? `<span style="flex-basis: 100%; font-size: 0.68rem; color: #4b4b60;" title="What the local CLIs report (↻ re-probes them)">${multiaiEscape(cliLine)}</span>` : ''}
+            ${cliLine ? `<span style="flex-basis: 100%; font-size: 0.68rem; color: #8b8ba0;" title="What the local CLIs report (↻ re-probes them)">${multiaiEscape(cliLine)}</span>` : ''}
             ${libManage}
         </div>`;
 }
@@ -1527,6 +1546,11 @@ function multiaiAgentDuplicate(i) {
 function multiaiAgentRemove(i) {
     const chat = multiaiCurrentChat();
     if (!chat || !chat.agents) return;
+    // One mis-click used to destroy a configured seat's provider, model,
+    // effort, tools level and persona with no undo, while deleting a whole
+    // chat — strictly less costly — did confirm.
+    const a = chat.agents[i];
+    if (a && !window.confirm(`Remove the "${a.name || 'unnamed'}" seat from this chat?`)) return;
     chat.agents.splice(i, 1);
     multiaiEnsureAgents(chat);
     multiaiPersist();
@@ -1604,8 +1628,25 @@ function multiaiAgentPersona(i, personaName) {
     multiaiPersist();
 }
 
-async function multiaiRefreshRoutes() {
-    try { multiaiState.routes = await agentHub.multiaiRoutes({ probe: true }); } catch { /* older main */ }
+// The one control that recovers three separate stale states — routes after a
+// Settings change, a poisoned discovery cache, and a newly-installed CLI. It
+// used to be a bare glyph with no busy state, no success signal and a silent
+// catch, so "refreshed, nothing changed" and "refresh is broken" looked the
+// same and the natural response was to click it again.
+async function multiaiRefreshRoutes({ probe = true } = {}) {
+    if (multiaiState.refreshingRoutes) return;
+    multiaiState.refreshingRoutes = true;
+    const btn = document.getElementById('multiai-refresh-routes');
+    if (btn && probe) { btn.disabled = true; btn.textContent = '⏳'; }
+    try {
+        multiaiState.routes = await agentHub.multiaiRoutes({ probe });
+        if (probe) showToast('CLIs and routes re-probed.');
+    } catch (e) {
+        if (probe) showToast('Could not probe the CLIs: ' + (e.message || e));
+    } finally {
+        multiaiState.refreshingRoutes = false;
+        if (btn && probe) { btn.disabled = false; btn.textContent = '↻'; }
+    }
     const chat = multiaiCurrentChat();
     if (chat) { multiaiRenderParticipants(chat); multiaiRenderOptionsSummary(chat); }
 }
@@ -1706,13 +1747,106 @@ function multiaiRenderFeed(chat) {
     const feed = document.getElementById('multiai-feed');
     if (!feed) return;
     feed.innerHTML = '';
+    // The feed is the largest region on screen and said nothing at all when a
+    // chat had no agents — the only feedback was a 2.5s toast after Send, with
+    // no indication that Agents is a tab you have to expand.
+    if (!(chat.messages || []).length && !multiaiActiveAgents(chat).length) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'margin: auto; text-align: center; color: #9ca3af; font-size: 0.85rem; line-height: 1.6; max-width: 34rem;';
+        empty.innerHTML = `
+            <div style="font-size: 0.95rem; color: #d1d5db; margin-bottom: 6px;">No agents in this chat yet</div>
+            <div>Add ChatGPT, Claude, Gemini or Perplexity, an API seat, or a local Claude Code / Codex / Gemini CLI seat — then send a message and they discuss it.</div>
+            <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: center;">
+                <button class="multiai-btn" onclick="multiaiSelectOptab('agents')">Add agents</button>
+                <button class="multiai-btn ghost" onclick="multiaiOpenHelp()">How this works</button>
+            </div>`;
+        feed.appendChild(empty);
+    }
     (chat.messages || []).forEach(m => multiaiAppendFeedItem(m, /*skipScroll*/ true));
     feed.scrollTop = feed.scrollHeight;
+    multiaiSetNewBelow(false);
+    if (!feed.dataset.followWired) {
+        feed.dataset.followWired = '1';
+        feed.addEventListener('scroll', () => { if (multiaiFeedAtBottom(feed)) multiaiSetNewBelow(false); });
+    }
+}
+
+// Only follow the tail if the reader is already there. Every append used to
+// force feed.scrollTop = scrollHeight, so scrolling up to compare two answers
+// or read an expanded diff was undone by the next arriving turn — a dozen
+// forced jumps in a four-seat, three-round run.
+function multiaiFeedAtBottom(feed) {
+    return !feed || (feed.scrollHeight - feed.scrollTop - feed.clientHeight) < 60;
+}
+function multiaiFeedFollow(feed, wasAtBottom) {
+    if (!feed) return;
+    if (wasAtBottom) { feed.scrollTop = feed.scrollHeight; multiaiSetNewBelow(false); }
+    else multiaiSetNewBelow(true);
+}
+// A quiet marker beats a jump: it says there is something new without moving
+// what the reader is looking at.
+function multiaiSetNewBelow(on) {
+    const pill = document.getElementById('multiai-new-below');
+    if (pill) pill.style.display = on ? 'block' : 'none';
+}
+
+// The whole point of the feature is running one provider several times at
+// different models and efforts, but the feed showed only the agent's name — so
+// if a name was edited, or an `api` seat quietly fell back to the browser tab,
+// there was no way to tell what actually answered. The message already carries
+// both, and REST already exposes them; only the UI dropped them.
+function multiaiOriginLabel(message) {
+    if (!message || message.role === 'user' || message.role === 'system') return '';
+    const bits = [message.model, message.route].filter(Boolean).map(String);
+    if (!bits.length) return '';
+    return ` <span title="What actually produced this turn" style="color:#8b8ba0; font-weight:600; letter-spacing:0; text-transform:none;">· ${multiaiEscape(bits.join(' · '))}</span>`;
+}
+
+// A tool-less CLI seat that emits tool-call syntax is not narrating — it is
+// fabricating, and the invented "file contents" that follow read exactly like
+// quoted evidence to every other agent. Mark it rather than let the feed's
+// neutrality launder it.
+function multiaiToolClaimBadge(message) {
+    if (!message || !message.toolClaim) return '';
+    return ' <span title="This seat has no tools at its Tools level, but its reply contains tool-call syntax. Treat any file contents or command output in it as invented." style="color:#f59e0b; font-weight:600; letter-spacing:0; text-transform:none;">· claimed a tool call</span>';
+}
+
+// Every provider replies in markdown, and the feed rendered it as literal
+// text — so a code review answer, a trade-off table, or the judge's structured
+// verdict all arrived with visible **, ### and ``` in the body font. This is
+// deliberately not a markdown parser: fenced blocks, inline code, bold and
+// headings cover almost all of the pain, and a CDN dependency is not available
+// here. Everything is escaped first, so only these tags are ever produced.
+function multiaiLightMarkdown(raw) {
+    const inline = (t) => multiaiEscape(t)
+        .replace(/`([^`\n]+)`/g, '<code style="background: rgba(255,255,255,0.08); padding: 1px 4px; border-radius: 4px; font-size: 0.92em;">$1</code>')
+        .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    const parts = String(raw || '').split(/```/);
+    return parts.map((part, i) => {
+        if (i % 2 === 1) {
+            // Odd chunks are inside a fence. Drop an optional language tag.
+            const body = part.replace(/^[a-zA-Z0-9_+-]*\r?\n/, '');
+            return `<pre style="margin: 6px 0; padding: 8px 10px; border-radius: 6px; background: rgba(0,0,0,0.35); overflow-x: auto; max-height: 40vh; overflow-y: auto; font-size: 0.8rem; line-height: 1.45;">${multiaiEscape(body.replace(/\s+$/, ''))}</pre>`;
+        }
+        return part.split(/\r?\n/).map(line => {
+            const h = /^(#{1,6})\s+(.*)$/.exec(line);
+            if (h) return `<div style="font-weight: 700; color: #f3f4f6; margin: 6px 0 2px;">${inline(h[2])}</div>`;
+            return inline(line);
+        }).join('\n');
+    }).join('');
+}
+
+function multiaiJumpToLatest() {
+    const feed = document.getElementById('multiai-feed');
+    if (!feed) return;
+    feed.scrollTop = feed.scrollHeight;
+    multiaiSetNewBelow(false);
 }
 
 function multiaiAppendFeedItem(message, skipScroll) {
     const feed = document.getElementById('multiai-feed');
     if (!feed) return;
+    const wasAtBottom = multiaiFeedAtBottom(feed);
     if (!message.id) message.id = multiaiGenMsgId();
     const isError = message.role === 'error';
     const isJudge = message.role === 'judge';
@@ -1726,7 +1860,7 @@ function multiaiAppendFeedItem(message, skipScroll) {
         note.style.cssText = 'text-align: center; font-size: 0.72rem; color: #9ca3af; margin: 4px 0;';
         note.textContent = message.text || '';
         feed.appendChild(note);
-        if (!skipScroll) feed.scrollTop = feed.scrollHeight;
+        if (!skipScroll) multiaiFeedFollow(feed, wasAtBottom);
         return;
     }
     const item = document.createElement('div');
@@ -1743,13 +1877,13 @@ function multiaiAppendFeedItem(message, skipScroll) {
         item.innerHTML = `
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
                 <div style="font-size: 0.72rem; font-weight: 700; color: #fbbf24; text-transform: uppercase; letter-spacing: 0.5px;">🛠 ${multiaiEscape(message.who || 'changes')}${message.commit ? ` <span style="font-weight: 600; letter-spacing: 0; text-transform: none; color: #d1d5db;">· ${multiaiEscape(String(message.commit).slice(0, 8))}</span>` : ''}</div>
-                <div title="Reference label — right-click this message for options" style="font-size: 0.62rem; color: #4b4b60; font-weight: 600; letter-spacing: 0.5px; flex-shrink: 0;">${multiaiRefLabel(message)}</div>
+                <div title="Reference label — right-click this message for options" style="font-size: 0.62rem; color: #8b8ba0; font-weight: 600; letter-spacing: 0.5px; flex-shrink: 0;">${multiaiRefLabel(message)}</div>
             </div>
             <div style="font-size: 0.82rem; color: #e5e7eb; white-space: pre-wrap; line-height: 1.5; font-family: ui-monospace, Menlo, Consolas, monospace;">${multiaiEscape(head)}</div>
             ${files.length && !head ? `<div style="font-size: 0.78rem; color: #d1d5db;">${files.map(f => `<code>${multiaiEscape(f)}</code>`).join(' · ')}</div>` : ''}
-            ${diff ? `<details style="margin-top: 8px; font-size: 0.76rem;"><summary style="cursor: pointer; color: #fbbf24;">diff</summary><pre style="white-space: pre; overflow-x: auto; margin: 6px 0 0 0; padding: 8px; border-radius: 6px; background: rgba(0,0,0,0.35); color: #d1d5db; font-size: 0.74rem; line-height: 1.4;">${multiaiDiffHtml(diff)}</pre></details>` : ''}`;
+            ${diff ? `<details style="margin-top: 8px; font-size: 0.76rem;"><summary style="cursor: pointer; color: #fbbf24;">diff${files.length ? ` · ${files.length} file${files.length === 1 ? '' : 's'}` : ''}${message.truncated ? ' · truncated — run git show ' + multiaiEscape(String(message.commit || '').slice(0, 8)) + ' for the rest' : ''}</summary><pre style="white-space: pre; overflow-x: auto; max-height: 40vh; overflow-y: auto; margin: 6px 0 0 0; padding: 8px; border-radius: 6px; background: rgba(0,0,0,0.35); color: #d1d5db; font-size: 0.74rem; line-height: 1.4;">${multiaiDiffHtml(diff)}</pre></details>` : ''}`;
         feed.appendChild(item);
-        if (!skipScroll) feed.scrollTop = feed.scrollHeight;
+        if (!skipScroll) multiaiFeedFollow(feed, wasAtBottom);
         return;
     }
     const border = isError ? 'border-color: rgba(239,68,68,0.4); background: rgba(239,68,68,0.06);'
@@ -1763,23 +1897,24 @@ function multiaiAppendFeedItem(message, skipScroll) {
     const attach = message.attachmentsText ? `<details style="margin-top: 6px; font-size: 0.76rem; color: #9ca3af;"><summary style="cursor: pointer;">📎 attached context (${message.attachmentsText.length.toLocaleString()} chars)</summary><pre style="white-space: pre-wrap; margin: 6px 0 0 0; font-family: inherit;">${multiaiEscape(message.attachmentsText)}</pre></details>` : '';
     item.innerHTML = `
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
-            <div style="font-size: 0.72rem; font-weight: 700; color: ${color}; text-transform: uppercase; letter-spacing: 0.5px;">${multiaiEscape(message.who || message.provider || '')}${message.redTeam ? ' <span title="Held the red-team seat this round" style="color:#f87171; font-weight:600; letter-spacing:0;">· red team</span>' : ''}</div>
-            <div title="Reference label — right-click this message for options" style="font-size: 0.62rem; color: #4b4b60; font-weight: 600; letter-spacing: 0.5px; flex-shrink: 0;">${multiaiRefLabel(message)}</div>
+            <div style="font-size: 0.72rem; font-weight: 700; color: ${color}; text-transform: uppercase; letter-spacing: 0.5px;">${multiaiEscape(message.who || message.provider || '')}${message.redTeam ? ' <span title="Held the red-team seat this round" style="color:#f87171; font-weight:600; letter-spacing:0;">· red team</span>' : ''}${multiaiOriginLabel(message)}${multiaiToolClaimBadge(message)}</div>
+            <div title="Reference label — right-click this message for options" style="font-size: 0.62rem; color: #8b8ba0; font-weight: 600; letter-spacing: 0.5px; flex-shrink: 0;">${multiaiRefLabel(message)}</div>
         </div>
-        <div style="font-size: 0.87rem; color: #e5e7eb; white-space: pre-wrap; line-height: 1.5;">${multiaiEscape(message.text || '')}</div>${attach}
+        <div style="font-size: 0.87rem; color: #e5e7eb; white-space: pre-wrap; line-height: 1.5;">${isUser ? multiaiEscape(message.text || '') : multiaiLightMarkdown(message.text || '')}</div>${attach}
     `;
     feed.appendChild(item);
-    if (!skipScroll) feed.scrollTop = feed.scrollHeight;
+    if (!skipScroll) multiaiFeedFollow(feed, wasAtBottom);
 }
 
 function multiaiAppendSystemNote(text) {
     const feed = document.getElementById('multiai-feed');
     if (!feed) return;
+    const wasAtBottom = multiaiFeedAtBottom(feed);
     const note = document.createElement('div');
-    note.style.cssText = 'text-align: center; font-size: 0.72rem; color: #6b7280; margin: 4px 0;';
+    note.style.cssText = 'text-align: center; font-size: 0.72rem; color: #9ca3af; margin: 4px 0;';
     note.textContent = text;
     feed.appendChild(note);
-    feed.scrollTop = feed.scrollHeight;
+    multiaiFeedFollow(feed, wasAtBottom);
 }
 
 function multiaiSetThinking(provider, on, who) {
@@ -2212,7 +2347,7 @@ function multiaiRenderStrategyForm() {
                     <input id="multiai-loop-max-turns" type="number" min="1" max="10" value="${loopConfig.maxTurns || 3}" onchange="multiaiPersistLoopConfig()" style="width: 50px; margin-left: 6px; background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 4px 8px;">
                 </label>
             </div>
-            <div style="font-size: 0.74rem; color: #6b7280; margin-top: 8px;">Saved with this chat.</div>
+            <div style="font-size: 0.74rem; color: #9ca3af; margin-top: 8px;">Saved with this chat.</div>
         `;
     } else if (strategy === 'agent') {
         if (chat && !chat.agentConfig) chat.agentConfig = { provider: '', root: '', maxTurns: 6 };
@@ -2230,7 +2365,7 @@ function multiaiRenderStrategyForm() {
                 </label>
                 <button class="header-btn" onclick="multiaiPickAgentFolder()">📁 Choose working folder…</button>
             </div>
-            <div style="font-size: 0.78rem; color: ${cfg.root ? '#93c5fd' : '#6b7280'};">${cfg.root ? multiaiEscape(cfg.root) : 'No folder chosen yet — required before Run.'}</div>
+            <div style="font-size: 0.78rem; color: ${cfg.root ? '#93c5fd' : '#9ca3af'};">${cfg.root ? multiaiEscape(cfg.root) : 'No folder chosen yet — required before Run.'}</div>
         `;
     }
     if (chat) multiaiRenderOptionsSummary(chat);

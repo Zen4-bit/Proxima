@@ -336,7 +336,7 @@
         .sidebar-section-header {
             font-size: 0.65rem;
             font-weight: 700;
-            color: #4b4b60;
+            color: #8b8ba0;
             text-transform: uppercase;
             letter-spacing: 0.8px;
             padding: 14px 14px 4px 22px;
@@ -831,7 +831,7 @@
         }
 
         .welcome-sub-light {
-            color: #6b7280;
+            color: #9ca3af;
             font-size: 0.9rem;
             display: block;
             margin-top: 6px;
@@ -905,7 +905,7 @@
 
         .welcome-step-desc {
             font-size: 0.8rem;
-            color: #6b7280;
+            color: #9ca3af;
             line-height: 1.4;
         }
 
@@ -1280,7 +1280,7 @@
         .multiai-field select, .multiai-field input { display: block; margin-top: 4px; background: rgba(255,255,255,0.06); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 5px 8px; font-size: 0.78rem; font-family: inherit; box-sizing: border-box; }
         .multiai-check { display: flex; align-items: center; gap: 6px; font-size: 0.76rem; color: #d1d5db; padding-bottom: 7px; cursor: pointer; }
         .multiai-check input { accent-color: #a855f7; }
-        .multiai-hint { font-size: 0.7rem; color: #6b7280; line-height: 1.45; flex-basis: 100%; }
+        .multiai-hint { font-size: 0.7rem; color: #9ca3af; line-height: 1.45; flex-basis: 100%; }
         .multiai-hint code { color: #9ca3af; font-size: 0.68rem; }
         .multiai-btn { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); color: #e5e7eb; border-radius: 7px; padding: 5px 10px; font-size: 0.76rem; font-family: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
         .multiai-btn:hover { background: rgba(255,255,255,0.12); }
@@ -1290,7 +1290,7 @@
         .multiai-btn.primary:hover { filter: brightness(1.1); }
         .multiai-btn.primary.stop { background: rgba(239,68,68,0.2); border-color: rgba(239,68,68,0.5); }
         table.multiai-roster { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
-        table.multiai-roster th { text-align: left; font-size: 0.64rem; text-transform: uppercase; letter-spacing: .6px; color: #4b4b60; padding: 2px 6px 6px; border-bottom: 1px solid rgba(255,255,255,0.08); font-weight: 700; white-space: nowrap; }
+        table.multiai-roster th { text-align: left; font-size: 0.64rem; text-transform: uppercase; letter-spacing: .6px; color: #8b8ba0; padding: 2px 6px 6px; border-bottom: 1px solid rgba(255,255,255,0.08); font-weight: 700; white-space: nowrap; }
         table.multiai-roster td { padding: 4px 6px; border-bottom: 1px solid rgba(255,255,255,0.04); color: #d1d5db; vertical-align: middle; }
         table.multiai-roster tr.off td { opacity: 0.45; }
         table.multiai-roster tr.off td.nm input { text-decoration: line-through; }
@@ -1301,10 +1301,10 @@
         table.multiai-roster td.nm input:hover, table.multiai-roster td.nm input:focus { border-color: rgba(255,255,255,0.15); background: rgba(255,255,255,0.05); }
         table.multiai-roster .code { display: inline-flex; width: 22px; height: 18px; border-radius: 5px; font-size: 0.62rem; font-weight: 800; align-items: center; justify-content: center; color: #fff; background: rgba(255,255,255,0.12); flex-shrink: 0; }
         table.multiai-roster td.act { white-space: nowrap; text-align: right; }
-        table.multiai-roster td.act button { background: none; border: none; color: #6b7280; cursor: pointer; font-size: 0.85rem; padding: 0 3px; }
+        table.multiai-roster td.act button { background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 0.85rem; padding: 0 3px; }
         table.multiai-roster td.act button:hover { color: #fff; }
         table.multiai-roster td.act button.rm:hover { color: #f87171; }
-        .multiai-roster-foot { display: flex; align-items: center; gap: 10px; padding-top: 8px; font-size: 0.72rem; color: #6b7280; flex-wrap: wrap; }
+        .multiai-roster-foot { display: flex; align-items: center; gap: 10px; padding-top: 8px; font-size: 0.72rem; color: #9ca3af; flex-wrap: wrap; }
         .multiai-roster-foot select { background: rgba(255,255,255,0.06); color: #e5e7eb; border: 1px solid rgba(255,255,255,0.14); border-radius: 6px; padding: 4px 8px; font-size: 0.74rem; font-family: inherit; }
         /* BYOK API Mode Toggle (scoped — does NOT override provider toggles) */
         .byok-toggle {
@@ -1474,8 +1474,8 @@
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-shrink: 0;">
                     <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
                         <div id="multiai-chat-title" style="font-size: 1.1rem; font-weight: 700; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">New chat</div>
-                        <button onclick="multiaiRenameCurrentChat()" title="Rename this chat" style="background: none; border: none; color: #6b7280; cursor: pointer; font-size: 0.85rem; padding: 2px 4px; flex-shrink: 0;">✏</button>
-                        <button onclick="multiaiAiTitle()" title="Ask the Judge provider for a title (one provider call)" style="background: none; border: none; color: #6b7280; cursor: pointer; font-size: 0.85rem; padding: 2px 4px; flex-shrink: 0;">✨</button>
+                        <button onclick="multiaiRenameCurrentChat()" title="Rename this chat" style="background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 0.85rem; padding: 2px 4px; flex-shrink: 0;">✏</button>
+                        <button onclick="multiaiAiTitle()" title="Ask the Judge provider for a title (one provider call)" style="background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 0.85rem; padding: 2px 4px; flex-shrink: 0;">✨</button>
                     </div>
                     <div style="display: flex; gap: 6px; flex-shrink: 0;">
                         <button class="header-btn" id="multiai-mode-classic" onclick="multiaiSetMode('classic')" title="Round-robin discussion or debate across your chosen AIs" style="justify-content: center; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 0.78rem;">💬 Classic</button>
@@ -1613,7 +1613,13 @@
                     </div>
                 </div>
 
-                <div id="multiai-feed" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; flex: 1; overflow-y: auto;"></div>
+                <div style="position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; margin-bottom: 12px;">
+                    <div id="multiai-feed" style="display: flex; flex-direction: column; gap: 12px; flex: 1; overflow-y: auto;"></div>
+                    <button id="multiai-new-below" onclick="multiaiJumpToLatest()" title="Jump to the newest message"
+                        style="display: none; position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 3;
+                               padding: 4px 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.14);
+                               background: #1b1b26; color: #d1d5db; font-size: 0.72rem; cursor: pointer;">↓ new messages</button>
+                </div>
 
                 <div id="multiai-attachments-preview" style="display: none; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; flex-shrink: 0;"></div>
                 <div id="multiai-context-preview" style="display: none; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; flex-shrink: 0;"></div>
@@ -1628,7 +1634,7 @@
                         <button class="multiai-btn ghost" onclick="multiaiSummarize()" title="Pin a state summary; later turns start from it">📝 Summarize</button>
                         <button class="multiai-btn ghost" onclick="multiaiExportMd()" title="Save this chat's transcript as a Markdown file">⬇ .md</button>
                         <span style="flex: 1;"></span>
-                        <span id="multiai-composer-hint" style="font-size: 0.7rem; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px;"></span>
+                        <span id="multiai-composer-hint" style="font-size: 0.7rem; color: #9ca3af; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px;"></span>
                         <button class="multiai-btn primary" id="multiai-send-btn" onclick="multiaiSend()" title="Send">▶ Send</button>
                     </div>
                 </div>
@@ -1652,10 +1658,10 @@
                     <table style="width: 100%; border-collapse: collapse; font-size: 0.72rem;">
                         <thead>
                             <tr style="position: sticky; top: 0; background: #07070d;">
-                                <th style="text-align: left; padding: 6px 8px; color: #6b7280; font-weight: 600;" title="Cycle (send) · Round">C·R</th>
-                                <th style="text-align: left; padding: 6px 8px; color: #6b7280; font-weight: 600;">Agent</th>
-                                <th style="text-align: left; padding: 6px 8px; color: #6b7280; font-weight: 600;">Time</th>
-                                <th style="text-align: left; padding: 6px 8px; color: #6b7280; font-weight: 600;">Message</th>
+                                <th style="text-align: left; padding: 6px 8px; color: #9ca3af; font-weight: 600;" title="Cycle (send) · Round">C·R</th>
+                                <th style="text-align: left; padding: 6px 8px; color: #9ca3af; font-weight: 600;">Agent</th>
+                                <th style="text-align: left; padding: 6px 8px; color: #9ca3af; font-weight: 600;">Time</th>
+                                <th style="text-align: left; padding: 6px 8px; color: #9ca3af; font-weight: 600;">Message</th>
                             </tr>
                         </thead>
                         <tbody id="multiai-ledger-body"></tbody>
@@ -1679,7 +1685,7 @@
                         <button onclick="multiaiCloseHelp()" style="background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 1rem; padding: 2px 6px;">✕</button>
                     </div>
                     <div style="overflow-y: auto; padding: 18px 22px; font-size: 0.83rem; line-height: 1.6; color: #d1d5db;">
-                        <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: 0.8px;">Agents</p>
+                        <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #8b8ba0; text-transform: uppercase; letter-spacing: 0.8px;">Agents</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">An agent is a seat</b> — name + provider + route + model + effort + persona. Add the same provider more than once with different models or efforts (“Opus · max” and “Sonnet · low”, or “GPT high” and “GPT low”) to run a single-provider panel. Names become ids for @mentions and HANDOFFs (<code>@opus-max</code>).</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Roster and library</b> — the Agents tab is a table: one row per agent, every cell editable in place (name, provider, route, model, effort, persona). <b style="color:#fff;">+ add agent…</b> offers new rows per provider and anything in your library. Agents go into the library, and every new chat starts with all of them. The checkbox on each row decides who takes turns <i>this</i> time — untick to bench an agent without losing its setup; benched agents get no turns, no mentions and aren't introduced to the others. Editing a library agent applies everywhere it is used; ✕ removes it from this chat only — the library chips (📚) remove it for good. The tab strip collapses to a one-line summary.</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Routes</b> — <b style="color:#fff;">auto</b> follows the app's general Settings: API mode on with a key for that provider → its API, using the model chosen in Settings unless the agent names one; otherwise the logged-in browser tab. <b style="color:#fff;">browser</b> always uses the tab (model ignored except Gemini's engine; effort ignored). <b style="color:#fff;">api</b> asks for the API and falls back to the tab, with a ⚠, if Settings doesn't allow it. <b style="color:#fff;">Claude Code</b>, <b style="color:#fff;">Codex</b> and <b style="color:#fff;">Gemini CLI</b> agents run the installed CLI locally on your subscription — one-shot, with the model and effort you pick; without a workspace they run in an empty scratch folder with no tools. Those pickers are filled from the CLIs themselves (Claude Code's help text, Codex's account model list with per-model reasoning levels, Gemini's login state); a model the CLI doesn't list is flagged. Keys and API mode are only ever set in Settings; ↻ re-reads them and re-probes the CLIs.</p>
@@ -1687,7 +1693,7 @@
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Workspace and tools</b> — the Workspace tab attaches a git folder to the chat. CLI seats then get a <b style="color:#fff;">Tools</b> level: <b style="color:#fff;">read</b> (list / read / search files, to verify claims), <b style="color:#fff;">write</b> (edit files; shell limited to git status/diff/log) or <b style="color:#fff;">full</b> (edit + any shell command — no sandbox, so use a throwaway clone). Runs happen on the chat's own branch (<code>multiai/…</code>), cut fresh from your base branch — the one the folder is on, or main/master when it is parked on another chat's branch — never from another chat's changes; each writer turn is committed under the seat's name and appears in the transcript as a 🛠 change card with the diff, so every other participant — and you — can review it. One writer edits at a time; readers overlap. Uncommitted work on <i>another</i> branch blocks the run. Uncommitted work on the chat's <i>own</i> branch is swept into a commit by the next run, labelled as an interrupted turn — so once a run has left the folder on <code>multiai/…</code>, don't keep your own edits there. Merge or delete the branch when you're done.</p>
                         <p style="margin: 0 0 14px 0;"><b style="color:#fff;">Route differences</b> — API and CLI turns are one-shot, so Delta context becomes Bounded for them (browser agents keep Delta). Stop kills CLI processes and aborts browser turns; an API call already in flight finishes and is discarded. Codex must support the chosen model on your account (gpt-5.5 does; gpt-5 does not on ChatGPT plans).</p>
 
-                        <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: 0.8px;">Classic mode</p>
+                        <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #8b8ba0; text-transform: uppercase; letter-spacing: 0.8px;">Classic mode</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Discuss vs. Debate</b> — Discuss has participants build on each other's points toward a shared answer. Debate assigns opposing sides and has them argue; with more than two participants each takes a distinct stance.</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Rounds</b> — how many times each participant speaks in turn. One round is usually enough for a quick comparison; use 2-4 for a discussion that needs to actually converge or a debate that needs rebuttals. More rounds costs more time and, if you're on metered API keys, more money.</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Brevity</b> — caps reply length. "max 4 sentences" keeps a multi-round discussion skimmable; switch to "as long as needed" for a single deep-dive round.</p>
@@ -1701,14 +1707,14 @@
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Summarize state</b> — asks the Judge provider for a pinned summary (decisions, open questions, claims to verify, next step). It becomes the compaction point: later turns start from the summary instead of the older transcript. Use it whenever you'd otherwise ask “what is the state of the discussion”.</p>
                         <p style="margin: 0 0 14px 0;"><b style="color:#fff;">Personas</b> — a shared library of a few built-ins (Skeptic, Optimist, Devil's Advocate, Pragmatist, Domain Expert, Concise Summarizer) plus any .md/.txt file you drop in the personas folder. Pick one on each agent's card in the Agents block; the same library also fills in a crew role's Instruction in Orchestrated mode, so you're not maintaining two systems.</p>
 
-                        <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: 0.8px;">Orchestrated mode</p>
+                        <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #8b8ba0; text-transform: uppercase; letter-spacing: 0.8px;">Orchestrated mode</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Crew</b> — a fixed pipeline of roles (e.g. Researcher → Writer → Reviewer), each handing its output to the next. Edit roles, providers and instructions freely; pick providers whose strengths match the role (e.g. a search-grounded model for Researcher).</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Workflow</b> — your own ordered list of steps, one per line, as <code>provider: task</code> (provider is optional — omit it to use whichever is enabled first). Each step gets the previous step's output as input.</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Loop</b> — one provider generates, another reviews against the original task and either says CONVERGED or gives feedback; it keeps iterating up to Max turns. Good for "keep refining until it's actually right" tasks; pick a reviewer that's genuinely critical, not just agreeable.</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Agent (file tools)</b> — the only <i>Orchestrated</i> strategy that touches your actual filesystem. (Classic CLI seats with a Tools level touch it too, and are confined only by the Tools level you pick — see Workspace and tools above.) None of these providers have real API tool-calling wired up (they're browser chat, not tool-using APIs), so this is built as a loop: the model is told a small format for requesting a file operation, we execute it against the one folder you chose, and feed the result back for up to Max turns, until it replies with plain text instead of a tool request. That reply is the final answer. Reads, writes, and deletes all happen with no confirmation step — the only safety boundary is that it cannot reach anything outside the folder you pick. Point it at a scratch folder, not anything you'd mind losing.</p>
                         <p style="margin: 0 0 14px 0;">Mode is locked once a chat has its first message, since Classic transcripts and Orchestrated pipeline runs don't mix well in one thread — start a new chat to switch.</p>
 
-                        <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #4b4b60; text-transform: uppercase; letter-spacing: 0.8px;">General</p>
+                        <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #8b8ba0; text-transform: uppercase; letter-spacing: 0.8px;">General</p>
                         <p style="margin: 0 0 10px 0;">Attachments (📎) fold text files into your prompt and note images/binaries by name only — none of these providers take image input through this tab.</p>
                         <p style="margin: 0 0 10px 0;">Stop interrupts immediately: the reply in flight is aborted inside the provider's tab (so it stops occupying that provider's queue), queued turns are skipped, and nothing is shown or saved from it. In Delta mode the affected provider gets a fresh thread with a catch-up on its next turn.</p>
                         <p style="margin: 0 0 10px 0;">New chats are titled from the first words of your first message (free, instant); ✨ next to the title asks the Judge provider for a better one. Rename any time via ✏.</p>
@@ -2178,7 +2184,7 @@
                         <h2 class="settings-title"
                             style="margin: 0; font-size: 1.25rem; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 8px; border: none; padding: 0; box-shadow: none; background: transparent;">
                             <span class="section-icon"
-                                style="background: linear-gradient(135deg, #6b7280, #4b5563); padding: 4px 8px; font-size: 0.65rem;">AGENT</span>
+                                style="background: linear-gradient(135deg, #9ca3af, #4b5563); padding: 4px 8px; font-size: 0.65rem;">AGENT</span>
                             Proxima Agent
                         </h2>
                         <span class="status-badge" id="agent-status-badge"
@@ -2293,9 +2299,9 @@
                                     <span style="color: #9ca3af;">Server running at
                                         <code>http://localhost:3210</code></span><br>
                                     <span
-                                        style="color: #6b7280; font-size: 0.78rem; margin-top: 4px; display: inline-block;">API
+                                        style="color: #9ca3af; font-size: 0.78rem; margin-top: 4px; display: inline-block;">API
                                         Docs: <code>http://localhost:3210/docs</code></span>
-                                    <span style="color: #6b7280; font-size: 0.78rem; margin-left: 12px;">CLI Docs:
+                                    <span style="color: #9ca3af; font-size: 0.78rem; margin-left: 12px;">CLI Docs:
                                         <code>http://localhost:3210/cli</code></span>
                                 </p>
                             </div>
@@ -2367,7 +2373,7 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));</code>
                         style="border: none; background: transparent; padding: 0; box-shadow: none;">
                         <h2 class="settings-title" style="font-size: 1.25rem; margin-bottom: 12px;"><span
                                 class="section-icon"
-                                style="background: linear-gradient(135deg, #6b7280, #4b5563); padding: 4px 8px; font-size: 0.65rem;">MCP</span>
+                                style="background: linear-gradient(135deg, #9ca3af, #4b5563); padding: 4px 8px; font-size: 0.65rem;">MCP</span>
                             MCP Configuration</h2>
                         <p style="color: #888; margin-bottom: 16px; font-size: 0.85rem; line-height: 1.5;">
                             Add Proxima MCP server to your AI coding assistant. Choose your preferred method:
@@ -3681,12 +3687,22 @@ Confirm when done</pre>
             }
         }
 
+        // One shared element, so the previous call's timer has to be cancelled:
+        // two toasts 2.4s apart used to leave the second visible for about
+        // 100ms, because the first timer hid the element regardless of what it
+        // then said. role=status so it is announced rather than only seen.
+        let _toastTimer = null;
         function showToast(message) {
             const toast = document.getElementById('toast');
+            if (!toast) return;
+            if (_toastTimer) clearTimeout(_toastTimer);
+            toast.setAttribute('role', 'status');
+            toast.setAttribute('aria-live', 'polite');
             toast.textContent = message;
             toast.style.display = 'block';
-            setTimeout(() => {
+            _toastTimer = setTimeout(() => {
                 toast.style.display = 'none';
+                _toastTimer = null;
             }, 2500);
         }
 
@@ -4540,4 +4556,4 @@ Confirm when done</pre>
     <script src="multiai-renderer.js"></script>
 </body>
 
-</html>
+</html>

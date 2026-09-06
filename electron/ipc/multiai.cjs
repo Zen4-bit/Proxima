@@ -604,7 +604,10 @@ function registerMultiAiHandlers(deps) {
         const recordChange = () => {
             if (!change) return;
             if (change.committed) {
-                record(chatId, Object.assign({ who: `${agent.name} · changes`, role: 'change', text: workspace.describeChange(agent.name, change), commit: change.hash, files: change.files.map(f => f.path) }, base));
+                // `truncated` was computed and dropped here, so the card could
+                // not say the patch was cut — the only sign was a line at the
+                // bottom of a fold the reader had to open and scroll first.
+                record(chatId, Object.assign({ who: `${agent.name} · changes`, role: 'change', text: workspace.describeChange(agent.name, change), commit: change.hash, files: change.files.map(f => f.path), truncated: change.truncated || undefined, partial: raced.ok ? undefined : true }, base));
             } else if (change.error) {
                 note(chatId, `Could not commit ${agent.name}'s changes: ${change.error}`);
             }
@@ -626,7 +629,7 @@ function registerMultiAiHandlers(deps) {
             recordChange();
             return { pass: true };
         }
-        record(chatId, Object.assign({ who: agent.name, text, role: 'assistant', model, redTeam: built.meta.redTeam || undefined }, base));
+        record(chatId, Object.assign({ who: agent.name, text, role: 'assistant', model, redTeam: built.meta.redTeam || undefined, toolClaim: claimsTool(agent, text) || undefined }, base));
         recordChange();
         return { ok: true, handoff: chat.charterMode ? core.parseHandoff(text, opts.participants) : null };
     }
@@ -668,6 +671,19 @@ function registerMultiAiHandlers(deps) {
             if (theirs && path.resolve(theirs).toLowerCase() === mine) return otherId;
         }
         return null;
+    }
+
+    // A tool-less CLI seat that emits tool-call syntax is fabricating: the
+    // "file contents" or "command output" that follow are invented, and they
+    // are recorded as an ordinary assistant turn, fed to every other agent as
+    // context, and served over REST/MCP. Flag it so the feed can mark it and a
+    // reader is not left treating it as evidence. Only CLI seats without file
+    // tools can hit this — a seat with real tools legitimately narrates them.
+    const TOOL_CALL_SYNTAX = /<\/?(?:invoke|parameter|function_calls|antml:invoke|antml:parameter)\b/i;
+    function claimsTool(agent, text) {
+        if (!agent || !core.CLI_PROVIDERS[agent.provider]) return false;
+        if (agent.tools && agent.tools !== 'none') return false;
+        return TOOL_CALL_SYNTAX.test(String(text || ''));
     }
 
     // Marks a writer turn as in flight, carrying the HEAD it started from, so

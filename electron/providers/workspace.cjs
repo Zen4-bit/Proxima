@@ -154,7 +154,13 @@ async function commitAll(root, message) {
     const files = filesOut.split(/\r?\n/).filter(Boolean).map(l => { const [status, ...rest] = l.split(/\t/); return { status, path: rest.join('\t') }; });
     let patch = (await git(root, ['show', '--format=', '--no-color', 'HEAD'])).stdout;
     let truncated = false;
-    if (patch.length > DIFF_LIMIT) { patch = patch.slice(0, DIFF_LIMIT) + '\n… (diff truncated)'; truncated = true; }
+    if (patch.length > DIFF_LIMIT) {
+        // Cut at the last complete line: a raw character slice left a half-line
+        // that the feed's per-line colouring then rendered as a real addition.
+        const cut = patch.lastIndexOf('\n', DIFF_LIMIT);
+        patch = patch.slice(0, cut > 0 ? cut : DIFF_LIMIT) + '\n… (diff truncated)';
+        truncated = true;
+    }
     return { committed: true, hash, short: hash ? hash.slice(0, 8) : '', stat, files, patch, truncated };
 }
 
