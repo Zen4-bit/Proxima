@@ -1290,6 +1290,7 @@
         .multiai-btn.primary:hover { filter: brightness(1.1); }
         .multiai-btn.primary.stop { background: rgba(239,68,68,0.2); border-color: rgba(239,68,68,0.5); }
         table.multiai-roster { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+        .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
         table.multiai-roster th { text-align: left; font-size: 0.64rem; text-transform: uppercase; letter-spacing: .6px; color: #8b8ba0; padding: 2px 6px 6px; border-bottom: 1px solid rgba(255,255,255,0.08); font-weight: 700; white-space: nowrap; }
         table.multiai-roster td { padding: 4px 6px; border-bottom: 1px solid rgba(255,255,255,0.04); color: #d1d5db; vertical-align: middle; }
         table.multiai-roster tr.off td { opacity: 0.45; }
@@ -1484,7 +1485,7 @@
                     </div>
                 </div>
 
-                <div id="multiai-status-line" style="font-size: 0.7rem; color: #9ca3af; margin-bottom: 8px; flex-shrink: 0;"></div>
+                <div id="multiai-status-line" role="status" aria-live="polite" style="font-size: 0.7rem; color: #9ca3af; margin-bottom: 8px; flex-shrink: 0;"></div>
 
                 <!-- Options: a tab strip (Agents · Discussion · Context · Charter · Judge, or Pipeline
                      in Orchestrated mode) over one pane; collapses to the strip + a one-line summary. -->

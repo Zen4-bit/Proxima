@@ -1296,16 +1296,16 @@ function multiaiRenderParticipants(chat) {
                     : (toolsArmed ? `ARMED — this seat edits ${chat.workspace.root} on branch ${(chat.workspace && chat.workspace.branch) || 'multiai/…'}, and every turn is committed there.\n\n${MULTIAI_TOOLS_HELP[tools]}`
                         : MULTIAI_TOOLS_HELP[tools])));
         const toolsCell = isCli
-            ? `<select onchange="multiaiAgentField(${i}, 'tools', this.value)" title="${multiaiEscapeAttr(toolsTitle)}" ${toolsWarn ? 'style="border-color: rgba(245,158,11,0.7);"' : (toolsArmed ? 'style="border-color: rgba(239,68,68,0.85); background: rgba(239,68,68,0.12);"' : '')}>${MULTIAI_TOOLS.map(t => opt(t, t === 'none' ? 'none' : (t === 'full' ? 'full ⚡' : t) + (toolsWarn ? ' ⚠' : ''), tools === t)).join('')}</select>`
+            ? `<select onchange="multiaiAgentField(${i}, 'tools', this.value)" aria-label="File tools for ${multiaiEscapeAttr(a.name)}" title="${multiaiEscapeAttr(toolsTitle)}" ${toolsWarn ? 'style="border-color: rgba(245,158,11,0.7);"' : (toolsArmed ? 'style="border-color: rgba(239,68,68,0.85); background: rgba(239,68,68,0.12);"' : '')}>${MULTIAI_TOOLS.map(t => opt(t, t === 'none' ? 'none' : (t === 'full' ? 'full ⚡' : t) + (toolsWarn ? ' ⚠' : ''), tools === t)).join('')}</select>`
             : `<select disabled title="${multiaiEscapeAttr(toolsTitle)}">${opt('', '—', true)}</select>`;
         return `
             <tr class="${on ? '' : 'off'}" title="${multiaiEscapeAttr(multiaiRouteLabel(a))}">
                 <td style="width: 24px;"><input type="checkbox" ${on ? 'checked' : ''} onchange="multiaiAgentToggle(${i}, this.checked)" title="${on ? 'Taking turns in this chat — untick to bench' : 'Benched — tick to include'}"></td>
                 <td class="nm" style="min-width: 150px;"><div style="display: flex; align-items: center; gap: 6px;"><span class="code" title="Label code">${multiaiEscape(code)}</span><input type="text" value="${multiaiEscapeAttr(a.name)}" oninput="multiaiAgentField(${i}, 'name', this.value)" title="Name — also the @mention id"></div></td>
-                <td style="width: 122px;"><select onchange="multiaiAgentField(${i}, 'provider', this.value)" title="Provider">${(providerOptions.includes(a.provider) ? providerOptions : providerOptions.concat([a.provider])).map(pv => opt(pv, MULTIAI_CLI_PROVIDERS[pv] || multiaiProviderLabel(pv), a.provider === pv)).join('')}</select></td>
-                <td style="width: 118px;"><select onchange="multiaiAgentField(${i}, 'route', this.value)" ${isCli || apiOnly ? 'disabled' : ''} title="${multiaiEscapeAttr(apiOnly ? 'API only — this provider has no browser tab' : `Route — auto follows Settings (API mode on + key → API, else the browser tab); resolved: ${resolved}`)}">${routeOpts}</select></td>
+                <td style="width: 122px;"><select onchange="multiaiAgentField(${i}, 'provider', this.value)" aria-label="Provider for ${multiaiEscapeAttr(a.name)}" title="Provider">${(providerOptions.includes(a.provider) ? providerOptions : providerOptions.concat([a.provider])).map(pv => opt(pv, MULTIAI_CLI_PROVIDERS[pv] || multiaiProviderLabel(pv), a.provider === pv)).join('')}</select></td>
+                <td style="width: 118px;"><select onchange="multiaiAgentField(${i}, 'route', this.value)" aria-label="Route for ${multiaiEscapeAttr(a.name)}" ${isCli || apiOnly ? 'disabled' : ''} title="${multiaiEscapeAttr(apiOnly ? 'API only — this provider has no browser tab' : `Route — auto follows Settings (API mode on + key → API, else the browser tab); resolved: ${resolved}`)}">${routeOpts}</select></td>
                 <td style="width: 130px;"><input type="text" list="multiai-models-${i}" value="${multiaiEscapeAttr(a.model || '')}" placeholder="${multiaiEscapeAttr(modelPh)}" oninput="multiaiAgentField(${i}, 'model', this.value)" onchange="multiaiAgentField(${i}, 'model:commit', this.value)" ${modelOn ? '' : 'disabled'} ${modelUnknown ? 'style="border-color: rgba(245,158,11,0.7);"' : ''} title="${multiaiEscapeAttr(isCli ? (modelUnknown ? `Not in this CLI's model list — ${cliInfo.note || ''}` : (cliInfo && cliInfo.note ? cliInfo.note : 'CLI model (blank = its default)')) : (apiOnly ? (modelUnknown ? 'This endpoint needs a model id (e.g. llama3.2, qwen2.5-coder) — ↻ lists what it serves' : 'Model id as the endpoint names it — ↻ lists what it serves') : (a.provider === 'gemini' && !apiOk ? 'Gemini engine (3.1-pro, 3.5-flash…)' : 'API model id — blank uses the model selected in Settings')))}"><datalist id="multiai-models-${i}">${cliModels.length ? cliModels.map(m => `<option value="${multiaiEscapeAttr(m.id)}">${multiaiEscape(m.label && m.label !== m.id ? m.label : '')}</option>`).join('') : hints.map(h => `<option value="${multiaiEscapeAttr(h)}">`).join('')}</datalist></td>
-                <td style="width: 96px;"><select onchange="multiaiAgentField(${i}, 'effort', this.value)" ${effortOn ? '' : 'disabled'} title="${multiaiEscapeAttr(isCli ? (effortList.length ? `Reasoning effort — levels this ${MULTIAI_CLI_PROVIDERS[a.provider]} model accepts` : `${MULTIAI_CLI_PROVIDERS[a.provider]} has no effort switch`) : 'Reasoning effort — API and CLI routes only')}">${opt('', 'default', !a.effort)}${effortList.map(e => opt(e, e, a.effort === e)).join('')}${a.effort && !effortList.includes(a.effort) ? opt(a.effort, a.effort + ' ⚠', true) : ''}</select></td>
+                <td style="width: 96px;"><select onchange="multiaiAgentField(${i}, 'effort', this.value)" aria-label="Effort for ${multiaiEscapeAttr(a.name)}" ${effortOn ? '' : 'disabled'} title="${multiaiEscapeAttr(isCli ? (effortList.length ? `Reasoning effort — levels this ${MULTIAI_CLI_PROVIDERS[a.provider]} model accepts` : `${MULTIAI_CLI_PROVIDERS[a.provider]} has no effort switch`) : 'Reasoning effort — API and CLI routes only')}">${opt('', 'default', !a.effort)}${effortList.map(e => opt(e, e, a.effort === e)).join('')}${a.effort && !effortList.includes(a.effort) ? opt(a.effort, a.effort + ' ⚠', true) : ''}</select></td>
                 <td style="width: 84px;">${toolsCell}</td>
                 <td style="width: 120px;"><select onchange="multiaiAgentPersona(${i}, this.value)" title="Persona">${opt('', 'none', !a.personaKey)}${personaNames.map(n => opt(n, n, a.personaKey === n)).join('')}</select></td>
                 <td class="act"><button onclick="multiaiAgentDuplicate(${i})" title="Duplicate (same provider, e.g. another effort)">⧉</button><button class="rm" onclick="multiaiAgentRemove(${i})" title="Remove from this chat (stays in the library)">✕</button></td>
@@ -1343,7 +1343,7 @@ function multiaiRenderParticipants(chat) {
     box.innerHTML = `
         <div style="overflow-x: auto;">
         <table class="multiai-roster">
-            <thead><tr><th></th><th>Agent</th><th>Provider</th><th>Route</th><th>Model</th><th>Effort</th><th title="Workspace file tools (CLI seats): none · read · write · full — see the Workspace tab">Tools</th><th>Persona</th><th></th></tr></thead>
+            <thead><tr><th><span class="sr-only">Taking part</span></th><th>Agent</th><th>Provider</th><th title="Turn order follows this table's order">Route</th><th>Model</th><th>Effort</th><th title="Workspace file tools (CLI seats): none · read · write · full — see the Workspace tab">Tools</th><th>Persona</th><th><span class="sr-only">Actions</span></th></tr></thead>
             <tbody>${rows || `<tr><td colspan="9" style="color: #9ca3af; padding: 10px 6px;">No agents yet — add one below. Agents go into the library, so every new chat starts with them; tick / untick to choose who takes part in this one.</td></tr>`}</tbody>
         </table>
         </div>
@@ -1361,12 +1361,43 @@ function multiaiRenderParticipants(chat) {
         </div>`;
 }
 
+// Editing any cell re-renders the whole roster (a cell's value can change what
+// other cells may contain), and the table is replaced via innerHTML — so focus
+// used to land back on <body>. In Chromium a closed <select> fires change on
+// every arrow key, which meant keyboard-choosing a route or effort re-rendered
+// and dropped focus on each keystroke, forcing a tab from the top of the
+// document back to the row. Remember where the caret was and put it back.
 function multiaiRerenderAgents(chat) {
+    const box = document.getElementById('multiai-participants');
+    const active = document.activeElement;
+    let restore = null;
+    if (box && active && box.contains(active)) {
+        const cell = active.closest('td');
+        const row = active.closest('tr');
+        if (cell && row && row.parentElement) {
+            restore = {
+                row: Array.prototype.indexOf.call(row.parentElement.children, row),
+                col: Array.prototype.indexOf.call(row.children, cell),
+                start: active.selectionStart, end: active.selectionEnd,
+            };
+        }
+    }
     multiaiRenderParticipants(chat);
     multiaiRenderJudgeOptions(chat);
     multiaiRenderWorkspace(chat);
     multiaiRenderOptionsSummary(chat);
     multiaiRenderStatusLine(chat);
+    if (!restore) return;
+    const rows = document.querySelectorAll('#multiai-participants tbody tr');
+    const cell = rows[restore.row] && rows[restore.row].children[restore.col];
+    const field = cell && cell.querySelector('select, input, button');
+    if (!field) return;
+    field.focus();
+    // Keep the caret where it was in a text field, so typing a model id is not
+    // interrupted by the commit-on-change re-render.
+    if (restore.start != null && typeof field.setSelectionRange === 'function') {
+        try { field.setSelectionRange(restore.start, restore.end); } catch { /* not a text input */ }
+    }
 }
 
 // ---- Workspace (a git folder CLI seats with tools work in) ---------------
