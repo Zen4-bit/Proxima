@@ -1193,6 +1193,17 @@ function multiaiEnsureAgents(chat) {
         while (seen.has(id)) id = `${a.id}-${n++}`;
         a.id = id; seen.add(id);
     });
+    // Colour is claimed once and kept for the life of the chat, so removing or
+    // reordering a seat never recolours the others — or the turns they already
+    // took. Only a seat with no claim, or one whose claim an earlier seat
+    // already holds, gets the lowest free slot.
+    const claimed = new Set();
+    chat.agents.forEach(a => {
+        if (Number.isInteger(a.colorIndex) && !claimed.has(a.colorIndex)) { claimed.add(a.colorIndex); return; }
+        let i = 0;
+        while (claimed.has(i)) i++;
+        a.colorIndex = i; claimed.add(i);
+    });
     // Keep the legacy field in sync for anything that still reads it.
     chat.participants = chat.agents.filter(a => a.enabled !== false).map(a => a.provider);
     return chat.agents;
@@ -1356,7 +1367,7 @@ function multiaiLibrarySave(agent) {
     const lib = multiaiAgentLibrary();
     if (!agent.uid) agent.uid = multiaiAgentUid();
     const copy = multiaiAgentClone(agent);
-    delete copy.enabled; delete copy.id;
+    delete copy.enabled; delete copy.id; delete copy.colorIndex;
     const i = lib.findIndex(x => x.uid === copy.uid);
     if (i === -1) lib.push(copy); else lib[i] = copy;
 }
@@ -2099,9 +2110,8 @@ function multiaiAgentColor(agent, chat) {
     if (!agent) return null;
     if (multiaiUiPrefs().agentColors === 'off') return null;
     if (agent.color) return agent.color;                    // explicit user override wins
-    const roster = ((chat || multiaiCurrentChat() || {}).agents) || [];
-    const i = roster.findIndex(x => x && x.id === agent.id);
-    return MULTIAI_AGENT_PALETTE[(i === -1 ? 0 : i) % MULTIAI_AGENT_PALETTE.length];
+    const i = Number.isInteger(agent.colorIndex) ? agent.colorIndex : 0;
+    return MULTIAI_AGENT_PALETTE[i % MULTIAI_AGENT_PALETTE.length];
 }
 
 // The same colour at low alpha, for the card behind a turn.
