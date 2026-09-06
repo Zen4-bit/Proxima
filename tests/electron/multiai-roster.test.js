@@ -438,3 +438,38 @@ test('first run seeds a sample chat that is set up but has not run', () => {
     t.seedSample();
     assert.deepEqual(t.state.data.projects[0].chats, []);
 });
+
+test("Codex's catalogue models are offered, fenced off from the account list", () => {
+    const t = load();
+    const account = ['gpt-5.6-sol', 'gpt-5.5'];
+    const cat = ['gpt-6-astra', 'gpt-5.6', 'gpt-4o', 'o1'];
+    const chat = chatWith(t, [{ id: 'a', name: 'A', provider: 'codex-cli', route: 'cli', model: 'gpt-5.6-sol' }], {
+        apiMode: false, providers: {}, cli: { codex: true },
+        cliInfo: { codex: { available: true, version: '0.152.1', models: account.map(id => ({ id })).concat(cat.map(id => ({ id, source: 'catalog' }))) } },
+    });
+    t.render(chat);
+    const g = groupsOf(t.box.innerHTML, 'A');
+    // The account list is entitlement-aware and comes first. The catalogue used
+    // to be dropped outright for Codex, which made a model the account had
+    // gained but the cache had not — gpt-6-astra — unreachable except by typing
+    // it. It is offered now, under a label that says what it is.
+    assert.deepEqual(g[0].label, 'your account');
+    assert.deepEqual(g[0].items, account);
+    assert.match(g[1].label, /not on your account list/);
+    assert.ok(g[1].items.includes('gpt-6-astra'));
+    // Newest family first, and the o-series after the gpt- ones rather than
+    // sorted to the top by the letter it starts with.
+    assert.deepEqual(g[1].items, ['gpt-6-astra', 'gpt-5.6', 'gpt-4o', 'o1']);
+});
+
+test('a catalogue group says which CLI it is padding', () => {
+    const t = load();
+    const mk = (provider, kind) => chatWith(t, [{ id: 'a', name: 'A', provider, route: 'cli', model: '' }], {
+        apiMode: false, providers: {}, cli: { [kind]: true },
+        cliInfo: { [kind]: { available: true, models: [{ id: 'x-1', source: 'catalog' }] } },
+    });
+    t.render(mk('claude-cli', 'claude'));
+    assert.match(groupsOf(t.box.innerHTML, 'A')[0].label, /full ids/);
+    t.render(mk('gemini-cli', 'gemini'));
+    assert.match(groupsOf(t.box.innerHTML, 'A')[0].label, /from the catalogue/);
+});

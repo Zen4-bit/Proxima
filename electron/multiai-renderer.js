@@ -1399,7 +1399,7 @@ function multiaiApplySetup(id) {
         return;
     }
     // Build each seat the way the "+ add agent" menu would, then lay the
-    // setup's own choices over it — so a setup that names only a provider still
+    // setup's own choices over it — so a setup that names only a vendor still
     // gets sensible model/effort defaults for whatever is installed here.
     chat.agents = (setup.agents || []).map(a => {
         const seat = multiaiAgentPreset(a.provider);
@@ -1961,6 +1961,9 @@ function multiaiAgentAddFromLibrary(uid) {
 function multiaiAgentNew() { multiaiAgentAdd('chatgpt'); }
 function multiaiAgentEdit() { /* rows are edited inline now */ }
 
+// Explicit, because a library entry is published: it is offered in every
+// chat's "+ add agent" menu and served under its own id on the REST port and to
+// MCP clients.
 function multiaiAgentSaveToLibrary(i) {
     const chat = multiaiCurrentChat();
     if (!chat || !chat.agents || !chat.agents[i]) return;
@@ -2133,6 +2136,16 @@ function multiaiApplyProviderDefaults(a, provider) {
 // ever offered the four sonnet ids and the other fourteen looked as though they
 // had failed to load. Free text stays reachable through "custom…", because
 // Claude Code accepts full claude-… ids that no list here enumerates.
+// Newest-looking first, so a long catalogue group opens on what someone is
+// most likely hunting for. Families before generations: gpt-6-astra above
+// gpt-5.6, and o-series after the gpt- ones rather than sorted to the top by
+// the letter it starts with.
+function multiaiNewestFirst(x, y) {
+    const fam = (m) => (/^gpt/i.test(m.id) ? 0 : 1);
+    if (fam(x) !== fam(y)) return fam(x) - fam(y);
+    return y.id.localeCompare(x.id, undefined, { numeric: true });
+}
+
 function multiaiModelGroups(a, ctx) {
     const groups = [];
     const push = (label, items) => { if (items.length) groups.push({ label, items }); };
@@ -2142,10 +2155,15 @@ function multiaiModelGroups(a, ctx) {
         const cat = ctx.cliModels.filter(m => !m.verified && m.source === 'catalog');
         push('answered on this machine', ids(ctx.cliModels.filter(m => m.verified)));
         push(a.provider === 'claude-cli' ? 'aliases the CLI lists' : 'your account', ids(ctx.cliModels.filter(m => !m.verified && m.source !== 'catalog')));
-        push('full ids · not tried here', ids(cat.filter(m => !dated(m))));
+        // What the catalogue means depends on the CLI it is padding: aliases
+        // that stand for full ids (Claude Code), models the account may not
+        // have (Codex), or the only list there is (Gemini CLI).
+        const catLabel = a.provider === 'codex-cli' ? 'not on your account list · may be rejected'
+            : (a.provider === 'gemini-cli' ? 'from the catalogue · not tried here' : 'full ids · not tried here');
+        push(catLabel, ids(cat.filter(m => !dated(m)).sort(multiaiNewestFirst)));
         // Same models as the group above, pinned to a release date. Separated
         // so the plain ids are not buried among their own duplicates.
-        push('dated pins · not tried here', ids(cat.filter(dated)));
+        push('dated pins · not tried here', ids(cat.filter(dated).sort(multiaiNewestFirst)));
     } else if (ctx.apiOnly) {
         push('served by this endpoint', (ctx.p.models || []).map(id => ({ id, label: id })));
     } else if (ctx.apiOk) {

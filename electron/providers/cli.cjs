@@ -396,12 +396,15 @@ function mergeCatalog(kind, local) {
     const cat = catalog.loaded();
     const extra = (cat && cat.byKind && cat.byKind[kind]) || [];
     if (!extra.length) return local;
-    // Only fill a genuine void. Codex publishes its own complete, entitlement-
-    // aware list once refreshed, so padding it from a public API catalogue adds
-    // ids the CLI would reject. Claude Code is the opposite case: its list is
-    // knowingly partial (aliases only), so the catalogue is what supplies the
-    // full ids it also accepts. Gemini CLI reports nothing, so it is all there is.
-    if (kind === 'codex' && local.length) return local;
+    // The catalogue never overrides a local entry, and everything it adds is
+    // marked `source: 'catalog'` so the picker can group it apart rather than
+    // mixing it in. That distinction is what changed here: Codex used to drop
+    // the catalogue outright, on the grounds that its own list is entitlement-
+    // aware and padding it silently would offer ids the CLI rejects. True, and
+    // it also meant a model the account had gained but the cache had not — that
+    // cache is written by whichever codex the user last ran interactively — was
+    // unreachable except by typing it. Offered in a group that says it is not on
+    // your account's list, it is reachable and still honest; ▷ settles it.
     const out = local.slice();
     const seen = new Set(out.map(m => m.id));
     for (const m of extra) {
