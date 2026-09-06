@@ -265,12 +265,42 @@ function registerMultiAiHandlers(deps) {
                 try { model = (byok && byok.keys.getSelectedModel(p)) || (byok && byok.models && byok.models.DEFAULT_MODELS && byok.models.DEFAULT_MODELS[p]) || ''; } catch { /* ignore */ }
                 try { models = ((byok && byok.keys.getModels(p)) || []).filter(m => m.enabled !== false).map(m => m.id); } catch { /* ignore */ }
                 if (custom && !models.length && _customModels[p]) models = _customModels[p];
+                // Settings owns a curated list (add / remove / enable). Where it
+                // is empty, fall back to what the key itself returns — the
+                // roster says which it is looking at.
+                const fromKey = !models.length && _apiModels[p] ? _apiModels[p] : null;
                 info.providers[p] = custom
                     ? { hasKey, model, models, apiOnly: true, custom: custom.custom, endpoint: custom.endpoint, label: custom.label }
-                    : { hasKey, model, models };
+                    : { hasKey, model, models: fromKey || models, modelsFrom: fromKey ? 'key' : (models.length ? 'settings' : '') };
             }
         } catch { /* settings unavailable */ }
         return info;
+    }
+
+    // What a key can actually run, from the provider's own /v1/models — the
+    // only entitlement-aware list there is for an API seat, and the same call
+    // Settings makes behind its "fetch models" button.
+    //
+    // Kept in memory, never written to the key store: OpenAI's /v1/models
+    // answers with its whole surface — embeddings, TTS, moderation, image
+    // models — and persisting eighty ids into the user's curated Settings list
+    // would be worse than offering none. Settings stays the place a list is
+    // curated; this is the uncurated truth behind it.
+    const _apiModels = {};
+    async function probeApiModels() {
+        let on = false;
+        try { on = !!(byok && byok.keys && byok.keys.isEnabled()); } catch { /* no store */ }
+        if (!on) return;                                // API mode off: no API seats to fill
+        const { fetchModels } = require('../api/byok/model-fetcher.cjs');
+        await Promise.all(core.KNOWN_PROVIDERS.map(async (p) => {
+            let key = '';
+            try { key = byok.keys.getKey(p) || ''; } catch { /* ignore */ }
+            if (!key) return;
+            try {
+                const r = await fetchModels(p, key);
+                if (r && r.success && r.models && r.models.length) _apiModels[p] = r.models;
+            } catch { /* offline, revoked key, rate limit — all the same here */ }
+        }));
     }
 
     // Probe custom endpoints for their model lists (used by ↻ / the
@@ -504,7 +534,7 @@ function registerMultiAiHandlers(deps) {
     ipcMain.handle('multiai-routes', async (event, opts) => {
         const probe = !!(opts && opts.probe);
         if (probe) cli.resetAvailabilityCache();
-        if (probe) { try { await probeCustomModels(); } catch { /* offline */ } }
+        if (probe) { try { await Promise.all([probeCustomModels(), probeApiModels()]); } catch { /* offline */ } }
         const info = routeInfo();
         try { info.cliInfo = probe ? await cli.discover({ force: true }) : (cli.discovered() || null); } catch { info.cliInfo = null; }
         return info;

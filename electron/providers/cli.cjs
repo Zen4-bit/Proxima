@@ -423,7 +423,23 @@ async function discover({ force = false } = {}) {
         await warmAvailability();
         // Fire-and-forget: a cached copy is used immediately and the network
         // refresh lands on a later discover(). Discovery never waits on it.
-        catalog.load({ force }).catch(() => {});
+        //
+        // On a machine that has never had a catalogue there is no cached copy,
+        // so it lands *after* the merges below and a fresh install offered only
+        // the CLI's own aliases — three for Claude Code, none at all for
+        // Gemini CLI — until something forced a re-probe, which nothing does.
+        // Re-merge in place when it arrives instead: `out` is the object that
+        // becomes the cached discovery, so every later read of it (each return
+        // to the Multi-AI tab re-reads the cache) has the full list, and no
+        // second probe is needed. mergeCatalog is idempotent — it skips ids
+        // the local list already carries — so patching an already-merged kind
+        // is a no-op.
+        catalog.load({ force }).then(() => {
+            for (const kind of ['claude', 'codex', 'gemini']) {
+                const d = out[kind];
+                if (d && d.available) d.models = mergeCatalog(kind, d.models || []);
+            }
+        }).catch(() => {});
         const avail = availability();
         if (avail.claude) {
             const [ver, help] = await Promise.all([runQuick('claude', ['--version']), runQuick('claude', ['--help'])]);

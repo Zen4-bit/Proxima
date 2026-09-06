@@ -990,6 +990,66 @@ function multiaiOnLedgerFilterChange() {
 // participants, REST-created chats) are chat-local.
 
 const MULTIAI_CLI_PROVIDERS = { 'claude-cli': 'Claude Code', 'codex-cli': 'Codex', 'gemini-cli': 'Gemini CLI' };
+
+// ---- vendors and routes -------------------------------------------------
+// The roster used to ask one question where there are two. "Claude" and
+// "Claude Code" sat side by side in the provider menu as if they were rival
+// vendors, while the Route cell next to them was greyed out — because the
+// provider id had already decided the route. The row therefore stated the same
+// fact twice, and the choice that actually mattered (subscription or API key)
+// hid inside a menu entry called "auto".
+//
+// Now Provider is the vendor and Route is how Proxima reaches it. Internally a
+// route is still half of the provider id, because that is what the main
+// process, the REST port and every saved chat speak; this pair of maps is the
+// only place the two views meet, so nothing downstream had to change.
+const MULTIAI_VENDORS = {
+    claude: { label: 'Claude', browser: 'claude', cli: 'claude-cli' },
+    chatgpt: { label: 'ChatGPT', browser: 'chatgpt', cli: 'codex-cli' },
+    gemini: { label: 'Gemini', browser: 'gemini', cli: 'gemini-cli' },
+    perplexity: { label: 'Perplexity', browser: 'perplexity', cli: null },
+};
+const MULTIAI_VENDOR_OF = Object.entries(MULTIAI_VENDORS).reduce((m, [v, d]) => {
+    if (d.browser) m[d.browser] = v;
+    if (d.cli) m[d.cli] = v;
+    return m;
+}, {});
+
+// The vendor a seat belongs to. '' for api-only / custom providers (Ollama, a
+// BYOK-only model): they are their own vendor and have exactly one route.
+function multiaiVendorOf(provider) { return MULTIAI_VENDOR_OF[String(provider || '').split(':')[0]] || ''; }
+
+// Which of the three access paths a seat is on. 'auto' is the legacy value —
+// it followed Settings, which is why the menu could read "auto -> tab" beside
+// a "browser tab" entry that did the same thing today and something else
+// tomorrow. It is no longer offered; rows carrying it keep it until the route
+// is changed, because rewriting it here would re-route seats behind the user.
+function multiaiRouteOf(a) {
+    if (MULTIAI_CLI_PROVIDERS[a.provider]) return 'cli';
+    if (multiaiIsApiOnly(a.provider)) return 'api';
+    if (a.route === 'browser' || a.route === 'api') return a.route;
+    return 'auto';
+}
+
+// Can this seat actually reach the API? For the browser vendors that needs API
+// mode ON in Settings *and* a key; api-only providers need only their own key
+// or endpoint. Mirrors apiAvailable() in ipc/multiai.cjs — the run resolves
+// the route there, so the two must agree or the roster offers a route the app
+// will quietly refuse to take.
+function multiaiApiAvailable(provider) {
+    const r = multiaiState.routes || { providers: {} };
+    const p = (r.providers || {})[String(provider || '').split(':')[0]] || {};
+    if (p.apiOnly) return !!p.hasKey;
+    return !!(r.apiMode && p.hasKey);
+}
+
+// Label for the "+ add agent" menu: vendor first, then the route it lands on.
+function multiaiAddLabel(pv) {
+    const v = multiaiVendorOf(pv);
+    if (MULTIAI_CLI_PROVIDERS[pv]) return `${MULTIAI_VENDORS[v].label} \u00b7 ${MULTIAI_CLI_PROVIDERS[pv]}`;
+    if (v) return `${MULTIAI_VENDORS[v].label} \u00b7 browser tab`;
+    return `${multiaiProviderLabel(pv)} \u00b7 API`;
+}
 const MULTIAI_CLI_KIND = { 'claude-cli': 'claude', 'codex-cli': 'codex', 'gemini-cli': 'gemini' };
 const MULTIAI_EFFORTS = ['', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 // Fallbacks when discovery (multiaiState.routes.cliInfo) has nothing.
@@ -1095,17 +1155,14 @@ function multiaiCliModels(provider) {
     const known = multiaiKnownModels(provider);
     // Verified ones first, and never duplicated by a discovered entry.
     const extra = known.filter(k => !discovered.some(d => d.id === k.id))
-        .map(k => ({ id: k.id, label: `${k.id} ✓`, efforts: null, verified: true }));
-    return extra.concat(discovered.map(d => {
-        const v = known.find(k => k.id === d.id);
-        // Three tiers, marked so the list says how much each entry is worth:
-        // ✓ ran here, plain = the CLI itself reported it, · from the public
-        // catalogue and only a candidate until it answers a real turn.
-        const base = d.label && d.label !== d.id ? d.label : d.id;
-        if (v) return Object.assign({}, d, { verified: true, label: `${base} ✓` });
-        if (d.source === 'catalog') return Object.assign({}, d, { label: `${base} · not seen on this machine yet` });
-        return d;
-    }));
+        .map(k => ({ id: k.id, label: k.id, efforts: null, verified: true }));
+    // Three tiers, carried as flags. They used to be spelled into every label —
+    // "· not seen on this machine yet" on all fourteen Claude ids — which read
+    // as fourteen warnings rather than one fact about where the list came from.
+    // The cell groups on these instead, and names each group once.
+    return extra.concat(discovered.map(d => (known.some(k => k.id === d.id)
+        ? Object.assign({}, d, { verified: true })
+        : d)));
 }
 
 // Effort levels a CLI agent may pick: the model's own list (Codex), the CLI's
@@ -1441,7 +1498,8 @@ function multiaiRouteLabel(agent) {
 function multiaiAgentMeta(a) {
     const bits = [];
     const isCli = !!MULTIAI_CLI_PROVIDERS[a.provider];
-    bits.push(isCli ? 'cli' : (a.route || 'auto'));
+    const route = multiaiRouteOf(a);
+    bits.push(isCli ? (MULTIAI_CLI_PROVIDERS[a.provider] || 'cli') : (route === 'browser' ? 'tab' : (route === 'api' ? 'api' : 'auto')));
     if (a.model) bits.push(a.model);
     if (a.effort) bits.push(a.effort);
     if (isCli && a.tools && a.tools !== 'none') bits.push('🛠 ' + a.tools);
@@ -1461,35 +1519,62 @@ function multiaiRenderParticipants(chat) {
     const routes = multiaiState.routes || { apiMode: false, providers: {}, cli: {} };
     const personaNames = Object.keys(multiaiAllPersonas());
     const apiOnlyList = multiaiApiOnlyProviders();
-    const providerOptions = ['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli', 'gemini-cli'].concat(apiOnlyList.map(x => x.id));
+    // One entry per vendor, not per surface: the CLI seats are those same four
+    // vendors on a different route, and listing them twice is what made the
+    // Route cell look decorative.
+    const providerOptions = Object.keys(MULTIAI_VENDORS).concat(apiOnlyList.map(x => x.id));
     const takenCodes = new Set();
     const opt = (v, label, sel, dis) => `<option value="${multiaiEscapeAttr(v)}" ${sel ? 'selected' : ''} ${dis ? 'disabled' : ''}>${multiaiEscape(label)}</option>`;
+    const cliOkFor = (pv) => MULTIAI_CLI_PROVIDERS[pv] ? multiaiCliAvailable(pv) : true;
     const rows = agents.map((a, i) => {
         const on = a.enabled !== false;
         const code = multiaiAgentCode(a, takenCodes);
         const isCli = !!MULTIAI_CLI_PROVIDERS[a.provider];
         const p = routes.providers[a.provider] || {};
         const apiOnly = !!p.apiOnly;
-        const apiOk = apiOnly ? !!p.hasKey : (routes.apiMode && p.hasKey);
+        const apiOk = multiaiApiAvailable(a.provider);
+        const vendor = multiaiVendorOf(a.provider);
+        const vend = MULTIAI_VENDORS[vendor] || null;
+        const curRoute = multiaiRouteOf(a);
         const cliInfo = isCli ? multiaiCliInfo(a.provider) : null;
         const cliOk = !isCli || multiaiCliAvailable(a.provider);
         const cliModels = isCli ? multiaiCliModels(a.provider) : [];
-        const hints = isCli ? cliModels.map(m => m.id) : (apiOk ? (p.models || []) : (a.provider === 'gemini' ? MULTIAI_MODEL_HINTS.gemini : []));
         const cliEfforts = isCli ? multiaiCliEfforts(a.provider, a.model) : null;
         const effortList = isCli ? (cliEfforts === null ? MULTIAI_EFFORTS.filter(Boolean) : cliEfforts) : (apiOnly ? [] : MULTIAI_EFFORTS.filter(Boolean));
         const effortOn = (isCli && effortList.length > 0) || (!isCli && !apiOnly && (apiOk || a.route === 'api'));
         const modelOn = isCli || apiOnly || apiOk || a.route === 'api' || a.provider === 'gemini';
         const modelUnknown = (isCli && !!a.model && cliInfo && cliInfo.models && cliInfo.models.length && !cliInfo.models.some(m => m.id === a.model) && a.provider !== 'claude-cli')
             || (apiOnly && !a.model && !p.model);
-        const cliBad = isCli && (!cliOk || (cliInfo && cliInfo.loggedIn === false));
-        const resolved = isCli ? 'cli' : (a.route === 'browser' ? 'tab' : (a.route === 'api' ? (apiOk ? 'api' : 'api ⚠ → tab') : (apiOk ? 'api' : 'tab')));
-        const routeOpts = isCli
-            ? opt('cli', !cliOk ? 'cli ⚠ not found' : (cliInfo && cliInfo.loggedIn === false ? 'cli ⚠ login' : `cli${cliInfo && cliInfo.version ? ' ' + cliInfo.version : ''}`), true)
-            : (apiOnly
-                ? opt('api', p.hasKey ? 'api' : 'api ⚠ (Settings)', true)
-                : opt('auto', `auto → ${apiOk ? 'api' : 'tab'}`, a.route === 'auto') + opt('browser', 'browser tab', a.route === 'browser') + opt('api', apiOk ? 'api' : 'api ⚠ (Settings)', a.route === 'api'));
+        // What the run will really do, for the row's tooltip. A legacy 'auto'
+        // seat resolves the way resolveRoute() resolves it.
+        const resolved = isCli
+            ? (!cliOk ? `⚠ ${MULTIAI_CLI_PROVIDERS[a.provider]} is not installed` : (cliInfo && cliInfo.loggedIn === false ? `⚠ ${MULTIAI_CLI_PROVIDERS[a.provider]} is not signed in` : `${MULTIAI_CLI_PROVIDERS[a.provider]} on this machine`))
+            : (curRoute === 'browser' ? 'the browser tab' : (curRoute === 'api' ? (apiOk ? 'the API' : '⚠ the API is unreachable — the browser tab') : (apiOk ? 'the API' : 'the browser tab')));
+        // The API entry is offered only where Settings can honour it. It used
+        // to be permanent, and choosing it with API mode off changed nothing at
+        // all — resolveRoute() sends 'api' and 'auto' down the same branch —
+        // so the menu advertised a choice the app then ignored.
+        const cliName = vend && vend.cli ? MULTIAI_CLI_PROVIDERS[vend.cli] : '';
+        const cliVer = vend && vend.cli && multiaiCliInfo(vend.cli) && multiaiCliInfo(vend.cli).version ? ' ' + multiaiCliInfo(vend.cli).version : '';
+        const routeOpts = apiOnly
+            ? opt('api', p.hasKey ? 'API key' : 'API key ⚠ (Settings)', true)
+            : (vend
+                ? (
+                    (curRoute === 'auto' ? opt('auto', `follow Settings → ${apiOk ? 'API key' : 'browser tab'}`, true) : '')
+                    + opt('browser', 'subscription · browser tab', curRoute === 'browser')
+                    + (vend.cli ? opt('cli', `subscription · ${cliName}${cliOkFor(vend.cli) ? cliVer : ' — not installed'}`, curRoute === 'cli', !cliOkFor(vend.cli)) : '')
+                    + (routes.apiMode ? opt('api', p.hasKey ? 'API key' : 'API key — no key in Settings', curRoute === 'api', !p.hasKey) : '')
+                )
+                : opt(curRoute, curRoute, true));
         const cliDefault = cliInfo && cliInfo.defaultModel ? `${cliInfo.defaultModel} (CLI default)` : 'CLI default';
         const modelPh = isCli ? cliDefault : (apiOnly ? (p.model ? `${p.model} (Settings)` : 'model id (required)') : (apiOk || a.route === 'api' ? (p.model ? `${p.model} (Settings)` : 'Settings default') : (a.provider === 'gemini' ? 'engine' : 'whatever the tab is set to')));
+        const modelTitle = isCli
+            ? (modelUnknown ? `Not in this CLI's model list — ${(cliInfo && cliInfo.note) || ''}` : ((cliInfo && cliInfo.note) || 'CLI model (blank = its default)'))
+            : (apiOnly
+                ? (modelUnknown ? 'This endpoint needs a model id (e.g. llama3.2, qwen2.5-coder) — ↻ lists what it serves' : 'Model id as the endpoint names it — ↻ lists what it serves')
+                : (a.provider === 'gemini' && !apiOk ? 'Gemini engine (3.1-pro, 3.5-flash…)'
+                    : (apiOk || a.route === 'api' ? 'API model id — the list is what your key returns from /v1/models, fetched in Settings → API. Blank uses the model selected there.'
+                        : `This seat answers on whichever model the ${multiaiProviderLabel(a.provider)} tab is set to. Pick it in that tab; Proxima does not drive its model menu. Switch this seat to the CLI or API route to choose a model here.`)));
         const tools = isCli ? (MULTIAI_TOOLS.includes(a.tools) ? a.tools : 'none') : '';
         const hasWs = !!(chat.workspace && chat.workspace.root);
         const codexNoSandbox = a.provider === 'codex-cli' && cliInfo && cliInfo.sandbox === 'missing' && (tools === 'read' || tools === 'write');
@@ -1516,9 +1601,9 @@ function multiaiRenderParticipants(chat) {
             <tr class="${on ? '' : 'off'}" title="${multiaiEscapeAttr(multiaiRouteLabel(a))}">
                 <td style="width: 24px;"><input type="checkbox" ${on ? 'checked' : ''} onchange="multiaiAgentToggle(${i}, this.checked)" title="${on ? 'Taking turns in this chat — untick to bench' : 'Benched — tick to include'}"></td>
                 <td class="nm" style="min-width: 150px;"><div style="display: flex; align-items: center; gap: 6px;">${multiaiColorsEnabled() ? `<input type="color" value="${multiaiEscapeAttr((a.color || multiaiAgentColor(a, chat) || '#93c5fd'))}" onchange="multiaiSetAgentColor(${i}, this.value)" aria-label="Colour for ${multiaiEscapeAttr(a.name)}" title="Colour for this seat in the transcript. Derived from its id by default — pick one to override, or turn colours off in the roster footer." style="width: 18px; height: 18px; padding: 0; border: none; background: none; cursor: pointer; flex-shrink: 0;">` : ''}<span class="code" title="Label code">${multiaiEscape(code)}</span><input type="text" value="${multiaiEscapeAttr(a.name)}" oninput="multiaiAgentField(${i}, 'name', this.value)" title="Name — also the @mention id"></div></td>
-                <td style="width: 122px;"><select onchange="multiaiAgentField(${i}, 'provider', this.value)" aria-label="Provider for ${multiaiEscapeAttr(a.name)}" title="Provider">${(providerOptions.includes(a.provider) ? providerOptions : providerOptions.concat([a.provider])).map(pv => opt(pv, MULTIAI_CLI_PROVIDERS[pv] || multiaiProviderLabel(pv), a.provider === pv)).join('')}</select></td>
-                <td style="width: 118px;"><select onchange="multiaiAgentField(${i}, 'route', this.value)" aria-label="Route for ${multiaiEscapeAttr(a.name)}" ${isCli || apiOnly ? 'disabled' : ''} title="${multiaiEscapeAttr(apiOnly ? 'API only — this provider has no browser tab' : `Route — auto follows Settings (API mode on + key → API, else the browser tab); resolved: ${resolved}`)}">${routeOpts}</select></td>
-                <td style="width: 150px;"><div style="display: flex; align-items: center; gap: 4px;"><input type="text" list="multiai-models-${i}" value="${multiaiEscapeAttr(a.model || '')}" placeholder="${multiaiEscapeAttr(modelPh)}" oninput="multiaiAgentField(${i}, 'model', this.value)" onchange="multiaiAgentField(${i}, 'model:commit', this.value)" ${modelOn ? '' : 'disabled'} ${modelUnknown ? 'style="border-color: rgba(245,158,11,0.7);"' : ''} title="${multiaiEscapeAttr(isCli ? (modelUnknown ? `Not in this CLI's model list — ${cliInfo.note || ''}` : (cliInfo && cliInfo.note ? cliInfo.note : 'CLI model (blank = its default)')) : (apiOnly ? (modelUnknown ? 'This endpoint needs a model id (e.g. llama3.2, qwen2.5-coder) — ↻ lists what it serves' : 'Model id as the endpoint names it — ↻ lists what it serves') : (a.provider === 'gemini' && !apiOk ? 'Gemini engine (3.1-pro, 3.5-flash…)' : (apiOk || a.route === 'api' ? 'API model id — blank uses the model selected in Settings' : 'This seat answers on whichever model the ' + multiaiProviderLabel(a.provider) + ' tab is set to. Pick it in that tab; Proxima does not drive its model menu. Switch this seat to a CLI or API route to choose a model here.'))))}"><datalist id="multiai-models-${i}">${cliModels.length ? cliModels.map(m => `<option value="${multiaiEscapeAttr(m.id)}">${multiaiEscape(m.label && m.label !== m.id ? m.label : '')}</option>`).join('') : hints.map(h => `<option value="${multiaiEscapeAttr(h)}">`).join('')}</datalist>${isCli ? `<button id="multiai-test-${i}" class="multiai-btn ghost" style="padding: 2px 6px; flex-shrink: 0;" onclick="multiaiTestModel(${i})" aria-label="Test this model" title="Run one short turn on this model now. It is the only way to know a model works — Claude Code accepts full ids its --help never lists, and Codex's cached list can be from another build. A model that answers is remembered and offered from then on.">▷</button>` : ''}</div></td>
+                <td style="width: 122px;"><select onchange="multiaiAgentField(${i}, 'vendor', this.value)" aria-label="Provider for ${multiaiEscapeAttr(a.name)}" title="Which vendor answers. How Proxima reaches it — browser tab, local CLI or API key — is the Route beside this.">${(providerOptions.includes(vendor || a.provider) ? providerOptions : providerOptions.concat([a.provider])).map(pv => opt(pv, MULTIAI_VENDORS[pv] ? MULTIAI_VENDORS[pv].label : multiaiProviderLabel(pv), (vendor || a.provider) === pv)).join('')}</select></td>
+                <td style="width: 182px;"><select onchange="multiaiAgentField(${i}, 'route', this.value)" aria-label="Route for ${multiaiEscapeAttr(a.name)}" ${apiOnly ? 'disabled' : ''} title="${multiaiEscapeAttr(apiOnly ? `API only — ${multiaiProviderLabel(a.provider)} is an endpoint you added in Settings, so there is no browser tab or CLI to fall back to` : `How this seat reaches ${vend ? vend.label : multiaiProviderLabel(a.provider)}:\n\n· browser tab — the tab you are already signed in to, on your subscription\n· ${cliName || 'local CLI'} — the vendor's CLI on this machine, also on your subscription, and the only route that can hold workspace tools\n· API key — billed per token against the key in Settings${routes.apiMode ? '' : ' (API mode is off, so this route is not offered)'}\n\nThis seat answers on ${resolved}.`)}">${routeOpts}</select></td>
+                <td style="width: 172px;">${multiaiModelCell(a, i, { isCli, apiOnly, apiOk, p, cliInfo, cliModels, modelOn, modelUnknown, modelPh, modelTitle })}</td>
                 <td style="width: 96px;"><select onchange="multiaiAgentField(${i}, 'effort', this.value)" aria-label="Effort for ${multiaiEscapeAttr(a.name)}" ${effortOn ? '' : 'disabled'} title="${multiaiEscapeAttr(isCli ? (effortList.length ? `Reasoning effort — levels this ${MULTIAI_CLI_PROVIDERS[a.provider]} model accepts` : `${MULTIAI_CLI_PROVIDERS[a.provider]} has no effort switch`) : 'Reasoning effort — API and CLI routes only')}">${opt('', 'default', !a.effort)}${effortList.map(e => opt(e, e, a.effort === e)).join('')}${a.effort && !effortList.includes(a.effort) ? opt(a.effort, a.effort + ' ⚠', true) : ''}</select></td>
                 <td style="width: 84px;">${toolsCell}</td>
                 <td style="width: 120px;"><select onchange="multiaiAgentPersona(${i}, this.value)" title="Persona">${opt('', 'none', !a.personaKey)}${personaNames.map(n => opt(n, n, a.personaKey === n)).join('')}</select></td>
@@ -1530,7 +1615,6 @@ function multiaiRenderParticipants(chat) {
     const inChat = new Set(agents.map(a => a.uid).filter(Boolean));
     const libFree = lib.filter(a => !inChat.has(a.uid));
     const presets = ['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli', 'gemini-cli'].concat(apiOnlyList.map(x => x.id));
-    const cliOkFor = (pv) => MULTIAI_CLI_PROVIDERS[pv] ? multiaiCliAvailable(pv) : true;
     const setups = multiaiSetups();
     const saved = setups.filter(x => !x.builtIn);
     const setupMenu = `<select onchange="multiaiApplySetup(this.value); this.value='';" aria-label="Apply a saved setup" title="Replace this chat's agents and discussion settings with a saved setup" style="min-width: 160px;">
@@ -1546,7 +1630,7 @@ function multiaiRenderParticipants(chat) {
     const addMenu = `<select onchange="multiaiAgentAddFromMenu(this.value); this.value='';" title="Add an agent to this chat" style="min-width: 150px;">
             <option value="">+ add agent…</option>
             ${libFree.length ? `<optgroup label="Library">${libFree.map(a => opt('lib:' + a.uid, `${a.name} — ${multiaiAgentMeta(a)}`)).join('')}</optgroup>` : ''}
-            <optgroup label="New">${presets.map(pv => opt('new:' + pv, (MULTIAI_CLI_PROVIDERS[pv] || (multiaiIsApiOnly(pv) ? multiaiProviderLabel(pv) + ' (API)' : multiaiProviderLabel(pv) + ' tab')) + (cliOkFor(pv) ? '' : ' — not installed'), false, !cliOkFor(pv))).join('')}</optgroup>
+            <optgroup label="New">${presets.map(pv => opt('new:' + pv, multiaiAddLabel(pv) + (cliOkFor(pv) ? '' : ' — not installed'), false, !cliOkFor(pv))).join('')}</optgroup>
         </select>`;
     const libManage = multiaiState.agentMenuOpen && lib.length ? `
         <div style="flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 0 2px;">
@@ -1554,7 +1638,7 @@ function multiaiRenderParticipants(chat) {
             ${lib.map(a => `<span style="display: inline-flex; align-items: center; gap: 4px; border: 1px solid rgba(255,255,255,0.12); border-radius: 999px; padding: 2px 6px 2px 8px; font-size: 0.72rem; color: #d1d5db;">${multiaiEscape(a.name)}${inChat.has(a.uid) ? ' <span style="color:#9ca3af">· in chat</span>' : ''}<button onclick="multiaiLibraryRemove('${multiaiEscapeAttr(a.uid)}')" title="Remove from the library (chats keep their copy)" style="background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 0.8rem; padding: 0 2px;">✕</button></span>`).join('')}
             <span style="font-size: 0.7rem; color: #9ca3af;">— new chats start with all of these, and each is also served as <code>cli:&lt;id&gt;</code> on the REST port and to MCP clients (its persona goes along as the system prompt)</span>
         </div>` : '';
-    const mode = routes.apiMode ? 'API mode ON in Settings' : 'API mode OFF in Settings — auto agents use the browser tabs';
+    const mode = routes.apiMode ? 'API mode ON in Settings — the API route is offered where a key exists' : 'API mode OFF in Settings — no API routes; turn it on there to offer them';
     const cliLine = ['claude-cli', 'codex-cli', 'gemini-cli'].map(pv => {
         const info = multiaiCliInfo(pv);
         if (!multiaiCliAvailable(pv)) return null;
@@ -1569,7 +1653,7 @@ function multiaiRenderParticipants(chat) {
     box.innerHTML = `
         <div style="overflow-x: auto;">
         <table class="multiai-roster">
-            <thead><tr><th><span class="sr-only">Taking part</span></th><th>Agent</th><th>Provider</th><th title="Turn order follows this table's order">Route</th><th>Model</th><th>Effort</th><th title="Workspace file tools (CLI seats): none · read · write · full — see the Workspace tab">Tools</th><th>Persona</th><th><span class="sr-only">Actions</span></th></tr></thead>
+            <thead><tr><th><span class="sr-only">Taking part</span></th><th title="Turn order follows this table's order">Agent</th><th title="The vendor — not the surface. Claude Code is Claude on the CLI route, not a provider of its own.">Provider</th><th title="How Proxima reaches the vendor: your subscription through its browser tab, your subscription through its local CLI, or its API with the key in Settings. Only routes this machine can actually take are listed.">Route</th><th>Model</th><th>Effort</th><th title="Workspace file tools (CLI seats): none · read · write · full — see the Workspace tab">Tools</th><th>Persona</th><th><span class="sr-only">Actions</span></th></tr></thead>
             <tbody>${rows || `<tr><td colspan="9" style="color: #9ca3af; padding: 10px 6px;">No agents yet — add one below. Agents go into the library, so every new chat starts with them; tick / untick to choose who takes part in this one.</td></tr>`}</tbody>
         </table>
         </div>
@@ -1584,6 +1668,8 @@ function multiaiRenderParticipants(chat) {
             ${multiaiMissingClis().map(pv => `<button class="multiai-btn ghost" style="border-color: rgba(245,158,11,0.5);" onclick="multiaiInstallHelp('${pv}')" title="${multiaiEscapeAttr(MULTIAI_CLI_INSTALL[pv].name)} is not installed, so its seats are greyed out. Click for the install command and the official instructions.">⬇ ${multiaiEscape(MULTIAI_CLI_INSTALL[pv].name)}</button>`).join('')}
             <button class="multiai-btn ghost" onclick="multiaiToggleAgentColors()" title="Colour each seat's turns in the transcript so you can tell who said what at a glance. Off makes every card look the same.">${multiaiColorsEnabled() ? '🎨 colours on' : '🎨 colours off'}</button>
             <button id="multiai-refresh-routes" class="multiai-btn ghost" onclick="multiaiRefreshRoutes()" aria-label="Re-probe CLIs and re-read Settings" title="Re-read Settings (API mode, keys, models) and re-probe the local CLIs">↻</button>
+            <span style="width: 1px; height: 20px; background: rgba(255,255,255,0.12);"></span>
+            <button class="multiai-btn ghost" style="border-color: rgba(239,68,68,0.45); color: #fca5a5;" onclick="multiaiAgentsClearAll()" aria-label="Remove every agent from this chat" title="Empty the roster: take every agent out of this chat. Library agents stay in the library, so “+ add agent…” puts them back — anything not in it is gone. Use “none” to bench them all instead and keep them configured." ${agents.length ? '' : 'disabled'}>clear all</button>
             <span style="flex: 1;"></span>
             <span>${enabledN}/${agents.length} enabled · ${multiaiEscape(mode)}</span>
             ${cliLine ? `<span style="flex-basis: 100%; font-size: 0.68rem; color: #8b8ba0;" title="What the local CLIs report (↻ re-probes them)">${multiaiEscape(cliLine)}</span>` : ''}
@@ -1748,6 +1834,30 @@ function multiaiAgentsSetAll(on) {
     multiaiRerenderAgents(chat);
 }
 
+// Empty the roster. Not the same as “none”, which benches every seat but keeps
+// it configured, so this asks first and says what survives.
+function multiaiAgentsClearAll() {
+    const chat = multiaiCurrentChat();
+    if (!chat) return;
+    const agents = multiaiEnsureAgents(chat);
+    if (!agents.length) return;
+    const lib = multiaiAgentLibrary();
+    const kept = agents.filter(a => a.uid && lib.some(x => x.uid === a.uid)).length;
+    const gone = agents.length - kept;
+    if (!window.confirm(`Remove all ${agents.length} agent${agents.length === 1 ? '' : 's'} from this chat?\n\n`
+        + (kept ? `${kept} of them stay in the library — “+ add agent…” puts ${kept === 1 ? 'it' : 'them'} back.\n` : '')
+        + (gone ? `${gone} ${gone === 1 ? 'is' : 'are'} not in the library, so this is the only copy.\n` : '')
+        + `\nThe transcript is untouched. To keep them but leave them out of the run, use “none”.`)) return;
+    chat.agents = [];
+    // The legacy participants list is still the migration source: clearing only
+    // `agents` would have multiaiEnsureAgents rebuild the roster from it on the
+    // very next render.
+    chat.participants = [];
+    multiaiEnsureAgents(chat);
+    multiaiPersist();
+    multiaiRerenderAgents(chat);
+}
+
 function multiaiAgentPreset(provider) {
     const isCli = !!MULTIAI_CLI_PROVIDERS[provider];
     const apiOnly = multiaiIsApiOnly(provider);
@@ -1877,13 +1987,45 @@ function multiaiAgentField(i, field, value) {
             }
         }
     }
-    if (field === 'model:commit') a.model = value; else a[field] = value;
-    if (field === 'provider') {
-        const isCli = !!MULTIAI_CLI_PROVIDERS[value];
-        a.route = isCli ? 'cli' : (a.route === 'cli' ? 'auto' : a.route);
-        if (isCli) { a.model = multiaiCliPresetModel(value); a.effort = multiaiCliPresetEffort(value, a.model, a.effort); if (!MULTIAI_TOOLS.includes(a.tools)) a.tools = 'none'; }
-        else if (multiaiIsApiOnly(value)) { const pi = multiaiState.routes.providers[value] || {}; a.route = 'api'; a.model = pi.model || (pi.models && pi.models[0]) || ''; a.effort = ''; delete a.tools; }
-        else { if (value !== 'gemini') a.model = ''; delete a.tools; }
+    // 'vendor' and 'route' are the roster's two questions. The stored shape has
+    // one field that answers both — `provider` is 'claude' or 'claude-cli' —
+    // so they are translated here instead of migrating every saved chat, saved
+    // setup and library entry.
+    if (field === 'model:select') {
+        if (!multiaiState.customModelRows) multiaiState.customModelRows = {};
+        const key = multiaiModelRowKey(a, i);
+        if (value === '__custom__') { multiaiState.customModelRows[key] = true; value = ''; }
+        else delete multiaiState.customModelRows[key];
+        field = 'model:commit';                       // same effort clamping
+    }
+    if (field === 'model:commit') a.model = value;
+    else if (field !== 'vendor' && field !== 'route') a[field] = value;
+    if (field === 'provider') multiaiApplyProviderDefaults(a, value);
+    if (field === 'vendor' || field === 'route') {
+        const want = field === 'route' ? value : multiaiRouteOf(a);
+        const d = MULTIAI_VENDORS[field === 'vendor' ? value : multiaiVendorOf(a.provider)];
+        if (!d) {
+            // api-only seat (a custom endpoint): one route, so a vendor change
+            // is just a provider change.
+            if (field === 'vendor' && value !== a.provider) { a.provider = value; multiaiApplyProviderDefaults(a, value); }
+        } else {
+            const provider = (want === 'cli' && d.cli) ? d.cli : d.browser;
+            if (provider !== a.provider) { a.provider = provider; multiaiApplyProviderDefaults(a, provider); }
+            // The route follows the provider that was actually chosen, not the
+            // one asked for: moving a CLI seat to a vendor with no CLI
+            // (Perplexity) must land on the tab, not store 'cli' against a
+            // browser provider — resolveRoute() would then quietly ignore it.
+            a.route = MULTIAI_CLI_PROVIDERS[provider] ? 'cli' : (want === 'cli' ? 'browser' : want);
+            // Same provider, different surface: what is in the model box does
+            // not survive the move. A browser Gemini seat carries an engine
+            // string ("3.1-pro") that the API rejects, and the API route trusts
+            // the box verbatim (apiModelFor), so it would be sent as typed.
+            if (a.route === 'api') {
+                if (!multiaiApiAvailable(provider)) a.route = 'browser';
+                else { const known = ((multiaiState.routes.providers || {})[provider] || {}).models || []; if (a.model && known.length && !known.includes(a.model)) a.model = ''; }
+            }
+            if (a.route === 'browser' && provider !== 'gemini') a.model = '';
+        }
     }
     if (field === 'tools') {
         a.tools = MULTIAI_TOOLS.includes(value) ? value : 'none';
@@ -1903,6 +2045,99 @@ function multiaiAgentField(i, field, value) {
     // have been re-derived, the route/effort cells may enable or disable).
     if (field !== 'name' && field !== 'model') multiaiRerenderAgents(chat);
     else { multiaiRenderOptionsSummary(chat); multiaiRenderStatusLine(chat); }
+}
+
+// Moving a seat to another surface invalidates what is configured on it: a CLI
+// model id means nothing to the API, a browser seat has no workspace tools, and
+// an api-only endpoint names its own models. Re-derive rather than carry across.
+function multiaiApplyProviderDefaults(a, provider) {
+    const isCli = !!MULTIAI_CLI_PROVIDERS[provider];
+    a.route = isCli ? 'cli' : (a.route === 'cli' ? 'auto' : a.route);
+    if (isCli) { a.model = multiaiCliPresetModel(provider); a.effort = multiaiCliPresetEffort(provider, a.model, a.effort); if (!MULTIAI_TOOLS.includes(a.tools)) a.tools = 'none'; }
+    else if (multiaiIsApiOnly(provider)) { const pi = (multiaiState.routes.providers || {})[provider] || {}; a.route = 'api'; a.model = pi.model || (pi.models && pi.models[0]) || ''; a.effort = ''; delete a.tools; }
+    else { if (provider !== 'gemini') a.model = ''; delete a.tools; }
+}
+
+// ---- the model cell ------------------------------------------------------
+// Three sources, each authoritative for a different route:
+//
+//   CLI  · what the CLI reports about itself (Codex's account list; Claude
+//          Code's --help aliases), the public catalogue for the full ids those
+//          aliases stand for, and anything a real turn has proved here
+//   API  · the provider's own /v1/models, fetched with your key in
+//          Settings → API — the only entitlement-aware list there is for a key
+//   tab  · nothing: the tab answers on whatever model it is set to
+//
+// A grouped <select>, not the <input list=…> this was. A datalist filters
+// itself by whatever is already in the box, so a seat set to "sonnet" was only
+// ever offered the four sonnet ids and the other fourteen looked as though they
+// had failed to load. Free text stays reachable through "custom…", because
+// Claude Code accepts full claude-… ids that no list here enumerates.
+function multiaiModelGroups(a, ctx) {
+    const groups = [];
+    const push = (label, items) => { if (items.length) groups.push({ label, items }); };
+    const ids = list => list.map(m => ({ id: m.id, label: m.id }));
+    if (ctx.isCli) {
+        const dated = m => /-\d{8}$/.test(m.id);
+        const cat = ctx.cliModels.filter(m => !m.verified && m.source === 'catalog');
+        push('answered on this machine', ids(ctx.cliModels.filter(m => m.verified)));
+        push(a.provider === 'claude-cli' ? 'aliases the CLI lists' : 'your account', ids(ctx.cliModels.filter(m => !m.verified && m.source !== 'catalog')));
+        push('full ids · not tried here', ids(cat.filter(m => !dated(m))));
+        // Same models as the group above, pinned to a release date. Separated
+        // so the plain ids are not buried among their own duplicates.
+        push('dated pins · not tried here', ids(cat.filter(dated)));
+    } else if (ctx.apiOnly) {
+        push('served by this endpoint', (ctx.p.models || []).map(id => ({ id, label: id })));
+    } else if (ctx.apiOk) {
+        push(ctx.p.modelsFrom === 'key' ? 'your key returns these (/v1/models)' : 'chosen in Settings', (ctx.p.models || []).map(id => ({ id, label: id })));
+    } else if (a.provider === 'gemini') {
+        push('engines', MULTIAI_MODEL_HINTS.gemini.map(id => ({ id, label: id })));
+    }
+    return groups;
+}
+
+// Rows the user has put into free-text mode. Transient and per-row: an id that
+// is simply not on the list puts its own row there without being remembered.
+function multiaiModelRowKey(a, i) { return a.uid || a.id || String(i); }
+
+function multiaiModelCell(a, i, ctx) {
+    const esc = multiaiEscapeAttr;
+    const groups = multiaiModelGroups(a, ctx);
+    const listed = groups.some(g => g.items.some(m => m.id === a.model));
+    const custom = !!(multiaiState.customModelRows && multiaiState.customModelRows[multiaiModelRowKey(a, i)]);
+    const test = ctx.isCli
+        ? `<button id="multiai-test-${i}" class="multiai-btn ghost" style="padding: 2px 6px; flex-shrink: 0;" onclick="multiaiTestModel(${i})" aria-label="Test this model" title="Run one short turn on this model now. It is the only way to know a model works — Claude Code accepts full ids its --help never lists, and Codex's cached list can be from another build. A model that answers moves to the top of this list and stays there.">▷</button>`
+        : '';
+    const wrap = inner => `<div style="display: flex; align-items: center; gap: 4px;">${inner}${test}</div>`;
+
+    // Free text: chosen, or forced because the stored id is on no list.
+    if (!ctx.modelOn || custom || (a.model && !listed && groups.length)) {
+        const back = groups.length && ctx.modelOn
+            ? `<button class="multiai-btn ghost" style="padding: 2px 5px; flex-shrink: 0;" onclick="multiaiModelPickFromList(${i})" aria-label="Back to the list" title="Back to the list of models Proxima knows about">☰</button>`
+            : '';
+        return wrap(`<input type="text" value="${esc(a.model || '')}" placeholder="${esc(ctx.modelPh)}" oninput="multiaiAgentField(${i}, 'model', this.value)" onchange="multiaiAgentField(${i}, 'model:commit', this.value)" ${ctx.modelOn ? '' : 'disabled'} ${ctx.modelUnknown ? 'style="border-color: rgba(245,158,11,0.7);"' : ''} title="${esc(ctx.modelTitle)}">${back}`);
+    }
+
+    const opt = (v, label, sel) => `<option value="${esc(v)}" ${sel ? 'selected' : ''}>${multiaiEscape(label)}</option>`;
+    const body = opt('', ctx.modelPh, !a.model)
+        + groups.map(g => `<optgroup label="${esc(g.label)}">${g.items.map(m => opt(m.id, m.label, a.model === m.id)).join('')}</optgroup>`).join('')
+        + opt('__custom__', 'custom…', false);
+    return wrap(`<select onchange="multiaiAgentField(${i}, 'model:select', this.value)" aria-label="Model for ${esc(a.name)}" title="${esc(ctx.modelTitle)}">${body}</select>`);
+}
+
+function multiaiModelPickFromList(i) {
+    const chat = multiaiCurrentChat();
+    const a = chat && (chat.agents || [])[i];
+    if (!a) return;
+    if (!multiaiState.customModelRows) multiaiState.customModelRows = {};
+    delete multiaiState.customModelRows[multiaiModelRowKey(a, i)];
+    // An id on no list would send the row straight back to free text, so
+    // returning to the list means giving that id up for the seat's default.
+    const isCli = !!MULTIAI_CLI_PROVIDERS[a.provider];
+    const p = ((multiaiState.routes || {}).providers || {})[a.provider] || {};
+    const groups = multiaiModelGroups(a, { isCli, apiOnly: !!p.apiOnly, apiOk: multiaiApiAvailable(a.provider), p, cliModels: isCli ? multiaiCliModels(a.provider) : [] });
+    if (a.model && !groups.some(g => g.items.some(m => m.id === a.model))) { multiaiAgentField(i, 'model:commit', ''); return; }
+    multiaiRerenderAgents(chat);
 }
 
 // Preset model / effort for a new CLI agent: the CLI's configured default if
