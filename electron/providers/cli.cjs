@@ -669,8 +669,16 @@ function scratchDir(base) {
     return dir;
 }
 
-function removeScratch(dir) {
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+// Windows will not delete a directory that is still some process's current
+// directory, and a CLI's own background helper can outlive the turn holding it.
+// One attempt therefore leaked on every Antigravity turn; a few spaced tries
+// clear it without making anyone wait, and giving up quietly is still correct —
+// a stale temp directory is not worth failing a turn over.
+function removeScratch(dir, tries = 5) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); return; } catch { /* still held */ }
+    if (tries <= 1) return;
+    const t = setTimeout(() => removeScratch(dir, tries - 1), 1500);
+    if (t.unref) t.unref();
 }
 
 function killTree(child) {
@@ -987,13 +995,24 @@ function runAntigravity({ model, effort, prompt, systemPrompt, cwd, workspace, t
         let parsed = null;
         const at = stdout.indexOf('{');
         if (at !== -1) { try { parsed = JSON.parse(stdout.slice(at)); } catch { /* not the envelope */ } }
-        const text = parsed && typeof parsed.response === 'string' ? parsed.response.trim() : stdout.trim();
         if (parsed && parsed.status && parsed.status !== 'SUCCESS') {
             throw new Error(parsed.error || `Antigravity returned ${parsed.status}`);
         }
-        if (!text) throw new Error((stderr || '').trim() || `Antigravity exited ${code} with no output`);
+        // Only an envelope that says SUCCESS is an answer. Falling back to raw
+        // stdout meant a process that died non-zero — a usage error, a signal, a
+        // half-written line — was recorded as that seat's reply, which is worse
+        // than the turn failing: it puts something the model never said into the
+        // transcript every other seat then reads.
+        const text = parsed && typeof parsed.response === 'string' ? parsed.response.trim() : '';
+        if (!text) {
+            const why = (stderr || '').trim() || stdout.trim().slice(0, 300);
+            throw new Error(why ? `Antigravity exited ${code}: ${why}` : `Antigravity exited ${code} with no output`);
+        }
         return { text, model: model || null };
     });
+    // Every other runner does this; without it each Antigravity turn left a
+    // temp directory behind for the life of the machine.
+    promise.finally(() => removeScratch(dir)).catch(() => {});
     return { promise, abort: run.abort };
 }
 
