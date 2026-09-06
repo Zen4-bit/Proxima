@@ -246,3 +246,27 @@ test('winQuote: a trailing backslash run is doubled so it cannot escape the clos
     assert.equal(cli.winQuote('C:/path/'), '"C:/path/"');
     assert.equal(cli.winQuote('sonnet[1m]'), '"sonnet[1m]"');
 });
+
+// The per-run timeout only starts once a process is spawned, so a caller could
+// sit behind turns each allowed up to twenty minutes with no bound at all. The
+// deadline is opt-in: chat turns pass none, because the same two-wide cap
+// serves them and a four-seat single-provider panel routinely has seats queued.
+test('acquire: a queued caller can be given a deadline, and gets a 503-shaped error', async () => {
+    const kind = 'claude';
+    const held = [];
+    for (let i = 0; i < 2; i++) { await cli.__acquire(kind); held.push(true); }   // fill the cap
+    const before = cli.queueDepth()[kind];
+    assert.deepEqual([before.running, before.waiting], [2, 0]);
+
+    await assert.rejects(() => cli.__acquire(kind, { queueDeadlineMs: 30 }), (e) => e.status === 503 && /busy/i.test(e.message));
+    assert.equal(cli.queueDepth()[kind].waiting, 0, 'the timed-out waiter is removed from the queue');
+
+    // Without a deadline the caller simply waits, and a release lets it through.
+    const waited = cli.__acquire(kind);
+    assert.equal(cli.queueDepth()[kind].waiting, 1);
+    cli.__release(kind);
+    await waited;
+    cli.__release(kind);
+    cli.__release(kind);
+    assert.equal(cli.queueDepth()[kind].running, 0);
+});

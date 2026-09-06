@@ -1450,6 +1450,21 @@ function registerMultiAiHandlers(deps) {
     //   POST /v1/multiai/chats/:id/run              {text?, who?, rounds?, wait?} → {started} | {messages}
     //   POST /v1/multiai/chats/:id/wait             {since?, maxMs?} → {running, messages}
     //   POST /v1/multiai/chats/:id/stop             → {stopped}
+    // A CLI turn can run for twenty minutes. If the caller hangs up, finishing
+    // it just burns one of the two slots for that CLI — which chat turns share
+    // — on an answer nobody will read, so the turn is aborted with the socket.
+    function abortOnDisconnect(res, body) {
+        const req = res && res.req;
+        return Object.assign({}, body, {
+            onStart(handle) {
+                if (!req || typeof req.on !== 'function') return;
+                const stop = () => { if (!res.writableEnded) { try { handle.abort(); } catch { /* already gone */ } } };
+                req.on('aborted', stop);
+                req.on('close', stop);
+            },
+        });
+    }
+
     //   GET  /v1/multiai/running                    → {running:[chatId]}
     if (typeof registerRouteExtension === 'function') {
         registerRouteExtension(async (method, url, body, res, { sendJSON, sendError }) => {
@@ -1461,12 +1476,12 @@ function registerMultiAiHandlers(deps) {
                 if (method === 'GET' && p === '/v1/multiai/running') { sendJSON(res, 200, { running: api.running() }); return true; }
                 // ---- variants: local CLI seats over REST ----
                 if (method === 'GET' && p === '/v1/multiai/variants') { sendJSON(res, 200, await variants({ probe: url.searchParams.get('probe') === '1' })); return true; }
-                if (method === 'POST' && p === '/v1/multiai/variants/ask') { sendJSON(res, 200, await askVariant(body)); return true; }
+                if (method === 'POST' && p === '/v1/multiai/variants/ask') { sendJSON(res, 200, await askVariant(abortOnDisconnect(res, body))); return true; }
                 if (method === 'POST' && p === '/v1/multiai/variants/ask-many') { sendJSON(res, 200, await askVariants(body)); return true; }
                 // OpenAI-compatible: model "cli:opus:max" / "cli:gpt-5.5:high" / a library seat's name → the CLI seat.
                 if (isCompletionsForVariant) {
                     const { message, system } = fromChatBody(body);
-                    const r = await askVariant({ variant: String(body.model), message, system: body.system || system });
+                    const r = await askVariant(abortOnDisconnect(res, { variant: String(body.model), message, system: body.system || system }));
                     const completion = completionFor(r, String(body.model));
                     if (body.stream === true) {
                         // askVariant above can take many minutes, so the client

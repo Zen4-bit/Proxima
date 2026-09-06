@@ -479,17 +479,49 @@ function codexEffortFor(model, effort, models) {
 const _running = {};
 const _waiters = {};
 
-function acquire(kind) {
+// `queueDeadlineMs` bounds the wait for a slot, which the per-run timeout never
+// did — that timer only starts once the process is spawned, so a documented
+// "give up after N seconds" could be preceded by an unbounded queue wait behind
+// turns each allowed up to twenty minutes.
+//
+// It is opt-in per caller on purpose. The same two-wide cap serves chat turns
+// and REST/MCP variant calls, and a four-seat single-provider panel — the
+// feature's own headline example — routinely has seats queued. A deadline
+// tuned for an HTTP client would abort legitimate UI turns that were only
+// waiting their turn, so chat turns pass none.
+function acquire(kind, { queueDeadlineMs } = {}) {
     if (_running[kind] === undefined) { _running[kind] = 0; _waiters[kind] = []; }
     if (_running[kind] < (MAX_PARALLEL[kind] || 2)) { _running[kind]++; return Promise.resolve(); }
-    return new Promise(res => _waiters[kind].push(res)).then(() => { _running[kind]++; });
+    return new Promise((resolve, reject) => {
+        const entry = { resolve: null, timer: null };
+        entry.resolve = () => { if (entry.timer) clearTimeout(entry.timer); resolve(); };
+        if (queueDeadlineMs > 0) {
+            entry.timer = setTimeout(() => {
+                const i = _waiters[kind].indexOf(entry);
+                if (i !== -1) _waiters[kind].splice(i, 1);
+                const e = new Error(`${LABELS[kind] || kind} is busy — no slot after ${Math.round(queueDeadlineMs / 1000)}s`);
+                e.status = 503;
+                reject(e);
+            }, queueDeadlineMs);
+            if (entry.timer.unref) entry.timer.unref();
+        }
+        _waiters[kind].push(entry);
+    }).then(() => { _running[kind]++; });
 }
 
 function release(kind) {
     if (_running[kind] === undefined) return;
     _running[kind] = Math.max(0, _running[kind] - 1);
     const next = _waiters[kind].shift();
-    if (next) next();
+    if (next) next.resolve();
+}
+
+// How many callers are waiting for a slot, so a queue can be reported rather
+// than only felt.
+function queueDepth() {
+    const out = {};
+    for (const k of Object.values(BINS)) out[k] = { running: _running[k] || 0, waiting: (_waiters[k] || []).length, max: MAX_PARALLEL[k] || 2 };
+    return out;
 }
 
 // ---- process helpers ------------------------------------------------------
@@ -579,14 +611,14 @@ function spawnCli(bin, args, cwd, exeOverride) {
 // identical otherwise, and a seat can sit queued for a full CLI timeout while
 // the user decides whether to wait or press Stop. Optional: cli.cjs must stay
 // Electron-free for the standalone variants server, which omits it.
-function runProcess(kind, bin, args, { cwd, prompt, timeoutMs, exe, onState }) {
+function runProcess(kind, bin, args, { cwd, prompt, timeoutMs, exe, onState, queueDeadlineMs }) {
     const state = (s) => { try { if (onState) onState(s); } catch { /* never let the UI break a run */ } };
     let child = null;
     let aborted = false;
     let timer = null;
     const promise = (async () => {
         state('queued');
-        await acquire(kind);
+        await acquire(kind, { queueDeadlineMs });
         if (aborted) { release(kind); throw Object.assign(new Error('Cancelled by user'), { cancelled: true }); }
         try {
             const exeResolved = typeof exe === 'function' ? await exe() : exe;
@@ -668,13 +700,13 @@ function claudeArgs({ model, effort, workspace }, dir, sysFile) {
     return args;
 }
 
-function runClaude({ model, effort, prompt, systemPrompt, cwd, workspace, timeoutMs, onState }) {
+function runClaude({ model, effort, prompt, systemPrompt, cwd, workspace, timeoutMs, onState, queueDeadlineMs }) {
     const dir = scratchDir(cwd);
     const level = workspace && workspace.root && workspace.tools && workspace.tools !== 'none' ? workspace.tools : 'none';
     const sysFile = path.join(dir, 'system.txt');
     fs.writeFileSync(sysFile, systemPrompt || (level !== 'none' ? workspaceSystemPrompt(workspace) : DISCUSSION_SYSTEM_PROMPT), 'utf-8');
     const args = claudeArgs({ model, effort, workspace: level !== 'none' ? workspace : null }, dir, sysFile);
-    const run = runProcess('claude', 'claude', args, { cwd: level !== 'none' ? workspace.root : dir, prompt, timeoutMs, onState });
+    const run = runProcess('claude', 'claude', args, { cwd: level !== 'none' ? workspace.root : dir, prompt, timeoutMs, onState, queueDeadlineMs });
     // finally, not then: an aborted or timed-out turn used to leave its system
     // prompt behind forever.
     run.promise.finally(() => removeScratch(dir)).catch(() => {});
@@ -722,7 +754,7 @@ function codexArgs({ model, effort, workspace }, dir, outFile) {
     return args;
 }
 
-function runCodex({ model, effort, prompt, systemPrompt, cwd, workspace, timeoutMs, onState }) {
+function runCodex({ model, effort, prompt, systemPrompt, cwd, workspace, timeoutMs, onState, queueDeadlineMs }) {
     const dir = scratchDir(cwd);
     const level = workspace && workspace.root && workspace.tools && workspace.tools !== 'none' ? workspace.tools : 'none';
     const outFile = path.join(dir, 'codex-last.txt');
@@ -732,7 +764,7 @@ function runCodex({ model, effort, prompt, systemPrompt, cwd, workspace, timeout
     // spawnCli runs the resolved codex (newest of the desktop app's bundle and
     // the one on PATH — see resolveCodex); resolve first so the first turn
     // after startup doesn't guess.
-    const run = runProcess('codex', 'codex', args, { cwd: level !== 'none' ? workspace.root : dir, prompt: full, timeoutMs, onState, exe: () => resolveCodex().then(p => (p ? p.exe : undefined)) });
+    const run = runProcess('codex', 'codex', args, { cwd: level !== 'none' ? workspace.root : dir, prompt: full, timeoutMs, onState, queueDeadlineMs, exe: () => resolveCodex().then(p => (p ? p.exe : undefined)) });
     run.promise.finally(() => removeScratch(dir)).catch(() => {});
     const promise = run.promise.then(({ code, stdout, stderr }) => {
         let text = '';
@@ -764,12 +796,12 @@ function geminiArgs({ model, workspace }) {
     return args;
 }
 
-function runGemini({ model, prompt, systemPrompt, cwd, workspace, timeoutMs, onState }) {
+function runGemini({ model, prompt, systemPrompt, cwd, workspace, timeoutMs, onState, queueDeadlineMs }) {
     const dir = scratchDir(cwd);
     const level = workspace && workspace.root && workspace.tools && workspace.tools !== 'none' ? workspace.tools : 'none';
     const args = geminiArgs({ model, workspace: level !== 'none' ? workspace : null });
     const full = `${systemPrompt || (level !== 'none' ? workspaceSystemPrompt(workspace) : DISCUSSION_SYSTEM_PROMPT)}\n\n${prompt}`;
-    const run = runProcess('gemini', 'gemini', args, { cwd: level !== 'none' ? workspace.root : dir, prompt: full, timeoutMs, onState });
+    const run = runProcess('gemini', 'gemini', args, { cwd: level !== 'none' ? workspace.root : dir, prompt: full, timeoutMs, onState, queueDeadlineMs });
     run.promise.finally(() => removeScratch(dir)).catch(() => {});
     const promise = run.promise.then(({ code, stdout, stderr }) => {
         const text = stdout.trim();
@@ -808,6 +840,7 @@ module.exports = {
     run, runClaude, runCodex, runGemini, availability, resetAvailabilityCache, which, discover, discovered, childEnv, knownLocations,
     parseClaudeHelp, parseCodexModelsCache, parseCodexConfig, geminiAuthFrom, codexEffortFor,
     claudeArgs, codexArgs, geminiArgs, workspaceSystemPrompt, codexSandboxHelperDir, codexSandboxBundle, codexSandboxSupport, hasCodexHelpers,
-    codexCandidates, resolveCodex, codexExe, parseVersion, cmpVersion, spawnCli, winQuote, cmdCommandLine, killAll, whichAsync, warmAvailability,
+    codexCandidates, resolveCodex, codexExe, parseVersion, cmpVersion, spawnCli, winQuote, cmdCommandLine, killAll, whichAsync, warmAvailability, queueDepth,
+    __acquire: acquire, __release: release,   // concurrency internals, for tests
     EFFORT_MAP, DISCUSSION_SYSTEM_PROMPT, MAX_PARALLEL, KINDS, BINS, LABELS, TOOLS_LEVELS, CLAUDE_TOOLS,
 };

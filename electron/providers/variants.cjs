@@ -140,7 +140,16 @@ function createVariants({ cli, core, loadLibrary, dataDir }) {
         ].join('');
         const started = Date.now();
         const timeoutMs = Math.max(30000, Math.min(20 * 60 * 1000, Number(body.timeoutMs) || 10 * 60 * 1000));
-        const handle = cli.run(agent.provider, { model: agent.model || undefined, effort: agent.effort || undefined, prompt: message, systemPrompt: system, cwd: dataDir(), timeoutMs });
+        // External callers get a bounded queue wait: an HTTP client, a WebSocket
+        // or an MCP client can otherwise sit behind turns each allowed up to
+        // twenty minutes, with nothing sent and no way to tell why. Chat turns
+        // deliberately pass no deadline — see acquire() in cli.cjs.
+        const queueDeadlineMs = Math.max(5000, Math.min(timeoutMs, Number(body.queueDeadlineMs) || 90000));
+        const handle = cli.run(agent.provider, { model: agent.model || undefined, effort: agent.effort || undefined, prompt: message, systemPrompt: system, cwd: dataDir(), timeoutMs, queueDeadlineMs });
+        // Exposed so a caller that goes away can stop the work it abandoned:
+        // otherwise the turn runs to completion holding one of the two slots
+        // for that CLI — which also blocks chat turns — for a reply nobody reads.
+        if (typeof body.onStart === 'function') body.onStart(handle);
         const r = await handle.promise;
         // Report the effort that actually ran: Codex clamps an unsupported level
         // down, and echoing the request made a clamped and an unclamped run
