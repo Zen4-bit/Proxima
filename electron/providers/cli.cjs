@@ -574,11 +574,18 @@ function spawnCli(bin, args, cwd, exeOverride) {
 }
 
 // Runs a process with the prompt on stdin. Returns { promise, abort }.
-function runProcess(kind, bin, args, { cwd, prompt, timeoutMs, exe }) {
+// `onState` is how the UI learns the difference between a seat that is waiting
+// for a concurrency slot and one that is actually thinking — the two look
+// identical otherwise, and a seat can sit queued for a full CLI timeout while
+// the user decides whether to wait or press Stop. Optional: cli.cjs must stay
+// Electron-free for the standalone variants server, which omits it.
+function runProcess(kind, bin, args, { cwd, prompt, timeoutMs, exe, onState }) {
+    const state = (s) => { try { if (onState) onState(s); } catch { /* never let the UI break a run */ } };
     let child = null;
     let aborted = false;
     let timer = null;
     const promise = (async () => {
+        state('queued');
         await acquire(kind);
         if (aborted) { release(kind); throw Object.assign(new Error('Cancelled by user'), { cancelled: true }); }
         try {
@@ -590,6 +597,7 @@ function runProcess(kind, bin, args, { cwd, prompt, timeoutMs, exe }) {
             if (aborted) throw Object.assign(new Error('Cancelled by user'), { cancelled: true });
             return await new Promise((resolve, reject) => {
                 child = spawnCli(bin, args, cwd, exeResolved);
+                state('running');
                 _live.add(child);
                 child.once('close', () => _live.delete(child));
                 let stdout = '';
@@ -660,13 +668,13 @@ function claudeArgs({ model, effort, workspace }, dir, sysFile) {
     return args;
 }
 
-function runClaude({ model, effort, prompt, systemPrompt, cwd, workspace, timeoutMs }) {
+function runClaude({ model, effort, prompt, systemPrompt, cwd, workspace, timeoutMs, onState }) {
     const dir = scratchDir(cwd);
     const level = workspace && workspace.root && workspace.tools && workspace.tools !== 'none' ? workspace.tools : 'none';
     const sysFile = path.join(dir, 'system.txt');
     fs.writeFileSync(sysFile, systemPrompt || (level !== 'none' ? workspaceSystemPrompt(workspace) : DISCUSSION_SYSTEM_PROMPT), 'utf-8');
     const args = claudeArgs({ model, effort, workspace: level !== 'none' ? workspace : null }, dir, sysFile);
-    const run = runProcess('claude', 'claude', args, { cwd: level !== 'none' ? workspace.root : dir, prompt, timeoutMs });
+    const run = runProcess('claude', 'claude', args, { cwd: level !== 'none' ? workspace.root : dir, prompt, timeoutMs, onState });
     // finally, not then: an aborted or timed-out turn used to leave its system
     // prompt behind forever.
     run.promise.finally(() => removeScratch(dir)).catch(() => {});
@@ -714,7 +722,7 @@ function codexArgs({ model, effort, workspace }, dir, outFile) {
     return args;
 }
 
-function runCodex({ model, effort, prompt, systemPrompt, cwd, workspace, timeoutMs }) {
+function runCodex({ model, effort, prompt, systemPrompt, cwd, workspace, timeoutMs, onState }) {
     const dir = scratchDir(cwd);
     const level = workspace && workspace.root && workspace.tools && workspace.tools !== 'none' ? workspace.tools : 'none';
     const outFile = path.join(dir, 'codex-last.txt');
@@ -724,7 +732,7 @@ function runCodex({ model, effort, prompt, systemPrompt, cwd, workspace, timeout
     // spawnCli runs the resolved codex (newest of the desktop app's bundle and
     // the one on PATH — see resolveCodex); resolve first so the first turn
     // after startup doesn't guess.
-    const run = runProcess('codex', 'codex', args, { cwd: level !== 'none' ? workspace.root : dir, prompt: full, timeoutMs, exe: () => resolveCodex().then(p => (p ? p.exe : undefined)) });
+    const run = runProcess('codex', 'codex', args, { cwd: level !== 'none' ? workspace.root : dir, prompt: full, timeoutMs, onState, exe: () => resolveCodex().then(p => (p ? p.exe : undefined)) });
     run.promise.finally(() => removeScratch(dir)).catch(() => {});
     const promise = run.promise.then(({ code, stdout, stderr }) => {
         let text = '';
@@ -756,12 +764,12 @@ function geminiArgs({ model, workspace }) {
     return args;
 }
 
-function runGemini({ model, prompt, systemPrompt, cwd, workspace, timeoutMs }) {
+function runGemini({ model, prompt, systemPrompt, cwd, workspace, timeoutMs, onState }) {
     const dir = scratchDir(cwd);
     const level = workspace && workspace.root && workspace.tools && workspace.tools !== 'none' ? workspace.tools : 'none';
     const args = geminiArgs({ model, workspace: level !== 'none' ? workspace : null });
     const full = `${systemPrompt || (level !== 'none' ? workspaceSystemPrompt(workspace) : DISCUSSION_SYSTEM_PROMPT)}\n\n${prompt}`;
-    const run = runProcess('gemini', 'gemini', args, { cwd: level !== 'none' ? workspace.root : dir, prompt: full, timeoutMs });
+    const run = runProcess('gemini', 'gemini', args, { cwd: level !== 'none' ? workspace.root : dir, prompt: full, timeoutMs, onState });
     run.promise.finally(() => removeScratch(dir)).catch(() => {});
     const promise = run.promise.then(({ code, stdout, stderr }) => {
         const text = stdout.trim();

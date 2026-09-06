@@ -228,7 +228,10 @@ test('run-round: refuses a second concurrent run on the same chat; stop cancels'
     // mistaken for one this window started. `agents` is reserved for the
     // per-agent status strip and is empty for now. The REST contract
     // (GET /v1/multiai/running → {running:[chatId]}) is deliberately unchanged.
-    assert.deepEqual(await invoke('multiai-running'), [{ chatId: chat.id, startedBy: 'ui', agents: [] }]);
+    const live0 = await invoke('multiai-running');
+    assert.equal(live0.length, 1);
+    assert.deepEqual([live0[0].chatId, live0[0].startedBy], [chat.id, 'ui']);
+    assert.ok(Array.isArray(live0[0].agents), 'per-agent state rides along for the status strip');
     assert.deepEqual(multiaiApi.running(), [chat.id], 'REST keeps its documented shape');
     await invoke('multiai-stop-run', { chatId: chat.id });
     const r = await running;
@@ -979,7 +982,11 @@ test('runs: a run started over REST announces itself, is attributed, and is stop
     assert.deepEqual(ev, [{ chatId: chat.id, startedBy: 'agent' }], 'the window is told, and told who started it');
 
     const live = await invoke('multiai-running');
-    assert.deepEqual(live, [{ chatId: chat.id, startedBy: 'agent', agents: [] }]);
+    assert.equal(live.length, 1);
+    assert.deepEqual([live[0].chatId, live[0].startedBy], [chat.id, 'agent']);
+    // Seats in flight ride along so a window entering the chat mid-run can
+    // rebuild the status strip rather than showing a static transcript.
+    assert.ok(live[0].agents.every(a => a.agentId && ['working', 'waiting'].includes(a.state)));
     assert.deepEqual(multiaiApi.running(), [chat.id], 'REST keeps its documented shape');
 
     assert.equal(multiaiApi.stop(chat.id).stopped, true, 'and it can be stopped from either side');

@@ -139,14 +139,27 @@ function registerMultiAiHandlers(deps) {
     // Shape kept ahead of the per-agent status strip: `agents` is empty for now
     // and the renderer ignores it, so filling it in later needs no second
     // version of this payload.
+    const agentStates = new Map();   // chatId -> Map(agentId -> {state, reason, who})
+    function setAgentState(chatId, agent, state, reason) {
+        if (!agentStates.has(chatId)) agentStates.set(chatId, new Map());
+        const m = agentStates.get(chatId);
+        if (state === 'done') m.delete(agent.id); else m.set(agent.id, { state, reason: reason || '', who: agent.name });
+        emit('multiai-agent-state', { chatId, agentId: agent.id, who: agent.name, state, reason: reason || '' });
+    }
+    function clearAgentStates(chatId) { agentStates.delete(chatId); }
+
     function runningState() {
         return Array.from(runSignals.entries()).map(([chatId, s]) => ({
-            chatId, startedBy: s.startedBy || 'ui', agents: [],
+            chatId,
+            startedBy: s.startedBy || 'ui',
+            agents: Array.from((agentStates.get(chatId) || new Map()).entries())
+                .map(([agentId, v]) => ({ agentId, who: v.who, state: v.state, reason: v.reason })),
         }));
     }
 
     function endSignal(chatId) {
         runSignals.delete(chatId);
+        clearAgentStates(chatId);
     }
 
     function isRunning(chatId) {
@@ -397,7 +410,10 @@ function registerMultiAiHandlers(deps) {
     // CLI route: Claude Code / Codex / Gemini CLI on the local machine.
     async function sendCli(chat, agent, prompt) {
         const ws = workspaceFor(chat, agent);
-        const handle = cli.run(agent.provider, { model: agent.model || undefined, effort: agent.effort || undefined, prompt, cwd: dataDir(), workspace: ws || undefined });
+        const handle = cli.run(agent.provider, {
+            model: agent.model || undefined, effort: agent.effort || undefined, prompt, cwd: dataDir(), workspace: ws || undefined,
+            onState: (st) => setAgentState(chat.id, agent, st === 'queued' ? 'waiting' : 'working', st === 'queued' ? `${core.providerLabel(agent.provider)} slot` : ''),
+        });
         const entry = { kind: 'cli', base: agent.provider, abort: handle.abort };
         const untrack = trackInFlight(chat.id, entry);
         try {
@@ -541,6 +557,7 @@ function registerMultiAiHandlers(deps) {
         if (!chat) throw new Error('Chat not found');
         const cycle = chat.cycle || 1;
         emit('multiai-thinking', { chatId, provider: agent.provider, agentId: agent.id, who: agent.name });
+        setAgentState(chatId, agent, 'working', '');
         const { brief, latest } = core.briefAndLatest(chat.messages, chat.topic);
         const route = resolveRoute(agent);
         const st = route === 'browser' ? nextSessionState(chat, agent) : null;
@@ -571,6 +588,7 @@ function registerMultiAiHandlers(deps) {
         // on the same files and every commit belongs to one seat.
         const ws = workspaceFor(chat, agent);
         const writer = !!(ws && (ws.tools === 'write' || ws.tools === 'full'));
+        if (writer) setAgentState(chatId, agent, 'waiting', 'workspace turn');
         const releaseWriter = writer ? await acquireWriter(chatId) : null;
         // Waiting for the lock can take a whole CLI turn, and Stop may have
         // landed meanwhile. Without this, a parallel round still spawns
@@ -600,6 +618,7 @@ function registerMultiAiHandlers(deps) {
             if (writer) setWorkspacePending(chatId, null);
             if (releaseWriter) releaseWriter();
         }
+        setAgentState(chatId, agent, 'done');
         const base = { provider: agent.provider, agentId: agent.id, code: agent.code, route, cycle, round };
         const recordChange = () => {
             if (!change) return;

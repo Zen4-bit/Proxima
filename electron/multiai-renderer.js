@@ -215,14 +215,15 @@ async function multiaiInit() {
             if (chat) multiaiRenderStatusLine(chat);
         }
     });
-    agentHub.onMultiaiDone(({ chatId }) => multiaiSetRunning(chatId, false));
+    agentHub.onMultiaiDone(({ chatId }) => { multiaiAgentStates(chatId).clear(); multiaiSetRunning(chatId, false); multiaiRenderAgentStatus(); });
     agentHub.onMultiaiOrchStep((step) => {
         if (step.chatId === multiaiState.currentChatId) multiaiRenderOrchStep(step);
     });
-    agentHub.onMultiaiOrchDone(({ chatId }) => multiaiSetRunning(chatId, false));
+    agentHub.onMultiaiOrchDone(({ chatId }) => { multiaiAgentStates(chatId).clear(); multiaiSetRunning(chatId, false); multiaiRenderAgentStatus(); });
     // Every run announces itself now, including one a local agent started over
     // REST or MCP. Idempotent on purpose: the UI's own runs already set this
     // locally before the IPC round-trip, so this arrives as a no-op for them.
+    if (agentHub.onMultiaiAgentState) agentHub.onMultiaiAgentState(multiaiSetAgentState);
     if (agentHub.onMultiaiRunStarted) {
         agentHub.onMultiaiRunStarted(({ chatId, startedBy }) => {
             if (startedBy && startedBy !== 'ui') multiaiState.externalRuns.add(chatId);
@@ -240,6 +241,7 @@ async function multiaiInit() {
             if (!id) return;
             multiaiState.runningChats.add(id);
             if (r && r.startedBy && r.startedBy !== 'ui') multiaiState.externalRuns.add(id);
+            (r && r.agents ? r.agents : []).forEach(a => multiaiAgentStates(id).set(a.agentId, { who: a.who, state: a.state, reason: a.reason }));
         });
     } catch { /* older main without the handler */ }
 
@@ -830,6 +832,9 @@ function multiaiRenderChat() {
         multiaiNewChat();
         return;
     }
+    // Switching into a running chat used to show a static transcript with a
+    // Stop button and no sign anything was in flight.
+    multiaiRenderAgentStatus();
 
     multiaiEnsureMessageIds(chat);
     multiaiState.ledgerFilters = {};
@@ -1921,10 +1926,12 @@ function multiaiAppendSystemNote(text) {
     multiaiFeedFollow(feed, wasAtBottom);
 }
 
-function multiaiSetThinking(provider, on, who) {
-    if (!on) return;
-    multiaiAppendSystemNote(`${who || multiaiProviderLabel(provider)} is thinking…`);
-}
+// Superseded by the status strip above the composer. This used to append a
+// permanent note to the feed for every turn, which piled up (four seats over
+// five rounds left about twenty of them interleaved with the transcript) and
+// could not distinguish thinking from queued in any case. The strip is keyed by
+// agent, updates in place, and clears when the run ends.
+function multiaiSetThinking() { /* no-op: see multiaiRenderAgentStatus */ }
 
 function multiaiEscape(s) {
     const div = document.createElement('div');
@@ -1957,6 +1964,48 @@ function multiaiSetRunning(chatId, on) {
 
 function multiaiIsExternalRun(chatId) {
     return !!chatId && multiaiState.externalRuns.has(chatId);
+}
+
+// Who is actually doing something, and who is only queued. The old signal was a
+// "X is thinking…" line appended to the feed and never removed, so a seat
+// waiting behind the two-per-CLI concurrency cap, a writer blocked on the
+// workspace lock, and a seat genuinely mid-inference all looked identical and
+// piled up — about twenty stale lines in a four-seat, five-round run.
+//
+// Two states only. The reason a seat is waiting rides along as dim text rather
+// than becoming a third state: to the user it is one fact ("nothing is
+// happening yet") with two explanations, and the decision it informs — wait, or
+// press Stop — is the same either way.
+function multiaiAgentStates(chatId) {
+    if (!multiaiState.agentStates) multiaiState.agentStates = new Map();
+    if (!multiaiState.agentStates.has(chatId)) multiaiState.agentStates.set(chatId, new Map());
+    return multiaiState.agentStates.get(chatId);
+}
+
+function multiaiSetAgentState({ chatId, agentId, who, state, reason }) {
+    if (!chatId || !agentId) return;
+    const m = multiaiAgentStates(chatId);
+    if (state === 'done') m.delete(agentId); else m.set(agentId, { who, state, reason });
+    if (chatId === multiaiState.currentChatId) multiaiRenderAgentStatus();
+}
+
+function multiaiRenderAgentStatus() {
+    const el = document.getElementById('multiai-agent-status');
+    if (!el) return;
+    const chat = multiaiCurrentChat();
+    const seats = chat ? Array.from(multiaiAgentStates(chat.id).values()) : [];
+    if (!seats.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    el.style.display = 'flex';
+    el.innerHTML = seats.map(s => {
+        const working = s.state === 'working';
+        const colour = working ? '#34d399' : '#9ca3af';
+        return `<span style="display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px;
+                    border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); font-size: 0.72rem; color: #d1d5db;">
+                    <span style="color: ${colour};">${working ? '●' : '○'}</span>
+                    ${multiaiEscape(s.who || 'agent')}
+                    <span style="color: #9ca3af;">${working ? 'working' : 'waiting'}${!working && s.reason ? ' · ' + multiaiEscape(s.reason) : ''}</span>
+                </span>`;
+    }).join('');
 }
 
 // A run failure used to exist only as a 2.5s toast, and two errors close
