@@ -184,7 +184,12 @@ try {
 // seat and wrong for a review, which would move your checkout out from under you
 // just for reading. So the panel reads a throwaway worktree at the same commit
 // unless told otherwise, and it is removed afterwards.
-let workspaceRoot = WORKSPACE ? path.resolve(WORKSPACE) : '';
+// --paths is how you review work you have not committed, and a worktree is at
+// HEAD by construction, so the brief would describe edits the seats cannot find.
+// A read-only run no longer touches the folder it is given — no branch, no
+// clean-tree check — so there the real repository is both safe and the only
+// answer that matches the brief.
+let workspaceRoot = WORKSPACE ? path.resolve(WORKSPACE) : (PATHS ? ROOT : '');
 let temporary = '';
 if (!workspaceRoot) {
     temporary = path.join(path.dirname(ROOT), `.${path.basename(ROOT)}-review-${Date.now()}`);
@@ -198,7 +203,12 @@ if (!workspaceRoot) {
     console.log(`Worktree      : ${temporary}`);
 }
 
-const { chat } = await api('POST', '/v1/multiai/chats', {
+// Creating the chat belongs inside the try: a failure between here and the run
+// used to leave the worktree behind.
+let chat;
+let messages = [];
+try {
+    ({ chat } = await api('POST', '/v1/multiai/chats', {
     title: `Review · ${t.label}`,
     agents: panel,
     discussMode: 'discuss',
@@ -208,11 +218,12 @@ const { chat } = await api('POST', '/v1/multiai/chats', {
     independentRounds: 'all',
     stopWhenAllAgree: true,
     workspace: { root: workspaceRoot },
-});
-console.log(`\nChat ${chat.id} created. Watch it in the Multi-AI tab.`);
-
-let messages = [];
-try {
+    // Round two carries round one's replies, and an Antigravity seat refuses a
+    // turn past ~28k characters — being benched for that is what this run did.
+    // Keep the verbatim window short when one is on the panel; they have the files.
+    contextWindow: panel.some(x => x.provider === 'antigravity-cli') ? 2 : 10,
+    }));
+    console.log(`\nChat ${chat.id} created. Watch it in the Multi-AI tab.`);
     // wait:false, then poll. Holding the request open for the whole run meant
     // node's fetch timed out at five minutes and the REST layer, which aborts a
     // run when its caller hangs up, killed the remaining turns.
@@ -231,10 +242,20 @@ try {
     if (temporary) { try { git('worktree', 'remove', '--force', temporary); } catch { /* prune later */ } }
 }
 const replies = (messages || []).filter(m => m.role === 'assistant');
-console.log(`Done: ${replies.length} replies.`);
+const failed = (messages || []).filter(m => m.role === 'error');
+console.log(`Done: ${replies.length} replies${failed.length ? `, ${failed.length} failed turns` : ''}.`);
+for (const f of failed) console.log(`  ! ${f.who}: ${String(f.text || '').replace(/\\s+/g, ' ').slice(0, 120)}`);
+// A review whose seats mostly failed is not a review, and exiting 0 says it was.
+if (!replies.length) { console.error('No seat answered.'); process.exit(1); }
 
 if (OUT) {
-    const md = [`# Review · ${t.label}`, '', ...replies.map(m => `## ${m.who}${m.model ? ` (${m.model})` : ''}\n\n${m.text}\n`)].join('\n');
+    // Failed turns go in the file too: a reader cannot judge a review with
+    // three silent failures in it unless the file says they happened.
+    const md = [`# Review \u00b7 ${t.label}`, '']
+        .concat(replies.map(m => `## ${m.who}${m.model ? ` (${m.model})` : ''}\n\n${m.text}\n`))
+        .concat(failed.length ? ['## Turns that failed', ''].concat(
+            failed.map(m => `- **${m.who}** \u2014 ${String(m.text || '').replace(/\s+/g, ' ').slice(0, 300)}`)) : [])
+        .join('\n');
     fs.mkdirSync(path.dirname(path.resolve(ROOT, OUT)), { recursive: true });
     fs.writeFileSync(path.resolve(ROOT, OUT), md, 'utf8');
     console.log(`Written to ${OUT}`);

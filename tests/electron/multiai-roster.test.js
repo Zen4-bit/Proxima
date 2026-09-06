@@ -58,6 +58,7 @@ function load() {
     saveToLibrary: multiaiAgentSaveToLibrary,
     applyDefault: multiaiApplyDefaultSetup,
     pinDefault: multiaiPinDefaultSetup,
+    setupInto: multiaiSetupInto,
     VENDORS: MULTIAI_VENDORS,
 };`;
     vm.runInContext(src, sandbox, { filename: 'multiai-renderer.js' });
@@ -567,4 +568,38 @@ test('a CLI seat can reach its vendor’s API key', () => {
         { apiMode: true, providers: { claude: { hasKey: false } }, cli: { claude: true } });
     t.render(chat2);
     assert.ok(optionsOf(t.box.innerHTML, 'Route for').find(o => o.value === 'api').disabled);
+});
+
+test('custom… survives the rename it triggers', () => {
+    const t = load();
+    // The regression the fixed name "A" stepped over: an auto-named seat is
+    // renamed from its model, renaming re-slugs the id, and the free-text mode
+    // used to be filed under the id it had a moment ago.
+    const chat = chatWith(t, [], { apiMode: false, providers: {}, cli: { claude: true },
+        cliInfo: { claude: { available: true, models: [{ id: 'sonnet' }, { id: 'opus' }] } } });
+    t.addFromMenu('new:claude');
+    t.field(0, 'route', 'cli');
+    const before = chat.agents[0].id;
+    t.field(0, 'model:select', '__custom__');
+    assert.equal(chat.agents[0].model, '');
+    assert.notEqual(chat.agents[0].id, before, 'the seat really was renamed and re-slugged');
+    t.render(chat);
+    assert.ok(!/aria-label="Model for/.test(t.box.innerHTML), 'still in free text');
+    assert.match(t.box.innerHTML, /aria-label="Back to the list"/);
+});
+
+test('the old independentFirstRound boolean reads the same everywhere', () => {
+    const t = load();
+    const chat = chatWith(t, [], { apiMode: false, providers: {}, cli: {} });
+    t.state.data.uiPrefs.setups = [
+        { id: 's1', name: 'legacy off', agents: [{ provider: 'claude' }], independentFirstRound: false },
+        { id: 's2', name: 'legacy on', agents: [{ provider: 'claude' }], independentFirstRound: true },
+    ];
+    // false was the old default, not a choice — mapping it to 'off' here and to
+    // 'all' on a chat made the same stored boolean mean two opposite things.
+    const [off, on] = t.state.data.uiPrefs.setups;
+    t.setupInto(chat, off);
+    assert.equal(chat.independentRounds, 'all');
+    t.setupInto(chat, on);
+    assert.equal(chat.independentRounds, 'first');
 });

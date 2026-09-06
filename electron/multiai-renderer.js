@@ -1418,8 +1418,12 @@ function multiaiSetupInto(chat, setup) {
         return seat;
     });
     MULTIAI_SETUP_FIELDS.forEach(f => { if (setup[f] !== undefined) chat[f] = setup[f]; });
+    // Same reading as a legacy chat's: true asked for a blind opening round,
+    // false was the old default and not a choice, so it takes the new one.
+    // Mapping false to 'off' here and to 'all' on migration meant the same
+    // stored boolean meant two opposite things depending on where it was found.
     if (setup.independentRounds === undefined && setup.independentFirstRound !== undefined) {
-        chat.independentRounds = setup.independentFirstRound ? 'first' : 'off';
+        chat.independentRounds = setup.independentFirstRound ? 'first' : 'all';
     }
     multiaiEnsureAgents(chat);
 }
@@ -2106,10 +2110,8 @@ function multiaiAgentField(i, field, value) {
     // so they are translated here instead of migrating every saved chat, saved
     // setup and library entry.
     if (field === 'model:select') {
-        if (!multiaiState.customModelRows) multiaiState.customModelRows = {};
-        const key = multiaiModelRowKey(a, i);
-        if (value === '__custom__') { multiaiState.customModelRows[key] = true; value = ''; }
-        else delete multiaiState.customModelRows[key];
+        if (value === '__custom__') { MULTIAI_CUSTOM_MODEL.add(a); value = ''; }
+        else MULTIAI_CUSTOM_MODEL.delete(a);
         field = 'model:commit';                       // same effort clamping
     }
     if (field === 'model:commit') a.model = value;
@@ -2225,15 +2227,19 @@ function multiaiModelGroups(a, ctx) {
     return groups;
 }
 
-// Rows the user has put into free-text mode. Transient and per-row: an id that
-// is simply not on the list puts its own row there without being remembered.
-function multiaiModelRowKey(a, i) { return a.uid || a.id || String(i); }
+// Rows the user has put into free-text mode. Keyed on the seat object itself,
+// because every id it has is unstable at exactly the wrong moment: choosing
+// "custom…" clears the model, an auto-named seat is then renamed from the new
+// model, and renaming re-slugs a.id — so a key built from the id no longer
+// matched the row that had just been switched, and the free-text box vanished
+// on the next render. A WeakSet needs no key and holds nothing alive.
+const MULTIAI_CUSTOM_MODEL = new WeakSet();
 
 function multiaiModelCell(a, i, ctx) {
     const esc = multiaiEscapeAttr;
     const groups = multiaiModelGroups(a, ctx);
     const listed = groups.some(g => g.items.some(m => m.id === a.model));
-    const custom = !!(multiaiState.customModelRows && multiaiState.customModelRows[multiaiModelRowKey(a, i)]);
+    const custom = MULTIAI_CUSTOM_MODEL.has(a);
     const test = ctx.isCli
         ? `<button id="multiai-test-${i}" class="multiai-btn ghost" style="padding: 2px 6px; flex-shrink: 0;" onclick="multiaiTestModel(${i})" aria-label="Test this model" title="Run one short turn on this model now. It is the only way to know a model works — Claude Code accepts full ids its --help never lists, and Codex's cached list can be from another build. A model that answers moves to the top of this list and stays there.">▷</button>`
         : '';
@@ -2258,8 +2264,7 @@ function multiaiModelPickFromList(i) {
     const chat = multiaiCurrentChat();
     const a = chat && (chat.agents || [])[i];
     if (!a) return;
-    if (!multiaiState.customModelRows) multiaiState.customModelRows = {};
-    delete multiaiState.customModelRows[multiaiModelRowKey(a, i)];
+    MULTIAI_CUSTOM_MODEL.delete(a);
     // An id on no list would send the row straight back to free text, so
     // returning to the list means giving that id up for the seat's default.
     const isCli = !!MULTIAI_CLI_PROVIDERS[a.provider];
