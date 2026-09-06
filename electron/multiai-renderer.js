@@ -1098,7 +1098,13 @@ function multiaiCliModels(provider) {
         .map(k => ({ id: k.id, label: `${k.id} ✓`, efforts: null, verified: true }));
     return extra.concat(discovered.map(d => {
         const v = known.find(k => k.id === d.id);
-        return v ? Object.assign({}, d, { verified: true, label: `${d.label && d.label !== d.id ? d.label : d.id} ✓` }) : d;
+        // Three tiers, marked so the list says how much each entry is worth:
+        // ✓ ran here, plain = the CLI itself reported it, · from the public
+        // catalogue and only a candidate until it answers a real turn.
+        const base = d.label && d.label !== d.id ? d.label : d.id;
+        if (v) return Object.assign({}, d, { verified: true, label: `${base} ✓` });
+        if (d.source === 'catalog') return Object.assign({}, d, { label: `${base} · not seen on this machine yet` });
+        return d;
     }));
 }
 

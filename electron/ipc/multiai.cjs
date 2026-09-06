@@ -29,6 +29,7 @@ const sender = require('../providers/sender.cjs');
 const cli = require('../providers/cli.cjs');
 const { createVariants } = require('../providers/variants.cjs');
 const workspace = require('../providers/workspace.cjs');
+const catalog = require('../providers/catalog.cjs');
 const core = require('./multiai-core.cjs');
 
 function dataDir() {
@@ -59,6 +60,8 @@ function listPersonas() {
 function registerMultiAiHandlers(deps) {
     const { mainWindow, loadSettings, registerRouteExtension } = deps;
     const store = core.createStore({ dir: dataDir(), fs, path, log: (m) => console.log(m) });
+    // Keep the keyless model catalogue beside the rest of the app's data.
+    catalog.setCacheDir(dataDir());
 
     // ---- window / events ---------------------------------------------
     function win() {

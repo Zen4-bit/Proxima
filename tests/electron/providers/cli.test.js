@@ -72,9 +72,12 @@ model_reasoning_effort = "xhigh"
     assert.deepEqual(r.profiles, [{ name: 'fast', model: 'gpt-5.5', effort: 'low' }, { name: 'deep think', model: 'gpt-5.5', effort: 'xhigh' }]);
 });
 
-test('codexEffortFor: clamps to what the model supports once discovery has run', () => {
-    // no discovery yet → plain mapping (max → xhigh)
-    assert.equal(cli.codexEffortFor('gpt-5.5', 'max'), 'xhigh');
+test('codexEffortFor: with no discovery, the requested level passes through unclamped', () => {
+    // `max` and `ultra` are real Codex levels now, so the map no longer folds
+    // max down to xhigh. Clamping against the model's own list is what narrows
+    // it, and that needs discovery to have run.
+    assert.equal(cli.codexEffortFor('gpt-5.5', 'max'), 'max');
+    assert.equal(cli.codexEffortFor('gpt-5.5', 'ultra'), 'ultra');
     assert.equal(cli.codexEffortFor('gpt-5.5', ''), null);
 });
 
@@ -225,18 +228,18 @@ test('codexEffortFor: clamps down to the nearest supported level, not the highes
         { id: 'wide', efforts: ['low', 'medium', 'high', 'xhigh'] },
         { id: 'none', efforts: [] },
     ];
-    // max maps to xhigh for Codex, then clamps to what the model supports.
+    // Codex maps max to max now; clamping is what narrows it per model.
     assert.equal(cli.codexEffortFor('mid', 'max', models), 'medium', 'nearest supported at or below, not the top');
     assert.equal(cli.codexEffortFor('mid', 'high', models), 'medium');
     assert.equal(cli.codexEffortFor('mid', 'low', models), 'low', 'a supported level is left alone');
-    assert.equal(cli.codexEffortFor('wide', 'max', models), 'xhigh');
+    assert.equal(cli.codexEffortFor('wide', 'max', models), 'xhigh', 'clamps to the model ceiling');
     // Nothing at or below the request: fall up to the lowest on offer rather
     // than returning something the model would reject.
     assert.equal(cli.codexEffortFor('low-only', 'minimal', models), 'minimal');
     assert.equal(cli.codexEffortFor('mid', 'minimal', models), 'low');
     // Unknown model, empty effort list, or no effort asked for: pass through.
-    assert.equal(cli.codexEffortFor('not-listed', 'max', models), 'xhigh');
-    assert.equal(cli.codexEffortFor('none', 'max', models), 'xhigh');
+    assert.equal(cli.codexEffortFor('not-listed', 'max', models), 'max');
+    assert.equal(cli.codexEffortFor('none', 'max', models), 'max');
     assert.equal(cli.codexEffortFor('mid', '', models), null);
 });
 

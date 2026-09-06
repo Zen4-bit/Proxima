@@ -24,6 +24,7 @@ const { spawn, execFile, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const catalog = require('./catalog.cjs');
 
 const IS_WIN = process.platform === 'win32';
 const NEWLINE_RE = new RegExp('\r?\n');
@@ -36,7 +37,7 @@ const LABELS = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI' };
 
 const EFFORT_MAP = {
     claude: { minimal: 'low', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' },
-    codex: { minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'xhigh' },
+    codex: { minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max', ultra: 'ultra' },
     gemini: {},   // the CLI has no effort switch
 };
 const CLAUDE_KNOWN_ALIASES = ['opus', 'sonnet', 'haiku'];
@@ -383,6 +384,28 @@ let _discovered = null;
 let _discovering = null;
 
 // What each CLI offers on this machine. Cached; force to re-probe.
+
+// ---- three-tier model merge ------------------------------------------------
+//
+// Tier 1 catalogue (models.dev, keyless) proposes; tier 2 the CLI's own report
+// disposes; tier 3 (a model that answered a real run) is applied in the UI on
+// top of both. Only tier 2 knows what this machine is entitled to, so where the
+// two disagree the local answer wins outright — measured on this machine the
+// catalogue offered Codex an effort level it rejects and omitted one it takes.
+function mergeCatalog(kind, local) {
+    const cat = catalog.loaded();
+    const extra = (cat && cat.byKind && cat.byKind[kind]) || [];
+    if (!extra.length) return local;
+    const out = local.slice();
+    const seen = new Set(out.map(m => m.id));
+    for (const m of extra) {
+        if (seen.has(m.id)) continue;                  // local wins on anything it lists
+        out.push({ id: m.id, label: m.label || m.id, efforts: m.efforts || [], source: 'catalog' });
+        seen.add(m.id);
+    }
+    return out;
+}
+
 async function discover({ force = false } = {}) {
     if (_discovered && !force) return _discovered;
     // `force` has to beat the in-flight check too, or ↻ cannot recover from a
@@ -392,6 +415,9 @@ async function discover({ force = false } = {}) {
         const home = os.homedir();
         const out = { claude: null, codex: null, gemini: null, at: Date.now() };
         await warmAvailability();
+        // Fire-and-forget: a cached copy is used immediately and the network
+        // refresh lands on a later discover(). Discovery never waits on it.
+        catalog.load({ force }).catch(() => {});
         const avail = availability();
         if (avail.claude) {
             const [ver, help] = await Promise.all([runQuick('claude', ['--version']), runQuick('claude', ['--help'])]);
@@ -401,7 +427,9 @@ async function discover({ force = false } = {}) {
                 available: true, label: LABELS.claude,
                 version: (ver.stdout.trim().split(/\s+/)[0] || '').trim(),
                 efforts: parsed.efforts.length ? parsed.efforts : ['low', 'medium', 'high', 'xhigh', 'max'],
-                models: parsed.aliases.map(a => ({ id: a, label: a, efforts: null })),
+                // Aliases are all --help gives; the catalogue adds the full
+                // claude-… ids the CLI also accepts but never lists.
+                models: mergeCatalog('claude', parsed.aliases.map(a => ({ id: a, label: a, efforts: null }))),
                 defaultModel: settings.model || '',
                 defaultEffort: '',
                 note: 'Aliases or full model names (claude-…); add [1m] for the 1M-context variant where offered.',
@@ -427,7 +455,7 @@ async function discover({ force = false } = {}) {
                 available: true, label: LABELS.codex,
                 version: pick ? pick.version : '',
                 efforts: efforts.length ? efforts : ['low', 'medium', 'high', 'xhigh'],
-                models: cache,
+                models: mergeCatalog('codex', cache),
                 defaultModel: cfg.model, defaultEffort: cfg.effort,
                 profiles: cfg.profiles,
                 defaultModelListed: !cfg.model || cacheStale || cache.some(m => m.id === cfg.model),
@@ -453,7 +481,9 @@ async function discover({ force = false } = {}) {
                 available: true, label: LABELS.gemini,
                 version: (ver.stdout.trim().split(/\s+/).pop() || '').trim(),
                 efforts: [],
-                models: [],
+                // Gemini CLI enumerates nothing at all, so the catalogue is the
+                // only list there is for it.
+                models: mergeCatalog('gemini', []),
                 defaultModel: (settings.model && (settings.model.name || settings.model)) || '',
                 defaultEffort: '',
                 auth,
