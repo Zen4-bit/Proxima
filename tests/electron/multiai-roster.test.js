@@ -53,6 +53,8 @@ function load() {
     apiAvailable: multiaiApiAvailable,
     pickFromList: multiaiModelPickFromList,
     clearAll: multiaiAgentsClearAll,
+    addFromMenu: multiaiAgentAddFromMenu,
+    seedSample: multiaiSeedSampleChat,
     VENDORS: MULTIAI_VENDORS,
 };`;
     vm.runInContext(src, sandbox, { filename: 'multiai-renderer.js' });
@@ -359,4 +361,80 @@ test('clear all is refused without a confirmation, and disabled on an empty rost
     t.clearAll();
     t.render(chat);
     assert.match(t.box.innerHTML, /aria-label="Remove every agent from this chat"[^>]*disabled/);
+});
+
+// --- the add-agent menu -----------------------------------------------------
+function menuGroups(html) {
+    const m = html.match(/<select[^>]*title="Add an agent[\s\S]*?<\/select>/);
+    assert.ok(m, 'no add-agent menu');
+    return [...m[0].matchAll(/<optgroup label="([^"]*)">([\s\S]*?)<\/optgroup>/g)]
+        .map(g => ({ label: g[1], items: [...g[2].matchAll(/<option value="([^"]*)"[^>]*>([\s\S]*?)<\/option>/g)].map(o => [o[1], o[2]]) }));
+}
+
+test('the add menu picks who answers, never how it is reached', () => {
+    const t = load();
+    const chat = chatWith(t, [], { apiMode: false, providers: {}, cli: { claude: true, codex: true } });
+    t.render(chat);
+    const g = menuGroups(t.box.innerHTML);
+    // Grouping the menu by surface asked the same question the Route cell owns:
+    // "Browser tab · Claude" and then browser / Claude Code / API on the row.
+    assert.deepEqual(g.map(x => x.label), ['New · pick its route on the row']);
+    assert.deepEqual(g[0].items.map(i => i[0]), ['new:claude', 'new:chatgpt', 'new:gemini', 'new:perplexity']);
+    assert.deepEqual(g[0].items.map(i => i[1]), ['Claude', 'ChatGPT', 'Gemini', 'Perplexity']);
+});
+
+test('an endpoint you registered is its own group — it really has one route', () => {
+    const t = load();
+    const chat = chatWith(t, [], { apiMode: false, cli: {}, providers: { ollama: { hasKey: true, apiOnly: true, label: 'Ollama', models: ['qwen2.5-coder'] } } });
+    t.render(chat);
+    const g = menuGroups(t.box.innerHTML);
+    const api = g.find(x => /API endpoint/.test(x.label));
+    assert.ok(api, g.map(x => x.label).join(' | '));
+    assert.deepEqual(api.items, [['new:ollama', 'Ollama']]);
+});
+
+test('a library seat is named once, not twice', () => {
+    const t = load();
+    const chat = chatWith(t, [], { apiMode: false, cli: { claude: true }, providers: {} });
+    // Seats are auto-named from provider, model and effort, so "name — meta"
+    // printed the same string twice for every CLI seat.
+    t.state.data.uiPrefs.agentLibrary = [
+        { uid: 'u1', name: 'Claude Code · haiku · max', provider: 'claude-cli', route: 'cli', model: 'haiku', effort: 'max' },
+        { uid: 'u2', name: 'Sceptic', provider: 'claude-cli', route: 'cli', model: 'sonnet', effort: 'high' },
+    ];
+    t.render(chat);
+    const lib = menuGroups(t.box.innerHTML).find(x => /Library/.test(x.label));
+    assert.equal(lib.items[0][1], 'Claude Code · haiku · max');
+    assert.match(lib.items[1][1], /^Sceptic — /);
+});
+
+test('a new browser seat is on the browser route, not the legacy auto', () => {
+    const t = load();
+    const chat = chatWith(t, [], { apiMode: false, cli: {}, providers: {} });
+    t.addFromMenu('new:claude');
+    assert.equal(chat.agents.length, 1);
+    assert.equal(chat.agents[0].provider, 'claude');
+    // 'auto' is a migration value; a row made just now should not open
+    // labelled "follow Settings".
+    assert.equal(chat.agents[0].route, 'browser');
+});
+
+test('first run seeds a sample chat that is set up but has not run', () => {
+    const t = load();
+    t.state.routes = { apiMode: false, providers: {}, cli: {} };
+    t.state.currentChatId = null;
+    t.seedSample();
+    const chat = t.state.data.projects[0].chats[0];
+    assert.ok(chat, 'a chat was created');
+    assert.equal(t.state.currentChatId, chat.id);
+    assert.deepEqual(chat.agents.map(a => a.provider), ['claude', 'chatgpt']);
+    assert.deepEqual(chat.agents.map(a => a.route), ['browser', 'browser']);
+    // One system note, and nothing that looks like an AI having answered.
+    assert.equal(chat.messages.length, 1);
+    assert.equal(chat.messages[0].role, 'system');
+    assert.ok(!chat.messages.some(m => m.role === 'assistant'), 'no fabricated replies');
+    // Seeded once: emptying the chat list must not conjure it back every launch.
+    t.state.data.projects[0].chats = [];
+    t.seedSample();
+    assert.deepEqual(t.state.data.projects[0].chats, []);
 });

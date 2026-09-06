@@ -257,6 +257,7 @@ async function multiaiInit() {
     if (!multiaiState.currentChatId) {
         const firstChat = multiaiState.data.projects[0]?.chats[0];
         if (firstChat) multiaiState.currentChatId = firstChat.id;
+        else multiaiSeedSampleChat();
     }
 
     multiaiRenderChatList();
@@ -542,6 +543,40 @@ function multiaiDeleteChat(chatId) {
     } else {
         multiaiRenderChatList();
     }
+}
+
+// First run: what there is to look at before you have made anything. Two
+// browser seats and a one-round discussion, so the panel is already working and
+// the only thing left to do is type a question — an empty roster over a blank
+// Discussion tab gives no clue what this screen is for.
+//
+// The transcript stays empty on purpose. A sample with replies already in it
+// would be fabricated AI turns presented as a record of a conversation that
+// never happened. The one message is a system note, which is a role `readable()`
+// excludes, so it is never sent to anyone as context either.
+function multiaiSeedSampleChat() {
+    const prefs = multiaiUiPrefs();
+    if (prefs.sampleSeeded) return;      // offered once, not on every empty launch
+    prefs.sampleSeeded = true;
+    const chat = multiaiDefaultChat();
+    chat.title = 'Sample · a second opinion';
+    chat.rounds = 1;
+    chat.brevity = 'max 6 sentences';
+    chat.agents = ['claude', 'chatgpt'].map(pv => Object.assign(multiaiAgentPreset(pv), { enabled: true }));
+    multiaiEnsureAgents(chat);
+    chat.messages = [{
+        id: multiaiGenMsgId(), role: 'system', who: 'Proxima', ts: Date.now(), cycle: 1, round: 0,
+        text: 'Sample chat — nothing has run yet.\n\n'
+            + 'Two seats are set up above: Claude and ChatGPT, each answering through the browser tab you are already signed in to. '
+            + 'Ask a question below and press Send — both answer it at once, neither sees the other\'s reply, and you compare.\n\n'
+            + 'From there: Route on a row moves that seat to its local CLI or to an API key, "+ add agent…" adds more, '
+            + 'Rounds in the Discussion tab lets them respond to each other, and Help — next to Settings — explains the rest. '
+            + 'Delete this chat whenever you like.',
+    }];
+    if (!multiaiState.data.projects.length) multiaiState.data.projects.push({ id: 'default', name: 'General', chats: [] });
+    multiaiState.data.projects[0].chats.push(chat);
+    multiaiState.currentChatId = chat.id;
+    multiaiPersist();
 }
 
 function multiaiNewChat() {
@@ -1053,12 +1088,18 @@ function multiaiApiAvailable(provider) {
     return !!(r.apiMode && p.hasKey);
 }
 
-// Label for the "+ add agent" menu: vendor first, then the route it lands on.
+// An entry in the "+ add agent" menu: who answers, never how it is reached.
 function multiaiAddLabel(pv) {
-    const v = multiaiVendorOf(pv);
-    if (MULTIAI_CLI_PROVIDERS[pv]) return `${MULTIAI_VENDORS[v].label} \u00b7 ${MULTIAI_CLI_PROVIDERS[pv]}`;
-    if (v) return `${MULTIAI_VENDORS[v].label} \u00b7 browser tab`;
-    return `${multiaiProviderLabel(pv)} \u00b7 API`;
+    return MULTIAI_VENDORS[pv] ? MULTIAI_VENDORS[pv].label : multiaiProviderLabel(pv);
+}
+
+// A library entry, named once. Seats are auto-named from provider, model and
+// effort, so "name — meta" printed the same string twice for every CLI seat:
+// "Claude Code · claude-haiku-4-5 · max — Claude Code · claude-haiku-4-5 · max".
+function multiaiLibraryMenuLabel(a) {
+    const name = a.name || multiaiProviderLabel(a.provider);
+    const meta = multiaiAgentMeta(a);
+    return meta && meta !== name && !name.includes(meta) ? `${name} — ${meta}` : name;
 }
 const MULTIAI_CLI_KIND = { 'claude-cli': 'claude', 'codex-cli': 'codex', 'gemini-cli': 'gemini' };
 const MULTIAI_EFFORTS = ['', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
@@ -1627,7 +1668,6 @@ function multiaiRenderParticipants(chat) {
     const lib = multiaiAgentLibrary();
     const inChat = new Set(agents.map(a => a.uid).filter(Boolean));
     const libFree = lib.filter(a => !inChat.has(a.uid));
-    const presets = ['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli', 'gemini-cli'].concat(apiOnlyList.map(x => x.id));
     const setups = multiaiSetups();
     const saved = setups.filter(x => !x.builtIn);
     const setupMenu = `<select onchange="multiaiApplySetup(this.value); this.value='';" aria-label="Apply a saved setup" title="Replace this chat's agents and discussion settings with a saved setup" style="min-width: 160px;">
@@ -1640,10 +1680,17 @@ function multiaiRenderParticipants(chat) {
             <option value="">delete…</option>
             ${saved.map(x => `<option value="${multiaiEscapeAttr(x.id)}">${multiaiEscape(x.name)}</option>`).join('')}
         </select>` : ''}`;
-    const addMenu = `<select onchange="multiaiAgentAddFromMenu(this.value); this.value='';" title="Add an agent to this chat" style="min-width: 150px;">
+    // One group per surface, because that is the choice being made: a seat you
+    // already built, a tab you are signed in to, a CLI on this machine, or an
+    // endpoint you registered. The group names the surface, so the entries do
+    // not have to repeat it.
+    const group = (label, items) => (items.length ? `<optgroup label="${multiaiEscapeAttr(label)}">${items.join('')}</optgroup>` : '');
+    const newIn = (list) => list.map(pv => opt('new:' + pv, multiaiAddLabel(pv)));
+    const addMenu = `<select onchange="multiaiAgentAddFromMenu(this.value); this.value='';" title="Add an agent to this chat — pick who answers; the row's Route cell picks how it is reached" style="min-width: 150px;">
             <option value="">+ add agent…</option>
-            ${libFree.length ? `<optgroup label="Library">${libFree.map(a => opt('lib:' + a.uid, `${a.name} — ${multiaiAgentMeta(a)}`)).join('')}</optgroup>` : ''}
-            <optgroup label="New">${presets.map(pv => opt('new:' + pv, multiaiAddLabel(pv) + (cliOkFor(pv) ? '' : ' — not installed'), false, !cliOkFor(pv))).join('')}</optgroup>
+            ${group('Library · seats you have built', libFree.map(a => opt('lib:' + a.uid, multiaiLibraryMenuLabel(a))))}
+            ${group('New · pick its route on the row', newIn(Object.keys(MULTIAI_VENDORS)))}
+            ${group('New · API endpoint (one route)', newIn(apiOnlyList.map(x => x.id)))}
         </select>`;
     const libManage = multiaiState.agentMenuOpen && lib.length ? `
         <div style="flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 0 2px;">
@@ -1876,7 +1923,7 @@ function multiaiAgentPreset(provider) {
     const apiOnly = multiaiIsApiOnly(provider);
     const pinfo = apiOnly ? (multiaiState.routes.providers[provider] || {}) : null;
     const model = isCli ? multiaiCliPresetModel(provider) : (apiOnly ? (pinfo.model || (pinfo.models && pinfo.models[0]) || '') : '');
-    const a = { id: '', name: '', route: isCli ? 'cli' : (apiOnly ? 'api' : 'auto'), provider, model, effort: isCli ? multiaiCliPresetEffort(provider, model) : '', enabled: true };
+    const a = { id: '', name: '', route: isCli ? 'cli' : (apiOnly ? 'api' : 'browser'), provider, model, effort: isCli ? multiaiCliPresetEffort(provider, model) : '', enabled: true };
     a.name = multiaiDefaultAgentName(provider, model, a.effort);
     return a;
 }
