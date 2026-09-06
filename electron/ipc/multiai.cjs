@@ -503,6 +503,26 @@ function registerMultiAiHandlers(deps) {
         try { info.cliInfo = probe ? await cli.discover({ force: true }) : (cli.discovered() || null); } catch { info.cliInfo = null; }
         return info;
     });
+    // Try a model for real, so a seat can be trusted before a run depends on it.
+    // Discovery cannot answer this on its own: Claude Code's list is only the
+    // aliases in its --help, though it accepts full claude-… ids, and Codex's
+    // list comes from a cache written by whichever binary the user last ran.
+    // One short turn is the only authority on whether a model actually works.
+    ipcMain.handle('multiai-test-variant', async (event, { provider, model, effort } = {}) => {
+        const started = Date.now();
+        try {
+            const r = await askVariant({
+                provider, model, effort,
+                message: 'Reply with the single word: OK',
+                timeoutMs: 90000,
+                queueDeadlineMs: 60000,
+            });
+            return { ok: true, ms: Date.now() - started, model: r.model || model || null, effort: r.effort || null, text: (r.text || '').slice(0, 120) };
+        } catch (e) {
+            return { ok: false, ms: Date.now() - started, error: e.message || String(e) };
+        }
+    });
+
     ipcMain.handle('multiai-running', () => runningState());
 
     ipcMain.handle('multiai-stop-run', (event, { chatId }) => {

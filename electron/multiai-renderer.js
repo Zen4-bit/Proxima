@@ -1028,10 +1028,47 @@ function multiaiCliAvailable(provider) {
 }
 
 // Model choices for a CLI agent: discovered list first, hard-coded fallback.
+// Models this machine has actually run, remembered across sessions. Discovery
+// alone is not enough: Claude Code's list is only the aliases in its --help
+// even though it accepts full claude-… ids, and Codex's list comes from a cache
+// written by whichever binary the user last ran interactively — which may be a
+// different build. Anything verified by a real turn is kept and offered
+// thereafter, so the list grows with use instead of going stale.
+function multiaiKnownModels(provider) {
+    const prefs = multiaiUiPrefs();
+    if (!prefs.knownModels || typeof prefs.knownModels !== 'object') prefs.knownModels = {};
+    if (!Array.isArray(prefs.knownModels[provider])) prefs.knownModels[provider] = [];
+    return prefs.knownModels[provider];
+}
+
+function multiaiRememberModel(provider, model, ms) {
+    if (!provider || !model) return;
+    const list = multiaiKnownModels(provider);
+    const at = new Date().toISOString();
+    const found = list.find(m => m.id === model);
+    if (found) { found.verifiedAt = at; found.ms = ms; } else list.push({ id: model, verifiedAt: at, ms });
+    multiaiPersist();
+}
+
+function multiaiForgetModel(provider, model) {
+    const list = multiaiKnownModels(provider);
+    const i = list.findIndex(m => m.id === model);
+    if (i !== -1) { list.splice(i, 1); multiaiPersist(); }
+}
+
 function multiaiCliModels(provider) {
     const info = multiaiCliInfo(provider);
-    if (info && info.models && info.models.length) return info.models;
-    return (MULTIAI_MODEL_HINTS[provider] || []).map(id => ({ id, label: id, efforts: null }));
+    const discovered = (info && info.models && info.models.length)
+        ? info.models
+        : (MULTIAI_MODEL_HINTS[provider] || []).map(id => ({ id, label: id, efforts: null }));
+    const known = multiaiKnownModels(provider);
+    // Verified ones first, and never duplicated by a discovered entry.
+    const extra = known.filter(k => !discovered.some(d => d.id === k.id))
+        .map(k => ({ id: k.id, label: `${k.id} ✓`, efforts: null, verified: true }));
+    return extra.concat(discovered.map(d => {
+        const v = known.find(k => k.id === d.id);
+        return v ? Object.assign({}, d, { verified: true, label: `${d.label && d.label !== d.id ? d.label : d.id} ✓` }) : d;
+    }));
 }
 
 // Effort levels a CLI agent may pick: the model's own list (Codex), the CLI's
@@ -1140,6 +1177,135 @@ function multiaiAgentLibrary() {
     const prefs = multiaiUiPrefs();
     if (!Array.isArray(prefs.agentLibrary)) prefs.agentLibrary = [];
     return prefs.agentLibrary;
+}
+
+// A setup is a whole panel worth reusing: who is in it, and how they talk.
+// Rebuilding that by hand for every chat is the main friction in getting a
+// second opinion, so the shipped ones are meant to be usable immediately —
+// each names only providers, leaving models and efforts to the seat defaults,
+// so they work whatever is installed and logged in.
+const MULTIAI_BUILTIN_SETUPS = [
+    {
+        id: 'builtin:second-opinion', name: 'Second opinion', builtIn: true,
+        note: 'Two browser seats answer the same question once. The cheapest useful setup.',
+        discussMode: 'discuss', rounds: 1, brevity: 'max 6 sentences', independentFirstRound: true,
+        agents: [
+            { provider: 'chatgpt', route: 'auto' },
+            { provider: 'claude', route: 'auto' },
+        ],
+    },
+    {
+        id: 'builtin:debate', name: 'Debate, then judge', builtIn: true,
+        note: 'Two seats argue for three rounds and a third rules on it.',
+        discussMode: 'debate', rounds: 3, brevity: 'max 4 sentences', judgeProvider: 'gemini',
+        agents: [
+            { provider: 'chatgpt', route: 'auto' },
+            { provider: 'claude', route: 'auto' },
+        ],
+    },
+    {
+        id: 'builtin:local-panel', name: 'Local CLI panel', builtIn: true,
+        note: 'Claude Code and Codex on your own subscriptions — no API keys, nothing leaves the machine except the CLIs\' own calls.',
+        discussMode: 'discuss', rounds: 2, brevity: 'max 6 sentences', independentFirstRound: true,
+        agents: [
+            { provider: 'claude-cli', route: 'cli', tools: 'none' },
+            { provider: 'codex-cli', route: 'cli', tools: 'none' },
+        ],
+    },
+    {
+        id: 'builtin:same-model-two-efforts', name: 'Same model, two efforts', builtIn: true,
+        note: 'One CLI twice, thinking hard and thinking fast, to see what the extra effort buys.',
+        discussMode: 'discuss', rounds: 1, brevity: 'max 6 sentences', independentFirstRound: true,
+        agents: [
+            { provider: 'claude-cli', route: 'cli', effort: 'max', tools: 'none' },
+            { provider: 'claude-cli', route: 'cli', effort: 'low', tools: 'none' },
+        ],
+    },
+];
+
+function multiaiSetups() {
+    const prefs = multiaiUiPrefs();
+    if (!Array.isArray(prefs.setups)) prefs.setups = [];
+    // Built-ins are offered alongside saved ones but never stored, so improving
+    // them in a later version does not leave everyone on the old copy.
+    return MULTIAI_BUILTIN_SETUPS.concat(prefs.setups);
+}
+
+const MULTIAI_SETUP_FIELDS = ['discussMode', 'rounds', 'brevity', 'contextMode', 'independentFirstRound',
+    'charterMode', 'stopWhenAllAgree', 'stopToken', 'judgeProvider', 'judgeScope', 'autoSummaryEvery'];
+
+function multiaiApplySetup(id) {
+    const chat = multiaiCurrentChat();
+    const setup = multiaiSetups().find(s => s.id === id);
+    if (!chat || !setup) return;
+    if ((chat.agents || []).length && !window.confirm(`Replace this chat's ${chat.agents.length} seat${chat.agents.length === 1 ? '' : 's'} with "${setup.name}"?`)) {
+        multiaiRerenderAgents(chat);
+        return;
+    }
+    // Build each seat the way the "+ add agent" menu would, then lay the
+    // setup's own choices over it — so a setup that names only a provider still
+    // gets sensible model/effort defaults for whatever is installed here.
+    chat.agents = (setup.agents || []).map(a => {
+        const seat = multiaiAgentPreset(a.provider);
+        ['name', 'route', 'model', 'effort', 'persona', 'personaKey', 'tools'].forEach(k => {
+            if (a[k] !== undefined && a[k] !== '') seat[k] = a[k];
+        });
+        // The preset named the seat before the setup's model/effort were laid
+        // over it, so re-derive: "Claude Code · max" and "Claude Code · low"
+        // rather than two seats called the same thing. Names double as @mention
+        // ids, so duplicates are a real problem, not a cosmetic one.
+        if (!a.name) seat.name = multiaiDefaultAgentName(seat.provider, seat.model, seat.effort);
+        seat.enabled = true;
+        return seat;
+    });
+    MULTIAI_SETUP_FIELDS.forEach(f => { if (setup[f] !== undefined) chat[f] = setup[f]; });
+    multiaiEnsureAgents(chat);
+    // Seats from a setup join the library too, so they are reusable singly and
+    // the roster's own library lookups resolve them.
+    chat.agents.forEach(a => multiaiLibrarySave(a));
+    multiaiPersist();
+    multiaiRerenderAgents(chat);
+    multiaiRenderChat();
+    showToast(`Applied "${setup.name}".`);
+}
+
+function multiaiSaveSetup() {
+    const chat = multiaiCurrentChat();
+    if (!chat) return;
+    const agents = multiaiEnsureAgents(chat);
+    if (!agents.length) { showToast('Add at least one agent before saving a setup.'); return; }
+    const name = (window.prompt('Name this setup', chat.title && chat.title !== 'New chat' ? chat.title : '') || '').trim();
+    if (!name) return;
+    const prefs = multiaiUiPrefs();
+    if (!Array.isArray(prefs.setups)) prefs.setups = [];
+    const existing = prefs.setups.find(s => s.name.toLowerCase() === name.toLowerCase());
+    if (existing && !window.confirm(`"${name}" already exists. Replace it?`)) return;
+    const setup = {
+        id: existing ? existing.id : `setup_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        name,
+        // Personas ride along; ids and uids do not, so applying a setup makes
+        // fresh seats rather than aliasing the ones it was saved from.
+        agents: agents.map(a => ({
+            name: a.name, provider: a.provider, route: a.route, model: a.model,
+            effort: a.effort, persona: a.persona, personaKey: a.personaKey, tools: a.tools,
+        })),
+    };
+    MULTIAI_SETUP_FIELDS.forEach(f => { if (chat[f] !== undefined) setup[f] = chat[f]; });
+    if (existing) Object.assign(existing, setup); else prefs.setups.push(setup);
+    multiaiPersist();
+    multiaiRerenderAgents(chat);
+    showToast(`Saved "${name}".`);
+}
+
+function multiaiDeleteSetup(id) {
+    const prefs = multiaiUiPrefs();
+    const list = Array.isArray(prefs.setups) ? prefs.setups : [];
+    const i = list.findIndex(s => s.id === id);
+    if (i === -1) { showToast('Built-in setups cannot be deleted.'); return; }
+    if (!window.confirm(`Delete the setup "${list[i].name}"? Chats already using it keep their agents.`)) return;
+    list.splice(i, 1);
+    multiaiPersist();
+    multiaiRerenderAgents(multiaiCurrentChat());
 }
 
 function multiaiAgentClone(a) {
@@ -1304,7 +1470,7 @@ function multiaiRenderParticipants(chat) {
                 <td class="nm" style="min-width: 150px;"><div style="display: flex; align-items: center; gap: 6px;"><span class="code" title="Label code">${multiaiEscape(code)}</span><input type="text" value="${multiaiEscapeAttr(a.name)}" oninput="multiaiAgentField(${i}, 'name', this.value)" title="Name — also the @mention id"></div></td>
                 <td style="width: 122px;"><select onchange="multiaiAgentField(${i}, 'provider', this.value)" aria-label="Provider for ${multiaiEscapeAttr(a.name)}" title="Provider">${(providerOptions.includes(a.provider) ? providerOptions : providerOptions.concat([a.provider])).map(pv => opt(pv, MULTIAI_CLI_PROVIDERS[pv] || multiaiProviderLabel(pv), a.provider === pv)).join('')}</select></td>
                 <td style="width: 118px;"><select onchange="multiaiAgentField(${i}, 'route', this.value)" aria-label="Route for ${multiaiEscapeAttr(a.name)}" ${isCli || apiOnly ? 'disabled' : ''} title="${multiaiEscapeAttr(apiOnly ? 'API only — this provider has no browser tab' : `Route — auto follows Settings (API mode on + key → API, else the browser tab); resolved: ${resolved}`)}">${routeOpts}</select></td>
-                <td style="width: 130px;"><input type="text" list="multiai-models-${i}" value="${multiaiEscapeAttr(a.model || '')}" placeholder="${multiaiEscapeAttr(modelPh)}" oninput="multiaiAgentField(${i}, 'model', this.value)" onchange="multiaiAgentField(${i}, 'model:commit', this.value)" ${modelOn ? '' : 'disabled'} ${modelUnknown ? 'style="border-color: rgba(245,158,11,0.7);"' : ''} title="${multiaiEscapeAttr(isCli ? (modelUnknown ? `Not in this CLI's model list — ${cliInfo.note || ''}` : (cliInfo && cliInfo.note ? cliInfo.note : 'CLI model (blank = its default)')) : (apiOnly ? (modelUnknown ? 'This endpoint needs a model id (e.g. llama3.2, qwen2.5-coder) — ↻ lists what it serves' : 'Model id as the endpoint names it — ↻ lists what it serves') : (a.provider === 'gemini' && !apiOk ? 'Gemini engine (3.1-pro, 3.5-flash…)' : 'API model id — blank uses the model selected in Settings')))}"><datalist id="multiai-models-${i}">${cliModels.length ? cliModels.map(m => `<option value="${multiaiEscapeAttr(m.id)}">${multiaiEscape(m.label && m.label !== m.id ? m.label : '')}</option>`).join('') : hints.map(h => `<option value="${multiaiEscapeAttr(h)}">`).join('')}</datalist></td>
+                <td style="width: 150px;"><div style="display: flex; align-items: center; gap: 4px;"><input type="text" list="multiai-models-${i}" value="${multiaiEscapeAttr(a.model || '')}" placeholder="${multiaiEscapeAttr(modelPh)}" oninput="multiaiAgentField(${i}, 'model', this.value)" onchange="multiaiAgentField(${i}, 'model:commit', this.value)" ${modelOn ? '' : 'disabled'} ${modelUnknown ? 'style="border-color: rgba(245,158,11,0.7);"' : ''} title="${multiaiEscapeAttr(isCli ? (modelUnknown ? `Not in this CLI's model list — ${cliInfo.note || ''}` : (cliInfo && cliInfo.note ? cliInfo.note : 'CLI model (blank = its default)')) : (apiOnly ? (modelUnknown ? 'This endpoint needs a model id (e.g. llama3.2, qwen2.5-coder) — ↻ lists what it serves' : 'Model id as the endpoint names it — ↻ lists what it serves') : (a.provider === 'gemini' && !apiOk ? 'Gemini engine (3.1-pro, 3.5-flash…)' : 'API model id — blank uses the model selected in Settings')))}"><datalist id="multiai-models-${i}">${cliModels.length ? cliModels.map(m => `<option value="${multiaiEscapeAttr(m.id)}">${multiaiEscape(m.label && m.label !== m.id ? m.label : '')}</option>`).join('') : hints.map(h => `<option value="${multiaiEscapeAttr(h)}">`).join('')}</datalist>${isCli ? `<button id="multiai-test-${i}" class="multiai-btn ghost" style="padding: 2px 6px; flex-shrink: 0;" onclick="multiaiTestModel(${i})" aria-label="Test this model" title="Run one short turn on this model now. It is the only way to know a model works — Claude Code accepts full ids its --help never lists, and Codex's cached list can be from another build. A model that answers is remembered and offered from then on.">▷</button>` : ''}</div></td>
                 <td style="width: 96px;"><select onchange="multiaiAgentField(${i}, 'effort', this.value)" aria-label="Effort for ${multiaiEscapeAttr(a.name)}" ${effortOn ? '' : 'disabled'} title="${multiaiEscapeAttr(isCli ? (effortList.length ? `Reasoning effort — levels this ${MULTIAI_CLI_PROVIDERS[a.provider]} model accepts` : `${MULTIAI_CLI_PROVIDERS[a.provider]} has no effort switch`) : 'Reasoning effort — API and CLI routes only')}">${opt('', 'default', !a.effort)}${effortList.map(e => opt(e, e, a.effort === e)).join('')}${a.effort && !effortList.includes(a.effort) ? opt(a.effort, a.effort + ' ⚠', true) : ''}</select></td>
                 <td style="width: 84px;">${toolsCell}</td>
                 <td style="width: 120px;"><select onchange="multiaiAgentPersona(${i}, this.value)" title="Persona">${opt('', 'none', !a.personaKey)}${personaNames.map(n => opt(n, n, a.personaKey === n)).join('')}</select></td>
@@ -1317,6 +1483,18 @@ function multiaiRenderParticipants(chat) {
     const libFree = lib.filter(a => !inChat.has(a.uid));
     const presets = ['chatgpt', 'claude', 'gemini', 'perplexity', 'claude-cli', 'codex-cli', 'gemini-cli'].concat(apiOnlyList.map(x => x.id));
     const cliOkFor = (pv) => MULTIAI_CLI_PROVIDERS[pv] ? multiaiCliAvailable(pv) : true;
+    const setups = multiaiSetups();
+    const saved = setups.filter(x => !x.builtIn);
+    const setupMenu = `<select onchange="multiaiApplySetup(this.value); this.value='';" aria-label="Apply a saved setup" title="Replace this chat's agents and discussion settings with a saved setup" style="min-width: 160px;">
+            <option value="">setups…</option>
+            <optgroup label="Ready-made">${setups.filter(x => x.builtIn).map(x => `<option value="${multiaiEscapeAttr(x.id)}" title="${multiaiEscapeAttr(x.note || '')}">${multiaiEscape(x.name)}</option>`).join('')}</optgroup>
+            ${saved.length ? `<optgroup label="Yours">${saved.map(x => `<option value="${multiaiEscapeAttr(x.id)}">${multiaiEscape(x.name)}</option>`).join('')}</optgroup>` : ''}
+        </select>
+        <button class="multiai-btn ghost" onclick="multiaiSaveSetup()" title="Save this chat's agents and discussion settings as a reusable setup">save setup</button>
+        ${saved.length ? `<select onchange="multiaiDeleteSetup(this.value); this.value='';" aria-label="Delete a saved setup" title="Delete one of your saved setups" style="min-width: 90px;">
+            <option value="">delete…</option>
+            ${saved.map(x => `<option value="${multiaiEscapeAttr(x.id)}">${multiaiEscape(x.name)}</option>`).join('')}
+        </select>` : ''}`;
     const addMenu = `<select onchange="multiaiAgentAddFromMenu(this.value); this.value='';" title="Add an agent to this chat" style="min-width: 150px;">
             <option value="">+ add agent…</option>
             ${libFree.length ? `<optgroup label="Library">${libFree.map(a => opt('lib:' + a.uid, `${a.name} — ${multiaiAgentMeta(a)}`)).join('')}</optgroup>` : ''}
@@ -1348,6 +1526,8 @@ function multiaiRenderParticipants(chat) {
         </table>
         </div>
         <div class="multiai-roster-foot">
+            ${setupMenu}
+            <span style="width: 1px; height: 20px; background: rgba(255,255,255,0.12);"></span>
             ${addMenu}
             <button class="multiai-btn ghost" onclick="multiaiAgentsSetAll(true)" title="Enable all">all</button>
             <button class="multiai-btn ghost" onclick="multiaiAgentsSetAll(false)" title="Disable all">none</button>
@@ -1598,6 +1778,33 @@ function multiaiAgentRemove(i) {
 }
 
 // Field edits apply to the row being edited, or to the new-agent draft (i === -1).
+// Run one short real turn on this seat's model. Cheaper than discovering
+// whether it works by starting a discussion and watching a seat fail, and the
+// result is remembered so the model becomes a first-class choice afterwards.
+async function multiaiTestModel(i) {
+    const chat = multiaiCurrentChat();
+    const a = chat && (chat.agents || [])[i];
+    if (!a || !MULTIAI_CLI_PROVIDERS[a.provider]) return;
+    if (!agentHub.multiaiTestVariant) { showToast('This build cannot test models — restart Proxima.'); return; }
+    const btn = document.getElementById(`multiai-test-${i}`);
+    if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+    try {
+        const r = await agentHub.multiaiTestVariant({ provider: a.provider, model: a.model || '', effort: a.effort || '' });
+        if (r && r.ok) {
+            const used = r.model || a.model;
+            if (used) multiaiRememberModel(a.provider, used, r.ms);
+            showToast(`${a.name || 'Seat'} answered in ${(r.ms / 1000).toFixed(1)}s${used ? ` on ${used}` : ''}.`);
+        } else {
+            showToast(`${a.name || 'Seat'} failed: ${(r && r.error) || 'no reply'}`);
+        }
+    } catch (e) {
+        showToast('Test failed: ' + (e.message || e));
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '▷'; }
+        multiaiRerenderAgents(chat);
+    }
+}
+
 function multiaiAgentField(i, field, value) {
     const chat = multiaiCurrentChat();
     if (!chat) return;
