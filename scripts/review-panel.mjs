@@ -36,6 +36,11 @@ const ROUNDS = Math.max(1, Math.min(6, Number(flag('rounds', 2))));
 const PORT = Number(flag('port', 3210));
 const OUT = flag('out', '');
 const WORKSPACE = flag('workspace', '');
+// What the panel is asked to look for. "defects" is the narrow reading of code
+// review and misses most of what a diff gets wrong: an API that is easy to
+// misuse, a control that lies about what it does, a name that will be
+// mislearned. Both is the default; --focus defects when you only want bugs.
+const FOCUS = flag('focus', 'all');
 const GO = has('go');
 
 // Antigravity takes its prompt on the command line and refuses past ~28k
@@ -69,9 +74,26 @@ function brief(t) {
         'reviewing — the diff here is context, not the whole story, and a hunk that',
         'looks fine in isolation is exactly where the interesting bugs are.',
         '',
-        'Report only defects you can point at: file, line, what breaks and the input',
-        'or state that breaks it. Rank by severity. If you have nothing, say PASS —',
-        'a list padded with style opinions buries the one real finding.',
+        'Answer in these sections, most serious first within each, and leave a',
+        'section out entirely rather than padding it:',
+        '',
+        'DEFECTS — things that are wrong. File, line, what breaks, and the input or',
+        'state that breaks it. A defect I cannot reproduce from your description is',
+        'not yet a defect.',
+        FOCUS === 'defects' ? '' : [
+            '',
+            'DESIGN — things that work and should not stay. An interface that is easy',
+            'to misuse, a control whose label does not match what it does, a default',
+            'that will surprise, a name that teaches the wrong model, duplicated',
+            'state that will drift apart. Say what it costs, not that it is untidy.',
+            '',
+            'MISSING — what this change should have come with and did not: a test for',
+            'the case it fixes, a migration for the data it reshapes, a message for',
+            'the failure it introduces.',
+        ].join(String.fromCharCode(10)),
+        '',
+        'No style opinions, no praise, no summary of what the diff does — I can',
+        'read the diff. If you genuinely have nothing, reply PASS.',
         '',
         log ? `Commits:\n${log}\n` : '',
         `Files:\n${stat}\n`,
@@ -138,6 +160,7 @@ const prompt = brief(t);
 console.log(`\nReview target : ${t.label}`);
 console.log(`Workspace     : ${WORKSPACE || 'a throwaway worktree at HEAD'}  (read-only tools)`);
 console.log(`Brief         : ${prompt.length.toLocaleString()} characters`);
+console.log(`Focus         : ${FOCUS === 'defects' ? 'defects only' : 'defects, design and what is missing'}`);
 console.log(`Rounds        : ${ROUNDS}  (independent — each round is blind to itself)`);
 console.log('Panel         :');
 for (const s of panel) console.log(`  - ${s.name.padEnd(16)} ${s.provider} ${s.model || '(default)'}${s.effort ? ' · ' + s.effort : ''}`);
