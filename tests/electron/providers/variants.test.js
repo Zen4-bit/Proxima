@@ -102,6 +102,11 @@ test('askVariants: every seat reports; a failure does not sink the others', asyn
     assert.deepEqual(r.results.map(x => x.ok), [true, false, true]);
     assert.match(r.results[1].error, /Gemini CLI is not installed/);
     await assert.rejects(v.askVariants({ message: 'hi', variants: [] }), /variants\[\] is required/);
+    // The "at most 8" cap is enforced independently in three places (here, the
+    // zod schema on the MCP tool, and the WebSocket ask_variants action) and
+    // the boundary that matters — a client sending 9 — was tested at none.
+    await assert.rejects(v.askVariants({ message: 'hi', variants: Array(9).fill('opus') }), /at most 8/);
+    assert.equal((await v.askVariants({ message: 'hi', variants: Array(8).fill('opus') })).results.length, 8, '8 is accepted');
 });
 
 test('isVariantModel / variantModels / completionFor: OpenAI-compatible surface', async () => {

@@ -5,9 +5,13 @@
 // and reads the Multi-AI agent library straight from Proxima's store file when
 // one exists. Add it to Claude Desktop / Claude Code / Codex / Cursor as
 //     { "command": "node", "args": ["<path>/src/mcp/variants-server.js"] }
-// and it works whether or not Proxima is open. (Inside the app, the same
-// tools are part of the main proxima server and share its discovery cache and
-// concurrency caps; running both is fine.)
+// and it works whether or not Proxima is open.
+//
+// This is a separate OS process from the app. The discovery cache and the
+// per-CLI concurrency caps in electron/providers/cli.cjs are module state, so
+// they are NOT shared with the app's own proxima server: running both against
+// the same CLI subscription doubles the effective concurrency (2 + 2 rather
+// than 2), which is the opposite of what the caps exist for.
 
 import fs from 'node:fs';
 import os from 'node:os';

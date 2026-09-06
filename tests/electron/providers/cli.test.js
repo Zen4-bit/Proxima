@@ -215,6 +215,31 @@ test('cmdCommandLine: shell metacharacters stay inside the argument', () => {
     assert.throws(() => cli.cmdCommandLine('e.cmd', ['a"b']), /double quote/);
 });
 
+// The clamp branch itself had no coverage: the test named for it only ever
+// reached the "no discovery yet" early return, so the fallback-to-nearest-lower
+// arithmetic — the least obvious part — was never exercised.
+test('codexEffortFor: clamps down to the nearest supported level, not the highest', () => {
+    const models = [
+        { id: 'low-only', efforts: ['minimal', 'low'] },
+        { id: 'mid', efforts: ['low', 'medium'] },
+        { id: 'wide', efforts: ['low', 'medium', 'high', 'xhigh'] },
+        { id: 'none', efforts: [] },
+    ];
+    // max maps to xhigh for Codex, then clamps to what the model supports.
+    assert.equal(cli.codexEffortFor('mid', 'max', models), 'medium', 'nearest supported at or below, not the top');
+    assert.equal(cli.codexEffortFor('mid', 'high', models), 'medium');
+    assert.equal(cli.codexEffortFor('mid', 'low', models), 'low', 'a supported level is left alone');
+    assert.equal(cli.codexEffortFor('wide', 'max', models), 'xhigh');
+    // Nothing at or below the request: fall up to the lowest on offer rather
+    // than returning something the model would reject.
+    assert.equal(cli.codexEffortFor('low-only', 'minimal', models), 'minimal');
+    assert.equal(cli.codexEffortFor('mid', 'minimal', models), 'low');
+    // Unknown model, empty effort list, or no effort asked for: pass through.
+    assert.equal(cli.codexEffortFor('not-listed', 'max', models), 'xhigh');
+    assert.equal(cli.codexEffortFor('none', 'max', models), 'xhigh');
+    assert.equal(cli.codexEffortFor('mid', '', models), null);
+});
+
 test('winQuote: a trailing backslash run is doubled so it cannot escape the closing quote', () => {
     assert.equal(cli.winQuote('plain'), '"plain"');
     assert.equal(cli.winQuote('a b'), '"a b"');

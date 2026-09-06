@@ -363,8 +363,18 @@ async function discover({ force = false } = {}) {
         } else out.claude = { available: false, label: LABELS.claude };
         if (avail.codex) {
             const pick = await resolveCodex({ force: true });
-            const cache = parseCodexModelsCache(readJson(path.join(home, '.codex', 'models_cache.json')));
+            const cacheJson = readJson(path.join(home, '.codex', 'models_cache.json'));
+            const cache = parseCodexModelsCache(cacheJson);
             const cfg = parseCodexConfig(readText(path.join(home, '.codex', 'config.toml')));
+            // models_cache.json is written by whichever codex the *user* last
+            // ran interactively, which need not be the binary we resolved (the
+            // newest of the bundle and PATH). When they disagree the cached
+            // list can be missing models the running binary supports, the
+            // account's own default among them, so a "not in its list" warning
+            // would be about stale data and effort clamping silently stops
+            // applying. Report the list as stale instead of blaming the model.
+            const cacheVersion = cacheJson && cacheJson.client_version ? String(cacheJson.client_version) : '';
+            const cacheStale = !!(cacheVersion && pick && pick.version && cacheVersion !== pick.version);
             const efforts = [];
             cache.forEach(m => m.efforts.forEach(e => { if (!efforts.includes(e)) efforts.push(e); }));
             out.codex = {
@@ -374,7 +384,8 @@ async function discover({ force = false } = {}) {
                 models: cache,
                 defaultModel: cfg.model, defaultEffort: cfg.effort,
                 profiles: cfg.profiles,
-                defaultModelListed: !cfg.model || cache.some(m => m.id === cfg.model),
+                defaultModelListed: !cfg.model || cacheStale || cache.some(m => m.id === cfg.model),
+                cacheVersion, cacheStale,
                 // Which binary runs the seats (newest of the desktop app's
                 // bundle and the codex on PATH) and whether it can sandbox
                 // read/write turns on Windows; `full` always works.
@@ -382,7 +393,10 @@ async function discover({ force = false } = {}) {
                 source: pick ? pick.source : undefined,
                 alternatives: pick ? pick.alternatives.map(a => ({ exe: a.exe, source: a.source, version: a.version })) : [],
                 sandbox: !IS_WIN ? 'native' : (pick && pick.helpers ? 'native' : 'missing'),
-                note: cache.length ? 'Models from your account\'s list (~/.codex/models_cache.json).' : 'No model list cached yet — run codex once.',
+                note: !cache.length ? 'No model list cached yet — run codex once.'
+                    : (cacheStale
+                        ? `Model list was cached by codex ${cacheVersion}, but seats run ${pick.version} — it may be out of date. Run codex once to refresh it.`
+                        : 'Models from your account\'s list (~/.codex/models_cache.json).'),
             };
         } else out.codex = { available: false, label: LABELS.codex };
         if (avail.gemini) {
@@ -420,10 +434,14 @@ function discovered() { return _discovered; }
 
 // Codex: the effort the model actually supports (falls back to the highest
 // supported level when the requested one is above it).
-function codexEffortFor(model, effort) {
+// `models` defaults to whatever discovery found; it is a parameter so the
+// clamping arithmetic can be tested without reaching into module state or
+// depending on which CLIs happen to be installed on the machine.
+function codexEffortFor(model, effort, models) {
     const eff = effort && EFFORT_MAP.codex[effort];
     if (!eff) return null;
-    const info = _discovered && _discovered.codex && _discovered.codex.models ? _discovered.codex.models.find(m => m.id === model) : null;
+    const list = models || (_discovered && _discovered.codex && _discovered.codex.models) || null;
+    const info = list ? list.find(m => m.id === model) : null;
     if (!info || !info.efforts.length) return eff;
     if (info.efforts.includes(eff)) return eff;
     const order = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
@@ -552,9 +570,11 @@ function runProcess(kind, bin, args, { cwd, prompt, timeoutMs, exe }) {
                 child.once('close', () => _live.delete(child));
                 let stdout = '';
                 let stderr = '';
-                child.stdout.on('data', d => { stdout += d.toString('utf8'); });
+                // Keep the tail: all three CLIs put their JSON envelope at the end,
+                // and an unbounded buffer lets a chatty seat grow main-process memory.
+                child.stdout.on('data', d => { stdout += d.toString('utf8'); if (stdout.length > 4000000) stdout = stdout.slice(-2000000); });
                 child.stderr.on('data', d => { stderr += d.toString('utf8'); if (stderr.length > 200000) stderr = stderr.slice(-100000); });
-                child.on('error', reject);
+                child.on('error', (e) => { if (timer) clearTimeout(timer); reject(e); });
                 child.on('close', (code) => {
                     if (timer) clearTimeout(timer);
                     if (aborted) return reject(Object.assign(new Error('Cancelled by user'), { cancelled: true }));

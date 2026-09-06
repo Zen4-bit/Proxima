@@ -54,3 +54,26 @@ test('ask_variants: fans out, keeps going when one variant fails', async () => {
     assert.match(out, /## gemini-3\.1-pro — FAILED\nGemini CLI is not logged in/);
     assert.match(out, /## sonnet:low — claude-cli · sonnet · low/);
 });
+
+// The harness calls handlers directly, so nothing here exercises the declared
+// input schema — every constraint in the tool descriptions (effort is one of
+// six values, timeoutSeconds 30-1200, variants 1-8) was asserted only by a
+// human reading it. inputSchema is a raw zod *shape*, not a composed schema, so
+// it has no .parse() of its own; the SDK wraps it in z.object() before
+// validating, and so does this.
+test('tool schemas: the declared input constraints actually reject bad arguments', async () => {
+    const { z } = await import('zod');
+    const h = harness(async () => ({ ok: true }));
+    const parse = (name, args) => z.object(h.tools.get(name).meta.inputSchema).parse(args);
+
+    assert.throws(() => parse('ask_variant', { variant: 'opus', message: 'hi', effort: 'turbo' }), /effort/i);
+    assert.doesNotThrow(() => parse('ask_variant', { variant: 'opus', message: 'hi', effort: 'max' }));
+
+    assert.throws(() => parse('ask_variant', { variant: 'opus', message: 'hi', timeoutSeconds: 5 }));
+    assert.throws(() => parse('ask_variant', { variant: 'opus', message: 'hi', timeoutSeconds: 5000 }));
+    assert.doesNotThrow(() => parse('ask_variant', { variant: 'opus', message: 'hi', timeoutSeconds: 600 }));
+
+    assert.throws(() => parse('ask_variants', { message: 'hi', variants: [] }));
+    assert.throws(() => parse('ask_variants', { message: 'hi', variants: Array(9).fill('opus') }));
+    assert.doesNotThrow(() => parse('ask_variants', { message: 'hi', variants: Array(8).fill('opus') }));
+});

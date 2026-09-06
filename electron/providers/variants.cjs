@@ -75,6 +75,11 @@ function createVariants({ cli, core, loadLibrary, dataDir }) {
     }
 
     async function variants({ probe = false } = {}) {
+        // Clear the which() cache too, not just the discovery cache: a
+        // long-lived standalone server that started before a CLI was installed
+        // would otherwise keep answering "not installed" forever, and probe
+        // would not fix it.
+        if (probe && cli.resetAvailabilityCache) cli.resetAvailabilityCache();
         const info = await cli.discover({ force: probe });
         const library = agentLibrary().map(a => ({
             id: a.id, name: a.name, provider: a.provider, model: a.model || '', effort: a.effort || '', persona: !!a.persona,
@@ -120,6 +125,11 @@ function createVariants({ cli, core, loadLibrary, dataDir }) {
         if (!message) throw err(400, 'message is required');
         const kind = core.CLI_PROVIDERS[agent.provider].bin;
         if (!cli.availability()[kind]) throw err(503, `${core.providerLabel(agent.provider)} is not installed (no \`${kind}\` on PATH)`);
+        // Codex effort clamping reads the discovery cache, which a cold
+        // process (the standalone server, or the app before its background
+        // probe lands) has not filled yet — so without this the documented
+        // "clamped to what the model supports" silently does not happen.
+        try { await cli.discover(); } catch { /* clamping falls back to the requested effort */ }
         // A caller's own system prompt is appended, not substituted: every
         // OpenAI-compatible client sends one, and letting it replace the
         // no-tools clause puts the seat back into fabricating tool calls.
@@ -132,7 +142,13 @@ function createVariants({ cli, core, loadLibrary, dataDir }) {
         const timeoutMs = Math.max(30000, Math.min(20 * 60 * 1000, Number(body.timeoutMs) || 10 * 60 * 1000));
         const handle = cli.run(agent.provider, { model: agent.model || undefined, effort: agent.effort || undefined, prompt: message, systemPrompt: system, cwd: dataDir(), timeoutMs });
         const r = await handle.promise;
-        return { variant: agent.name, id: agent.id, provider: agent.provider, model: r.model || agent.model || null, effort: agent.effort || null, text: r.text, ms: Date.now() - started, costUsd: r.costUsd || null };
+        // Report the effort that actually ran: Codex clamps an unsupported level
+        // down, and echoing the request made a clamped and an unclamped run
+        // indistinguishable from either end.
+        const usedEffort = (agent.provider === 'codex-cli' && cli.codexEffortFor)
+            ? (cli.codexEffortFor(agent.model, agent.effort) || agent.effort || null)
+            : (agent.effort || null);
+        return { variant: agent.name, id: agent.id, provider: agent.provider, model: r.model || agent.model || null, effort: usedEffort, requestedEffort: agent.effort || null, text: r.text, ms: Date.now() - started, costUsd: r.costUsd || null };
     }
 
     // Fan-out: every seat answers or reports its own error.
