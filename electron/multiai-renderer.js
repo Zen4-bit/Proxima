@@ -794,6 +794,10 @@ function multiaiRenderOptionsSummary(chat) {
         const wsSeats = multiaiWorkspaceSeats(chat);
         if (chat.workspace && chat.workspace.root) extras.push(wsSeats.length ? `workspace · ${wsSeats.length} with tools` : 'workspace (no seat has tools)');
         else if (wsSeats.length) extras.push('⚠ tools without a workspace');
+        // Warnings first: this one line is the only always-visible state
+        // readout, and it is exactly where the safety warnings used to be cut
+        // off, because they were appended last and the span ellipsises.
+        extras.sort((a, b) => (b.includes('⚠') ? 1 : 0) - (a.includes('⚠') ? 1 : 0));
         el.textContent = `${n}${all > n ? '/' + all : ''} agent${Math.max(n, all) === 1 ? '' : 's'} · ${chat.discussMode === 'debate' ? 'Debate' : 'Discuss'} · ${rounds} round${rounds === 1 ? '' : 's'} · ${chat.brevity || 'max 4 sentences'}${extras.length ? ' · ' + extras.join(' · ') : ''}`;
         const hint = document.getElementById('multiai-composer-hint');
         if (hint) {
@@ -1876,7 +1880,7 @@ function multiaiAppendFeedItem(message, skipScroll) {
         item.style.cssText = 'border: 1px solid rgba(245,158,11,0.4); border-radius: 10px; padding: 12px 14px; background: rgba(245,158,11,0.06);';
         item.innerHTML = `
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
-                <div style="font-size: 0.72rem; font-weight: 700; color: #fbbf24; text-transform: uppercase; letter-spacing: 0.5px;">🛠 ${multiaiEscape(message.who || 'changes')}${message.commit ? ` <span style="font-weight: 600; letter-spacing: 0; text-transform: none; color: #d1d5db;">· ${multiaiEscape(String(message.commit).slice(0, 8))}</span>` : ''}</div>
+                <div style="font-size: 0.72rem; font-weight: 700; color: ${message.partial ? '#f87171' : '#fbbf24'}; text-transform: uppercase; letter-spacing: 0.5px;">🛠 ${multiaiEscape(message.who || 'changes')}${message.partial ? ' <span title="The turn ended with an error; this is whatever it had written by then, committed so nothing is lost." style="font-weight:600; letter-spacing:0; text-transform:none;">· partial, turn errored</span>' : ''}${message.commit ? ` <span style="font-weight: 600; letter-spacing: 0; text-transform: none; color: #d1d5db;">· ${multiaiEscape(String(message.commit).slice(0, 8))}</span>` : ''}</div>
                 <div title="Reference label — right-click this message for options" style="font-size: 0.62rem; color: #8b8ba0; font-weight: 600; letter-spacing: 0.5px; flex-shrink: 0;">${multiaiRefLabel(message)}</div>
             </div>
             <div style="font-size: 0.82rem; color: #e5e7eb; white-space: pre-wrap; line-height: 1.5; font-family: ui-monospace, Menlo, Consolas, monospace;">${multiaiEscape(head)}</div>

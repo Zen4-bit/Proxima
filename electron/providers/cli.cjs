@@ -20,12 +20,13 @@
 //     defaults / [profiles.*] from ~/.codex/config.toml;
 //   - Gemini CLI: version and the auth method from ~/.gemini/settings.json.
 
-const { spawn, execFileSync } = require('child_process');
+const { spawn, execFile, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
 const IS_WIN = process.platform === 'win32';
+const NEWLINE_RE = new RegExp('\r?\n');
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_PARALLEL = { claude: 2, codex: 2, gemini: 2 };
 
@@ -210,6 +211,28 @@ function which(bin) {
     return found;
 }
 
+// execFileSync blocks the Electron main process — and in Electron that means
+// the window, every provider BrowserView, the REST server and the IPC bridge
+// freeze together, for up to 5s per lookup on a long PATH or a PATH entry on a
+// disconnected share. Three of those fire from the refresh button. So the cache
+// is warmed asynchronously here, and the synchronous which() below only ever
+// runs on a cold miss.
+function whichAsync(bin) {
+    if (_avail[bin] !== undefined) return Promise.resolve(_avail[bin]);
+    return new Promise(resolve => {
+        execFile(IS_WIN ? 'where' : 'which', [bin], { encoding: 'utf8', timeout: 5000, env: childEnv(), windowsHide: true }, (err, stdout) => {
+            let found = err ? null : (String(stdout).split(NEWLINE_RE).map(l => l.trim()).filter(Boolean)[0] || null);
+            if (!found) found = knownLocations(bin).find(f => { try { return fs.existsSync(f); } catch { return false; } }) || null;
+            _avail[bin] = found;
+            resolve(found);
+        });
+    });
+}
+
+async function warmAvailability() {
+    await Promise.all(Object.values(BINS).map(b => whichAsync(b).catch(() => null)));
+}
+
 function availability() {
     return {
         claude: !!which('claude'),
@@ -346,6 +369,7 @@ async function discover({ force = false } = {}) {
     _discovering = (async () => {
         const home = os.homedir();
         const out = { claude: null, codex: null, gemini: null, at: Date.now() };
+        await warmAvailability();
         const avail = availability();
         if (avail.claude) {
             const [ver, help] = await Promise.all([runQuick('claude', ['--version']), runQuick('claude', ['--help'])]);
@@ -776,6 +800,6 @@ module.exports = {
     run, runClaude, runCodex, runGemini, availability, resetAvailabilityCache, which, discover, discovered, childEnv, knownLocations,
     parseClaudeHelp, parseCodexModelsCache, parseCodexConfig, geminiAuthFrom, codexEffortFor,
     claudeArgs, codexArgs, geminiArgs, workspaceSystemPrompt, codexSandboxHelperDir, codexSandboxBundle, codexSandboxSupport, hasCodexHelpers,
-    codexCandidates, resolveCodex, codexExe, parseVersion, cmpVersion, spawnCli, winQuote, cmdCommandLine, killAll,
+    codexCandidates, resolveCodex, codexExe, parseVersion, cmpVersion, spawnCli, winQuote, cmdCommandLine, killAll, whichAsync, warmAvailability,
     EFFORT_MAP, DISCUSSION_SYSTEM_PROMPT, MAX_PARALLEL, KINDS, BINS, LABELS, TOOLS_LEVELS, CLAUDE_TOOLS,
 };
