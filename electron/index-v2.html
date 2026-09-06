@@ -1398,6 +1398,11 @@
     </div>
     </div>
 
+    <style>
+        .help-nav { display: block; padding: 5px 10px; border-radius: 6px; color: #b6b6c8; text-decoration: none; font-size: 0.78rem; }
+        .help-nav:hover { background: rgba(255,255,255,0.07); color: #fff; }
+    </style>
+
     <div class="browser-controls" id="browser-controls">
         <button class="browser-ctrl-btn" onclick="goBack()" title="Back">◀</button>
         <button class="browser-ctrl-btn" onclick="goForward()" title="Forward">▶</button>
@@ -1689,13 +1694,25 @@
             </div>
 
             <div id="multiai-help-modal" onclick="if(event.target===this) multiaiCloseHelp()" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center;">
-                <div style="width: min(640px, 90vw); max-height: 80vh; background: #0d0d16; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.5);">
+                <div style="width: 90vw; height: 90vh; background: #0d0d16; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.5);">
                     <div style="display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;">
                         <span style="font-weight: 700; font-size: 1rem; color: #fff;">Multi-AI Chat — Help</span>
                         <button onclick="multiaiCloseHelp()" style="background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 1rem; padding: 2px 6px;">✕</button>
                     </div>
-                    <div style="overflow-y: auto; padding: 18px 22px; font-size: 0.83rem; line-height: 1.6; color: #d1d5db;">
-                        <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #8b8ba0; text-transform: uppercase; letter-spacing: 0.8px;">Agents</p>
+                    <div style="display: flex; min-height: 0; flex: 1;">
+                    <nav aria-label="Help sections" style="width: 190px; flex-shrink: 0; border-right: 1px solid rgba(255,255,255,0.08); padding: 18px 10px; overflow-y: auto;">
+                        <a href="#help-agents" onclick="helpJump(event, 'help-agents')" class="help-nav">Agents</a>
+                        <a href="#help-classic" onclick="helpJump(event, 'help-classic')" class="help-nav">Classic mode</a>
+                        <a href="#help-orchestrated" onclick="helpJump(event, 'help-orchestrated')" class="help-nav">Orchestrated mode</a>
+                        <a href="#help-general" onclick="helpJump(event, 'help-general')" class="help-nav">General</a>
+                        <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.08);">
+                            <button class="multiai-btn" style="width: 100%;" onclick="multiaiCloseHelp(); multiaiStartTour();">▶ Take the tour</button>
+                            <p style="margin: 8px 2px 0; font-size: 0.7rem; color: #8b8ba0; line-height: 1.45;">Nine steps over the real screen, pointing at the control each one is about.</p>
+                        </div>
+                    </nav>
+                    <div id="multiai-help-body" style="overflow-y: auto; padding: 18px 22px; font-size: 0.83rem; line-height: 1.6; color: #d1d5db; flex: 1; min-width: 0;">
+                        <div style="max-width: 82ch;">
+                        <p id="help-agents" style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #8b8ba0; text-transform: uppercase; letter-spacing: 0.8px;">Agents</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">An agent is a seat</b> — name + provider + route + model + effort + persona. Add the same provider more than once with different models or efforts (“Opus · max” and “Sonnet · low”, or “GPT high” and “GPT low”) to run a single-provider panel. Names become ids for @mentions and HANDOFFs (<code>@opus-max</code>).</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Roster and library</b> — the Agents tab is a table: one row per agent, every cell editable in place (name, provider, route, model, effort, tools, persona). <b style="color:#fff;">+ add agent…</b> lists your library first, then a vendor to start a new seat from. Agents go into the library, and every new chat starts with all of them. The checkbox on each row decides who takes turns this time — untick to bench an agent without losing its setup; benched agents get no turns, no mentions and aren’t introduced to the others. Editing a library agent applies everywhere it is used. <b style="color:#fff;">✕</b> takes one row out of this chat, <b style="color:#fff;">clear all</b> empties the roster (library seats can be added back; anything not in the library was the only copy), and the library chips (📚) remove an agent for good. <b style="color:#fff;">🎨 colours</b> tints each seat’s cards in the transcript so you can tell who said what at a glance. The tab strip collapses to a one-line summary.</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Setups</b> — <b style="color:#fff;">setups…</b> replaces the whole panel in one go — who is in it and how they talk (mode, rounds, brevity, context, independent rounds, judge). Four are shipped; <b style="color:#fff;">save setup</b> stores the current chat as one of your own and <b style="color:#fff;">delete…</b> removes yours. A shipped setup names only vendors, so models and efforts come from whatever is installed and logged in on this machine rather than from someone else’s.</p>
@@ -1705,7 +1722,7 @@
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Workspace and tools</b> — the Workspace tab attaches a git folder to the chat. CLI seats then get a <b style="color:#fff;">Tools</b> level: <b style="color:#fff;">read</b> (list / read / search files, to verify claims), <b style="color:#fff;">write</b> (edit files; shell limited to git status/diff/log) or <b style="color:#fff;">full</b> (edit + any shell command — no sandbox, so use a throwaway clone). Runs happen on the chat's own branch (<code>multiai/…</code>), cut fresh from your base branch — the one the folder is on, or main/master when it is parked on another chat's branch — never from another chat's changes; each writer turn is committed under the seat's name and appears in the transcript as a 🛠 change card with the diff, so every other participant — and you — can review it. One writer edits at a time; readers overlap. Uncommitted work on <i>another</i> branch blocks the run. Uncommitted work on the chat's <i>own</i> branch is swept into a commit by the next run, labelled as an interrupted turn — so once a run has left the folder on <code>multiai/…</code>, don't keep your own edits there. Merge or delete the branch when you're done.</p>
                         <p style="margin: 0 0 14px 0;"><b style="color:#fff;">Route differences</b> — API and CLI turns are one-shot, so Delta context becomes Bounded for them (browser agents keep Delta). Stop kills CLI processes and aborts browser turns; an API call already in flight finishes and is discarded. Codex must support the chosen model on your account (gpt-5.5 does; gpt-5 does not on ChatGPT plans).</p>
 
-                        <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #8b8ba0; text-transform: uppercase; letter-spacing: 0.8px;">Classic mode</p>
+                        <p id="help-classic" style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #8b8ba0; text-transform: uppercase; letter-spacing: 0.8px;">Classic mode</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Discuss vs. Debate</b> — Discuss has participants build on each other's points toward a shared answer. Debate assigns opposing sides and has them argue; with more than two participants each takes a distinct stance.</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Rounds</b> — how many times each participant speaks in turn. One round is usually enough for a quick comparison; use 2-4 for a discussion that needs to actually converge or a debate that needs rebuttals. More rounds costs more time and, if you're on metered API keys, more money.</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Brevity</b> — caps reply length. "max 4 sentences" keeps a multi-round discussion skimmable; switch to "as long as needed" for a single deep-dive round.</p>
@@ -1719,14 +1736,14 @@
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Summarize state</b> — asks the Judge provider for a pinned summary (decisions, open questions, claims to verify, next step). It becomes the compaction point: later turns start from the summary instead of the older transcript. Use it whenever you'd otherwise ask “what is the state of the discussion”.</p>
                         <p style="margin: 0 0 14px 0;"><b style="color:#fff;">Personas</b> — a shared library of a few built-ins (Skeptic, Optimist, Devil's Advocate, Pragmatist, Domain Expert, Concise Summarizer) plus any .md/.txt file you drop in the personas folder. Pick one on each agent's card in the Agents block; the same library also fills in a crew role's Instruction in Orchestrated mode, so you're not maintaining two systems.</p>
 
-                        <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #8b8ba0; text-transform: uppercase; letter-spacing: 0.8px;">Orchestrated mode</p>
+                        <p id="help-orchestrated" style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #8b8ba0; text-transform: uppercase; letter-spacing: 0.8px;">Orchestrated mode</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Crew</b> — a fixed pipeline of roles (e.g. Researcher → Writer → Reviewer), each handing its output to the next. Edit roles, providers and instructions freely; pick providers whose strengths match the role (e.g. a search-grounded model for Researcher).</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Workflow</b> — your own ordered list of steps, one per line, as <code>provider: task</code> (provider is optional — omit it to use whichever is enabled first). Each step gets the previous step's output as input.</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Loop</b> — one provider generates, another reviews against the original task and either says CONVERGED or gives feedback; it keeps iterating up to Max turns. Good for "keep refining until it's actually right" tasks; pick a reviewer that's genuinely critical, not just agreeable.</p>
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Agent (file tools)</b> — the only <i>Orchestrated</i> strategy that touches your actual filesystem. (Classic CLI seats with a Tools level touch it too, and are confined only by the Tools level you pick — see Workspace and tools above.) None of these providers have real API tool-calling wired up (they're browser chat, not tool-using APIs), so this is built as a loop: the model is told a small format for requesting a file operation, we execute it against the one folder you chose, and feed the result back for up to Max turns, until it replies with plain text instead of a tool request. That reply is the final answer. Reads, writes, and deletes all happen with no confirmation step — the only safety boundary is that it cannot reach anything outside the folder you pick. Point it at a scratch folder, not anything you'd mind losing.</p>
                         <p style="margin: 0 0 14px 0;">Mode is locked once a chat has its first message, since Classic transcripts and Orchestrated pipeline runs don't mix well in one thread — start a new chat to switch.</p>
 
-                        <p style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #8b8ba0; text-transform: uppercase; letter-spacing: 0.8px;">General</p>
+                        <p id="help-general" style="margin: 0 0 6px 0; font-size: 0.72rem; font-weight: 700; color: #8b8ba0; text-transform: uppercase; letter-spacing: 0.8px;">General</p>
                         <p style="margin: 0 0 10px 0;">Attachments (📎) fold text files into your prompt and note images/binaries by name only — none of these providers take image input through this tab.</p>
                         <p style="margin: 0 0 10px 0;">Stop interrupts immediately: the reply in flight is aborted inside the provider's tab (so it stops occupying that provider's queue), queued turns are skipped, and nothing is shown or saved from it. In Delta mode the affected provider gets a fresh thread with a catch-up on its next turn.</p>
                         <p style="margin: 0 0 10px 0;">New chats are titled from the first words of your first message (free, instant); ✨ next to the title asks the Judge provider for a better one. Rename any time via ✏.</p>
@@ -1735,6 +1752,8 @@
                         <p style="margin: 0 0 10px 0;"><b style="color:#fff;">Message IDs & context</b> — every message has a hidden unique id and a short label like <code>0103CG</code>: cycle 01 (a cycle is one Send), round 03 (the turn within it), then a 2-letter agent code. Right-click any message, in the feed or the ledger, to add it as context for your next message (it's folded into the outgoing prompt and called out by label, even across chats) or to copy its reference label.</p>
                         <p style="margin: 0 0 10px 0;">Click a ledger row to jump the transcript to that message. The ledger's two dropdowns filter by cycle·round and by agent.</p>
                         <p style="margin: 0;">Browser and API seats only see text you send them. <b style="color:#fff;">CLI seats are different</b>: a Claude Code, Codex or Gemini CLI seat with a Tools level reads and writes the workspace folder you attach, and at <code>full</code> it runs any shell command there. A Codex seat runs with its sandbox bypassed even at <code>none</code>, held back only by its system prompt. The 📎 attach button is a one-way bridge: it reads a local file client-side and folds its text into your prompt (images/binaries are noted by name only).</p>
+                        </div>
+                    </div>
                     </div>
                 </div>
             </div>
@@ -3311,6 +3330,12 @@ Confirm when done</pre>
         // provider tab is in front — and the modal is a DOM element, which a
         // BrowserView covers completely. Go to the tab the help is about first;
         // from there the modal is actually visible.
+        function helpJump(e, id) {
+            e.preventDefault();
+            const el = document.getElementById(id);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
         async function openHelp() {
             if (currentTab !== 'multiai') await switchTab('multiai');
             multiaiOpenHelp();
@@ -4575,6 +4600,7 @@ Confirm when done</pre>
         }
     </script>
     <script src="multiai-renderer.js"></script>
+    <script src="multiai-tour.js"></script>
 </body>
 
 </html>
