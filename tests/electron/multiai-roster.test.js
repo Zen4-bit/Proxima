@@ -55,6 +55,9 @@ function load() {
     clearAll: multiaiAgentsClearAll,
     addFromMenu: multiaiAgentAddFromMenu,
     seedSample: multiaiSeedSampleChat,
+    saveToLibrary: multiaiAgentSaveToLibrary,
+    applyDefault: multiaiApplyDefaultSetup,
+    pinDefault: multiaiPinDefaultSetup,
     VENDORS: MULTIAI_VENDORS,
 };`;
     vm.runInContext(src, sandbox, { filename: 'multiai-renderer.js' });
@@ -472,4 +475,58 @@ test('a catalogue group says which CLI it is padding', () => {
     assert.match(groupsOf(t.box.innerHTML, 'A')[0].label, /full ids/);
     t.render(mk('gemini-cli', 'gemini'));
     assert.match(groupsOf(t.box.innerHTML, 'A')[0].label, /from the catalogue/);
+});
+
+// --- the library is somewhere you put things --------------------------------
+test('adding a seat does not publish it to the library', () => {
+    const t = load();
+    const chat = chatWith(t, [], { apiMode: false, cli: {}, providers: {} });
+    t.addFromMenu('new:claude');
+    assert.equal(chat.agents.length, 1);
+    // A library entry is offered in every chat and served under its own id on
+    // the REST port and to MCP clients; a one-off should not become one.
+    assert.equal(chat.agents[0].uid, undefined);
+    assert.deepEqual(t.state.data.uiPrefs.agentLibrary || [], []);
+    t.saveToLibrary(0);
+    assert.ok(chat.agents[0].uid, 'saving gives it an identity');
+    assert.equal((t.state.data.uiPrefs.agentLibrary || []).length, 1);
+    t.saveToLibrary(0);
+    assert.equal(t.state.data.uiPrefs.agentLibrary.length, 1, 'saving twice is not two entries');
+});
+
+test('a new chat starts empty unless a setup is pinned', () => {
+    const t = load();
+    chatWith(t, [], { apiMode: false, cli: { claude: true, codex: true }, providers: {} });
+    t.state.data.uiPrefs.agentLibrary = [
+        { uid: 'u1', name: 'A', provider: 'claude', route: 'browser' },
+        { uid: 'u2', name: 'B', provider: 'chatgpt', route: 'browser' },
+    ];
+    // Cloning the library is what turned every new chat into nine seats.
+    const fresh = { id: 'n1', agents: [] };
+    t.applyDefault(fresh);
+    assert.deepEqual(fresh.agents, []);
+
+    t.pinDefault('builtin:second-opinion');
+    const fresh2 = { id: 'n2', agents: [] };
+    t.applyDefault(fresh2);
+    assert.deepEqual(fresh2.agents.map(a => a.provider), ['chatgpt', 'claude']);
+    assert.equal(fresh2.rounds, 1);
+    assert.equal(fresh2.independentRounds, 'all');
+    // ...and the seats it built are the chat's, not new library entries.
+    assert.deepEqual(fresh2.agents.map(a => a.uid), [undefined, undefined]);
+});
+
+test('the setups menu offers applying and pinning, and shows which is pinned', () => {
+    const t = load();
+    const chat = chatWith(t, [], { apiMode: false, cli: {}, providers: {} });
+    t.render(chat);
+    let m = t.box.innerHTML.match(/<select[^>]*aria-label="Apply a saved setup"[\s\S]*?<\/select>/);
+    assert.ok(/Start new chats from/.test(m[0]), 'the pin group is there');
+    assert.ok(/value="pin:">nothing — open empty ✓/.test(m[0]), 'nothing pinned is ticked');
+
+    t.pinDefault('builtin:second-opinion');
+    t.render(chat);
+    m = t.box.innerHTML.match(/<select[^>]*aria-label="Apply a saved setup"[\s\S]*?<\/select>/);
+    assert.match(m[0], /value="pin:builtin:second-opinion">Second opinion ✓/);
+    assert.match(m[0], /📌 Second opinion/, 'the closed menu says what new chats start from');
 });

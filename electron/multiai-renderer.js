@@ -581,7 +581,7 @@ function multiaiSeedSampleChat() {
 
 function multiaiNewChat() {
     const chat = multiaiDefaultChat();
-    multiaiSeedAgentsFromLibrary(chat);
+    multiaiApplyDefaultSetup(chat);
     multiaiState.agentMenuOpen = false;
     if (!multiaiState.data.projects.length) {
         multiaiState.data.projects.push({ id: 'default', name: 'General', chats: [] });
@@ -1390,14 +1390,9 @@ function multiaiSetups() {
 const MULTIAI_SETUP_FIELDS = ['discussMode', 'rounds', 'brevity', 'contextMode', 'independentRounds', 'independentFirstRound',
     'charterMode', 'stopWhenAllAgree', 'stopToken', 'judgeProvider', 'judgeScope', 'autoSummaryEvery'];
 
-function multiaiApplySetup(id) {
-    const chat = multiaiCurrentChat();
-    const setup = multiaiSetups().find(s => s.id === id);
-    if (!chat || !setup) return;
-    if ((chat.agents || []).length && !window.confirm(`Replace this chat's ${chat.agents.length} seat${chat.agents.length === 1 ? '' : 's'} with "${setup.name}"?`)) {
-        multiaiRerenderAgents(chat);
-        return;
-    }
+// A setup laid onto a chat: the seats it names and the way it talks. Shared by
+// "setups…" and by the setup pinned as the starting point for new chats.
+function multiaiSetupInto(chat, setup) {
     // Build each seat the way the "+ add agent" menu would, then lay the
     // setup's own choices over it — so a setup that names only a vendor still
     // gets sensible model/effort defaults for whatever is installed here.
@@ -1419,13 +1414,28 @@ function multiaiApplySetup(id) {
         chat.independentRounds = setup.independentFirstRound ? 'first' : 'off';
     }
     multiaiEnsureAgents(chat);
-    // Seats from a setup join the library too, so they are reusable singly and
-    // the roster's own library lookups resolve them.
-    chat.agents.forEach(a => multiaiLibrarySave(a));
+}
+
+function multiaiApplySetup(id) {
+    const chat = multiaiCurrentChat();
+    const setup = multiaiSetups().find(s => s.id === id);
+    if (!chat || !setup) return;
+    if ((chat.agents || []).length && !window.confirm(`Replace this chat's ${chat.agents.length} seat${chat.agents.length === 1 ? '' : 's'} with "${setup.name}"?`)) {
+        multiaiRerenderAgents(chat);
+        return;
+    }
+    multiaiSetupInto(chat, setup);
     multiaiPersist();
     multiaiRerenderAgents(chat);
     multiaiRenderChat();
     showToast(`Applied "${setup.name}".`);
+}
+
+// One menu, two verbs: apply it now, or make it what a new chat opens on.
+function multiaiSetupMenu(value) {
+    if (!value) return;
+    if (value.startsWith('pin:')) multiaiPinDefaultSetup(value.slice(4));
+    else multiaiApplySetup(value);
 }
 
 function multiaiSaveSetup() {
@@ -1509,12 +1519,28 @@ New chats will no longer start with it, and cli:${gone.id || ''} will stop resol
     if (chat) multiaiRenderParticipants(chat);
 }
 
-// New chats start with the library roster (all enabled).
-function multiaiSeedAgentsFromLibrary(chat) {
-    const lib = multiaiAgentLibrary();
-    if (!lib.length || (chat.agents || []).length) return;
-    chat.agents = lib.map(a => Object.assign(multiaiAgentClone(a), { enabled: true }));
-    multiaiEnsureAgents(chat);
+// A new chat is a new chat. It used to clone the whole library, which is fine
+// with two entries and not with nine — and the library grows on its own, so the
+// number only goes one way. Pin a setup instead and a new chat opens on exactly
+// that; pin nothing and it opens empty.
+function multiaiApplyDefaultSetup(chat) {
+    if ((chat.agents || []).length) return;
+    const id = multiaiUiPrefs().defaultSetupId;
+    const setup = id ? multiaiSetups().find(x => x.id === id) : null;
+    if (!setup) return;
+    multiaiSetupInto(chat, setup);
+}
+
+// Pinning is per-setup rather than "remember the last chat": a chat drifts as
+// you work in it, and inheriting yesterday's drift is the thing being fixed.
+function multiaiPinDefaultSetup(id) {
+    const prefs = multiaiUiPrefs();
+    prefs.defaultSetupId = id || '';
+    multiaiPersist();
+    const chat = multiaiCurrentChat();
+    if (chat) multiaiRerenderAgents(chat);
+    const setup = id ? multiaiSetups().find(x => x.id === id) : null;
+    showToast(setup ? `New chats will start from "${setup.name}".` : 'New chats will start empty.');
 }
 
 // ---- rendering ----------------------------------------------------------
@@ -1661,7 +1687,7 @@ function multiaiRenderParticipants(chat) {
                 <td style="width: 96px;"><select onchange="multiaiAgentField(${i}, 'effort', this.value)" aria-label="Effort for ${multiaiEscapeAttr(a.name)}" ${effortOn ? '' : 'disabled'} title="${multiaiEscapeAttr(isCli ? (effortList.length ? `Reasoning effort — levels this ${MULTIAI_CLI_PROVIDERS[a.provider]} model accepts` : `${MULTIAI_CLI_PROVIDERS[a.provider]} has no effort switch`) : 'Reasoning effort — API and CLI routes only')}">${opt('', 'default', !a.effort)}${effortList.map(e => opt(e, e, a.effort === e)).join('')}${a.effort && !effortList.includes(a.effort) ? opt(a.effort, a.effort + ' ⚠', true) : ''}</select></td>
                 <td style="width: 84px;">${toolsCell}</td>
                 <td style="width: 120px;"><select onchange="multiaiAgentPersona(${i}, this.value)" title="Persona">${opt('', 'none', !a.personaKey)}${personaNames.map(n => opt(n, n, a.personaKey === n)).join('')}</select></td>
-                <td class="act"><button onclick="multiaiAgentDuplicate(${i})" title="Duplicate (same provider, e.g. another effort)">⧉</button><button class="rm" onclick="multiaiAgentRemove(${i})" title="Remove from this chat (stays in the library)">✕</button></td>
+                <td class="act"><button onclick="multiaiAgentSaveToLibrary(${i})" title="${a.uid ? 'In your library — edits to this seat follow it everywhere, and it is served as cli:' + multiaiEscapeAttr(a.id || '') + ' on the REST port and to MCP clients' : 'Save this seat to your library: it becomes reusable in any chat, and is served under its own id on the REST port and to MCP clients'}" style="${a.uid ? 'color: #a855f7;' : ''}">📚</button><button onclick="multiaiAgentDuplicate(${i})" title="Duplicate (same provider, e.g. another effort)">⧉</button><button class="rm" onclick="multiaiAgentRemove(${i})" title="Remove from this chat (stays in the library)">✕</button></td>
             </tr>`;
     }).join('');
     const enabledN = agents.filter(a => a.enabled !== false).length;
@@ -1670,10 +1696,16 @@ function multiaiRenderParticipants(chat) {
     const libFree = lib.filter(a => !inChat.has(a.uid));
     const setups = multiaiSetups();
     const saved = setups.filter(x => !x.builtIn);
-    const setupMenu = `<select onchange="multiaiApplySetup(this.value); this.value='';" aria-label="Apply a saved setup" title="Replace this chat's agents and discussion settings with a saved setup" style="min-width: 160px;">
-            <option value="">setups…</option>
+    const pinned = multiaiUiPrefs().defaultSetupId || '';
+    const pinnedName = (setups.find(x => x.id === pinned) || {}).name || '';
+    const setupMenu = `<select onchange="multiaiSetupMenu(this.value); this.value='';" aria-label="Apply a saved setup" title="${multiaiEscapeAttr(`Replace this chat's agents and discussion settings with a setup.${pinnedName ? `\n\nNew chats start from "${pinnedName}".` : '\n\nNew chats start empty — pin one below to change that.'}`)}" style="min-width: 160px;">
+            <option value="">setups…${pinnedName ? ` · 📌 ${multiaiEscape(pinnedName)}` : ''}</option>
             <optgroup label="Ready-made">${setups.filter(x => x.builtIn).map(x => `<option value="${multiaiEscapeAttr(x.id)}" title="${multiaiEscapeAttr(x.note || '')}">${multiaiEscape(x.name)}</option>`).join('')}</optgroup>
             ${saved.length ? `<optgroup label="Yours">${saved.map(x => `<option value="${multiaiEscapeAttr(x.id)}">${multiaiEscape(x.name)}</option>`).join('')}</optgroup>` : ''}
+            <optgroup label="Start new chats from…">
+                <option value="pin:">nothing — open empty${pinned ? '' : ' ✓'}</option>
+                ${setups.map(x => `<option value="pin:${multiaiEscapeAttr(x.id)}">${multiaiEscape(x.name)}${pinned === x.id ? ' ✓' : ''}</option>`).join('')}
+            </optgroup>
         </select>
         <button class="multiai-btn ghost" onclick="multiaiSaveSetup()" title="Save this chat's agents and discussion settings as a reusable setup">save setup</button>
         ${saved.length ? `<select onchange="multiaiDeleteSetup(this.value); this.value='';" aria-label="Delete a saved setup" title="Delete one of your saved setups" style="min-width: 90px;">
@@ -1936,7 +1968,6 @@ function multiaiAgentAdd(provider) {
     const a = multiaiAgentPreset(provider);
     chat.agents.push(a);
     multiaiEnsureAgents(chat);
-    multiaiLibrarySave(a);
     multiaiState.agentMenuOpen = false;
     multiaiPersist();
     multiaiRerenderAgents(chat);
@@ -1966,10 +1997,14 @@ function multiaiAgentEdit() { /* rows are edited inline now */ }
 // MCP clients.
 function multiaiAgentSaveToLibrary(i) {
     const chat = multiaiCurrentChat();
-    if (!chat || !chat.agents || !chat.agents[i]) return;
-    multiaiLibrarySave(chat.agents[i]);
+    const a = chat && (chat.agents || [])[i];
+    if (!a) return;
+    if (a.uid) { showToast(`"${a.name}" is already in your library.`); return; }
+    multiaiLibrarySave(a);
+    multiaiEnsureAgents(chat);
     multiaiPersist();
-    multiaiRenderParticipants(chat);
+    multiaiRerenderAgents(chat);
+    showToast(`"${a.name}" saved to your library.`);
 }
 
 function multiaiAgentDuplicate(i) {
@@ -2458,26 +2493,7 @@ function multiaiSetAgentColor(i, value) {
     const a = chat && (chat.agents || [])[i];
     if (!a) return;
     if (value) a.color = value; else delete a.color;        // blank clears the override
-    multiaiLibrarySave(a);
-    multiaiPersist();
-    multiaiRerenderAgents(chat);
-    multiaiRenderFeed(chat);
-}
-
-function multiaiToggleAgentColors() {
-    const prefs = multiaiUiPrefs();
-    prefs.agentColors = prefs.agentColors === 'off' ? 'auto' : 'off';
-    multiaiPersist();
-    const chat = multiaiCurrentChat();
-    if (chat) { multiaiRerenderAgents(chat); multiaiRenderFeed(chat); }
-}
-
-function multiaiSetAgentColor(i, value) {
-    const chat = multiaiCurrentChat();
-    const a = chat && (chat.agents || [])[i];
-    if (!a) return;
-    if (value) a.color = value; else delete a.color;        // blank clears the override
-    multiaiLibrarySave(a);
+    if (a.uid) multiaiLibrarySave(a);                       // library seats only
     multiaiPersist();
     multiaiRerenderAgents(chat);
     multiaiRenderFeed(chat);

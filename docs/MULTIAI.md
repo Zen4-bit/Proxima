@@ -220,6 +220,13 @@ bleed into each other or into the MCP tools' `mcp-session` thread.
 
   Chats saved before this setting existed keep what their `independentFirstRound`
   boolean asked for (`true` → `first`); everything else takes the new default.
+- **The library and new chats.** A seat belongs to the chat you added it to.
+  `📚` on its row puts it in the library, which is also the agent registry
+  served as `cli:<id>` on the REST port and to MCP clients — so nothing joins it
+  by accident. New chats start empty; pin a setup under **setups… → Start new
+  chats from…** and they start from that instead. Before this, every new chat
+  cloned the whole library and the library grew on every add.
+
 - **The guided tour.** Help (next to Settings) → Take the tour: nine steps
   over the real screen, dimming everything but the control each step is about.
   It points at live elements rather than screenshots, so it is either correct
