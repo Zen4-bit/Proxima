@@ -20,6 +20,7 @@ const DEFAULTS = Object.freeze({
     providerResetEvery: 12,     // start a fresh provider-side thread after this many turns (bounded/full)
     providerResetEveryDelta: 40, // delta mode leans on the provider thread's memory, so rotate far less often
     contextMode: 'bounded',     // 'bounded' | 'full' | 'delta'
+    independentRounds: 'all',   // 'off' | 'first' | 'all' — which rounds run blind (see independentMode)
     autoSummaryEvery: 0,        // in delta mode: refresh the rolling summary after this many new messages (0 = manual)
 });
 
@@ -29,6 +30,36 @@ const DEFAULTS = Object.freeze({
 //   delta   — only the messages since this provider's last turn, relying on the provider-side thread to remember the
 //             rest; a rolling summary rides in the Topic block, and the first turn on a fresh thread sends a full catch-up
 const CONTEXT_MODES = ['bounded', 'full', 'delta'];
+
+// Which rounds run blind — every participant answering at once, none of them
+// shown what the others are saying in that same round:
+//
+//   off   — strict turn-taking: each seat sees everyone who spoke before it
+//   first — round 1 only, then turn-taking
+//   all   — every round (the default): each round sees every completed round
+//           and nothing of its own
+//
+// Turn-taking makes a round asymmetric — the first seat answers the human, the
+// last answers five peers — and the usual result is that later seats converge
+// on whoever spoke first. Blind rounds remove the anchor and let a round be
+// compared like for like; the discussion still happens, one round later.
+//
+// Charter mode is the cost: a HANDOFF can no longer pull a seat forward inside
+// a round, so it applies to the next one instead.
+const INDEPENDENT_MODES = ['off', 'first', 'all'];
+
+function independentMode(chat) {
+    const v = chat && chat.independentRounds;
+    if (INDEPENDENT_MODES.includes(v)) return v;
+    // Before this setting existed the only choice was a blind first round, off
+    // by default. A chat that asked for that keeps exactly it; everything else
+    // takes the new default.
+    return chat && chat.independentFirstRound ? 'first' : DEFAULTS.independentRounds;
+}
+
+// Roles a participant produces during a round. A blind round hides all three:
+// hiding only 'assistant' still leaked a peer's PASS and its workspace diff.
+const ROUND_OUTPUT_ROLES = new Set(['assistant', 'pass', 'change']);
 
 // ---- Agents ------------------------------------------------------------
 // A participant is an *agent*: a name plus how to reach it. Several agents
@@ -568,7 +599,16 @@ function buildClassicPromptWithMeta({ chatTitle, topic, latestUserMessage, mode,
     const side = stanceFor(mode, idx, agents.length);
     const personaText = [persona, redTeam ? RED_TEAM_BLOCK : ''].filter(Boolean).join('\n\n');
     const personaBlock = personaText ? `[Your assigned persona / instructions — stay in character]\n${personaText}\n\n` : '';
-    const visible = independent ? messages.filter(m => m.role !== 'assistant' || m.cycle !== independent.cycle) : messages;
+    // A blind round hides what this round has produced so far, and nothing
+    // else: earlier rounds of the same run stay visible, which is what makes
+    // 'all' a discussion rather than N disconnected polls. (Scoping this to the
+    // whole cycle, as it once did, would have been the same thing for a blind
+    // round 1 and wrong for every round after it.)
+    const visible = independent
+        ? messages.filter(m => !(ROUND_OUTPUT_ROLES.has(m.role || 'assistant')
+            && m.cycle === independent.cycle
+            && (independent.round == null || m.round === independent.round)))
+        : messages;
     const cmode = CONTEXT_MODES.includes(contextMode) ? contextMode : DEFAULTS.contextMode;
     const ctx = buildContextByMode(visible, { mode: cmode, contextOpts, delta: Object.assign({ provider: base, agentId: self.id }, delta || {}) });
     const token = stopToken || DEFAULTS.stopToken;
@@ -577,7 +617,11 @@ function buildClassicPromptWithMeta({ chatTitle, topic, latestUserMessage, mode,
         `If you have nothing new to add this turn, reply with exactly: PASS`,
         `If you believe the group has fully converged and no further discussion is needed, begin your reply with the single word ${token} followed by your final position.`,
     ];
-    if (independent) rules.push('This is an independent first round: you have NOT been shown the other participants\' replies to the latest message. Commit to your own position; do not guess at theirs.');
+    if (independent) {
+        rules.push(independent.round > 1
+            ? `This round is independent: you can see every completed round, but NOT what the others are saying in round ${independent.round} — they are answering at the same time as you. Respond to the previous round; do not guess at this one.`
+            : 'This round is independent: you have NOT been shown the other participants\' replies to the latest message — they are answering at the same time as you. Commit to your own position; do not guess at theirs.');
+    }
     if (cmode === 'delta' && !ctx.catchUp) rules.push('You are continuing an ongoing thread: earlier messages are already in this conversation above — only the new ones are shown here.');
     if (charter) rules.push(...CHARTER_RULES);
     const ws = workspaceBlock(workspace, self.tools || 'none');
@@ -725,6 +769,7 @@ function parseWorkflowLine(line, known) {
 
 module.exports = {
     DEFAULTS, KNOWN_PROVIDERS, PROVIDER_LABELS, PROVIDER_CODES,
+    INDEPENDENT_MODES, independentMode,
     providerLabel, providerCode, genMsgId, genChatId, refLabel,
     emptyStore, normalizeStore, findChatIn, mergeStores, createStore,
     CONTEXT_MODES, READABLE_ROLES, readable, buildContext, buildFullContext, buildDeltaContext, buildContextByMode,

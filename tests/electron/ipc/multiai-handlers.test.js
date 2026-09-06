@@ -102,7 +102,10 @@ const core = require('../../../electron/ipc/multiai-core.cjs');
 const store = core.createStore({ dir: path.join(userData, 'multiai'), fs, path });
 
 function newChat(fields) {
-    return store.createChat(Object.assign({ participants: ['chatgpt', 'claude'], discussMode: 'discuss', brevity: 'max 4 sentences', rounds: 1, cycle: 1 }, fields || {}));
+    // independentRounds defaults to 'all' in the app; most of these tests are
+    // about something else and assume a seat sees the one before it, so the
+    // helper pins turn-taking and the blind-round tests opt in explicitly.
+    return store.createChat(Object.assign({ participants: ['chatgpt', 'claude'], discussMode: 'discuss', brevity: 'max 4 sentences', rounds: 1, cycle: 1, independentRounds: 'off' }, fields || {}));
 }
 
 function userMsg(chatId, text, cycle = 1) {
@@ -149,13 +152,13 @@ test('run-round: stop token from everyone ends the run early; passes are exclude
 test('run-round: independent first round runs participants in parallel and blind', async () => {
     providerCalls.length = 0;
     replyFn = async (p) => { await delay(60); return `${p} independent view`; };
-    const chat = newChat({ participants: ['chatgpt', 'claude', 'gemini'], independentFirstRound: true, rounds: 2, stopWhenAllAgree: false });
+    const chat = newChat({ participants: ['chatgpt', 'claude', 'gemini'], independentRounds: 'first', rounds: 2, stopWhenAllAgree: false });
     userMsg(chat.id, 'Positions please');
     const t0 = Date.now();
     await invoke('multiai-run-round', { chatId: chat.id, rounds: 2 });
     const r1 = providerCalls.slice(0, 3);
     assert.ok(Math.max(...r1.map(c => c.at)) - Math.min(...r1.map(c => c.at)) < 40, 'round 1 calls start together');
-    assert.ok(r1.every(c => c.message.includes('independent first round')));
+    assert.ok(r1.every(c => c.message.includes('This round is independent')));
     assert.ok(r1.every(c => !c.message.includes('independent view')), 'round 1 prompts contain no same-cycle replies');
     const r2 = providerCalls.slice(3);
     assert.equal(r2.length, 3);
@@ -831,7 +834,7 @@ test('workspace seats: writers are serialised even in a parallel first round; re
         { name: 'W1', provider: 'claude-cli', model: 'w1', tools: 'write' },
         { name: 'W2', provider: 'codex-cli', model: 'w2', tools: 'full' },
         { name: 'R1', provider: 'claude-cli', model: 'r1', tools: 'read' },
-    ], workspace: { root }, independentFirstRound: true, stopWhenAllAgree: false });
+    ], workspace: { root }, independentRounds: 'first', stopWhenAllAgree: false });
     userMsg(chat.id, 'go');
     const r = await invoke('multiai-run-round', { chatId: chat.id, rounds: 1 });
     assert.equal(r.success, true, r.error);
@@ -994,4 +997,92 @@ test('runs: a run started over REST announces itself, is attributed, and is stop
     await started;                       // run() is fire-and-forget without wait:true
     for (let i = 0; i < 50 && (await invoke('multiai-running')).length; i++) await delay(10);
     assert.deepEqual(await invoke('multiai-running'), [], 'the run signal is cleared once it winds down');
+});
+
+// ---- blind rounds ----------------------------------------------------------
+// Each seat answers with a marker naming who spoke and in which round, so a
+// prompt can be checked for exactly which replies it was shown.
+function markerReply() {
+    const seen = {};
+    // replyFn is called with (provider, prompt, conversationId).
+    return async (provider) => {
+        seen[provider] = (seen[provider] || 0) + 1;
+        await delay(40);
+        return `MARK-${provider}-R${seen[provider]}`;
+    };
+}
+
+// Which MARK-… strings a prompt was shown.
+function marksIn(text) {
+    return [...String(text).matchAll(/MARK-[a-z]+-R\d+/g)].map(m => m[0]);
+}
+
+test("independentRounds 'all': every round is blind to itself and sees the ones before it", async () => {
+    providerCalls.length = 0;
+    replyFn = markerReply();
+    const chat = newChat({ participants: ['chatgpt', 'claude', 'gemini'], independentRounds: 'all', rounds: 3, stopWhenAllAgree: false });
+    userMsg(chat.id, 'Positions please');
+    const t0 = Date.now();
+    await invoke('multiai-run-round', { chatId: chat.id, rounds: 3 });
+    assert.equal(providerCalls.length, 9);
+    for (const r of [1, 2, 3]) {
+        const calls = providerCalls.slice((r - 1) * 3, r * 3);
+        assert.ok(Math.max(...calls.map(c => c.at)) - Math.min(...calls.map(c => c.at)) < 30, `round ${r} starts together`);
+        for (const c of calls) {
+            const marks = marksIn(c.message);
+            // Nothing from this round…
+            assert.deepEqual(marks.filter(m => m.endsWith(`-R${r}`)), [], `round ${r} prompt is blind to round ${r}`);
+            // …and everything from the rounds before it.
+            assert.equal(marks.length, (r - 1) * 3, `round ${r} prompt carries every earlier round`);
+        }
+    }
+    assert.ok(providerCalls.slice(3).every(c => /NOT what the others are saying in round/.test(c.message)));
+    assert.ok(Date.now() - t0 < 40 * 9, 'three parallel rounds beat nine serial calls');
+});
+
+test("independentRounds 'off' is the old turn-taking: a seat sees the seats before it", async () => {
+    providerCalls.length = 0;
+    replyFn = markerReply();
+    const chat = newChat({ participants: ['chatgpt', 'claude', 'gemini'], independentRounds: 'off', rounds: 1, stopWhenAllAgree: false });
+    userMsg(chat.id, 'go');
+    await invoke('multiai-run-round', { chatId: chat.id, rounds: 1 });
+    assert.deepEqual(providerCalls.map(c => marksIn(c.message).length), [0, 1, 2]);
+});
+
+test("a blind round hides a peer's PASS as well as its reply", async () => {
+    providerCalls.length = 0;
+    // ChatGPT passes; a PASS is still a message in the round, and the filter
+    // used to look only at role 'assistant'.
+    replyFn = async (provider) => (provider === 'chatgpt' ? 'PASS' : 'MARK-claude-R1');
+    const chat = newChat({ participants: ['chatgpt', 'claude'], independentRounds: 'all', rounds: 2, stopWhenAllAgree: false });
+    userMsg(chat.id, 'go');
+    await invoke('multiai-run-round', { chatId: chat.id, rounds: 2 });
+    const round1 = providerCalls.slice(0, 2);
+    assert.ok(round1.every(c => !/PASS$/m.test(c.message.split('Add your next contribution')[0] || '')));
+    assert.ok(round1.every(c => marksIn(c.message).length === 0), 'round 1 is blind to itself');
+});
+
+test('a chat saved before independentRounds existed keeps what its boolean asked for', async () => {
+    providerCalls.length = 0;
+    replyFn = markerReply();
+    const legacy = store.createChat({ participants: ['chatgpt', 'claude', 'gemini'], discussMode: 'discuss', rounds: 2, cycle: 1, independentFirstRound: true, stopWhenAllAgree: false });
+    userMsg(legacy.id, 'go');
+    await invoke('multiai-run-round', { chatId: legacy.id, rounds: 2 });
+    const r1 = providerCalls.slice(0, 3);
+    assert.ok(Math.max(...r1.map(c => c.at)) - Math.min(...r1.map(c => c.at)) < 30, 'round 1 is blind');
+    // 'first' and nothing more: round 2 takes turns again.
+    assert.deepEqual(providerCalls.slice(3).map(c => marksIn(c.message).length), [3, 4, 5]);
+});
+
+test('charter: a handoff inside a blind round applies to the next round', async () => {
+    providerCalls.length = 0;
+    replyFn = async (provider) => (provider === 'chatgpt' ? ['go on', 'HANDOFF -> Gemini'].join('\n') : 'ok');
+    const chat = newChat({ participants: ['chatgpt', 'claude', 'gemini'], independentRounds: 'all', rounds: 2, charterMode: true, stopWhenAllAgree: false });
+    userMsg(chat.id, 'go');
+    await invoke('multiai-run-round', { chatId: chat.id, rounds: 2 });
+    // Round 1 cannot be reordered — everyone is already in flight — so Gemini
+    // leads round 2 instead, and the run says so once.
+    assert.equal(providerCalls.slice(3)[0].provider, 'gemini');
+    const notes = messagesOf(chat.id).filter(m => m.role === 'system').map(m => m.text).join(' | ');
+    assert.match(notes, /HANDOFF applies to the next round/);
 });

@@ -631,7 +631,7 @@ function registerMultiAiHandlers(deps) {
             messages: chat.messages,
             contextOpts: contextOpts(chat),
             stopToken: chat.stopToken || core.DEFAULTS.stopToken,
-            independent: opts.independent ? { cycle } : null,
+            independent: opts.independent ? { cycle, round } : null,
             contextMode: cmode,
             // A fresh/rotated thread has no memory: force the catch-up prompt.
             delta: { sinceId: (!st || st.rotated || st.turns === 0) ? null : st.lastId, provider: agent.provider, agentId: agent.id },
@@ -886,6 +886,10 @@ function registerMultiAiHandlers(deps) {
                 if (target) nextFirst = target;
             }
 
+            const indMode = core.independentMode(chat0);
+            if (indMode === 'all' && n > 1 && chat0.charterMode) {
+                note(chatId, 'Independent rounds: a HANDOFF applies to the next round, not to a seat inside this one.');
+            }
             outer:
             for (let r = 1; r <= n; r++) {
                 if (sig.cancelled) break;
@@ -898,7 +902,10 @@ function registerMultiAiHandlers(deps) {
                 // handoff-reordered turn order, so everyone gets it in turn.
                 const redTeam = chat0.charterMode ? core.redTeamFor(active(), r) : null;
                 if (redTeam) note(chatId, `Round ${r}: ${redTeam.name} holds the red-team seat.`);
-                const independent = r === 1 && !!chat0.independentFirstRound && turnOrder.length > 1;
+                // One seat has nobody to be blind to, so it always just takes
+                // its turn.
+                const independent = turnOrder.length > 1
+                    && (indMode === 'all' || (indMode === 'first' && r === 1));
                 if (independent) {
                     const results = await Promise.all(turnOrder.map(a => takeTurn(chatId, a, r, { participants: order, independent: true, redTeam })
                         .catch(e => ({ error: e.message }))));
@@ -1381,6 +1388,7 @@ function registerMultiAiHandlers(deps) {
             if (core.CONTEXT_MODES.includes(body.contextMode)) fields.contextMode = body.contextMode;
             if (body.charterMode != null) fields.charterMode = !!body.charterMode;
             if (body.independentFirstRound != null) fields.independentFirstRound = !!body.independentFirstRound;
+            if (body.independentRounds != null && core.INDEPENDENT_MODES.includes(body.independentRounds)) fields.independentRounds = body.independentRounds;
             if (body.stopWhenAllAgree != null) fields.stopWhenAllAgree = !!body.stopWhenAllAgree;
             if (body.stopToken) fields.stopToken = String(body.stopToken).trim().split(/\s+/)[0].slice(0, 20);
             if (body.rounds != null) fields.rounds = Math.max(1, Math.min(30, parseInt(body.rounds, 10) || 1));

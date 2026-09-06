@@ -65,7 +65,7 @@ function multiaiDefaultChat() {
         contextWindow: 10,      // recent messages each participant sees verbatim; older ones are condensed (see multiai-core).
         stopToken: 'DONE',      // convergence token; a round where everyone says it (or passes) ends the run early.
         stopWhenAllAgree: true,
-        independentFirstRound: false, // round 1 of each Send runs in parallel, blind to the others' replies.
+        independentRounds: 'all',   // 'off' | 'first' | 'all' — rounds that run in parallel, blind to that round's other replies.
         charterMode: false,     // claim-status tags, HANDOFF → routing, rotating red-team seat (MULTI_AI_COWORKING_CHARTER).
     };
 }
@@ -132,6 +132,15 @@ const MULTIAI_BUILTIN_PERSONAS = {
     'Domain Expert': 'You respond with the rigor and precision of a subject-matter expert. Reference relevant facts, standards, tradeoffs, or established practice where it applies, and flag when something is outside well-established knowledge.',
     'Concise Summarizer': 'You are extremely concise. Distill points to their essence in as few words as possible without losing the substance, favoring short direct sentences over elaboration.',
 };
+
+// Mirrors core.independentMode: which rounds run blind. Legacy chats carry the
+// boolean independentFirstRound instead, and keep exactly what it asked for.
+const MULTIAI_INDEPENDENT_MODES = ['off', 'first', 'all'];
+function multiaiIndependentMode(chat) {
+    const v = chat && chat.independentRounds;
+    if (MULTIAI_INDEPENDENT_MODES.includes(v)) return v;
+    return chat && chat.independentFirstRound ? 'first' : 'all';
+}
 
 function multiaiAllPersonas() {
     return Object.assign({}, MULTIAI_BUILTIN_PERSONAS, multiaiState.personas || {});
@@ -789,7 +798,8 @@ function multiaiRenderOptionsSummary(chat) {
         const extras = [];
         if (chat.contextMode === 'full') extras.push('full transcript');
         else if (chat.contextMode === 'delta') extras.push(`delta${parseInt(chat.autoSummaryEvery, 10) > 0 ? ' + rolling summary' : ''}`);
-        if (chat.independentFirstRound) extras.push('blind R1');
+        const ind = multiaiIndependentMode(chat);
+        if (ind !== 'off') extras.push(ind === 'all' ? 'blind rounds' : 'blind R1');
         if (chat.charterMode) extras.push('charter');
         if (chat.stopWhenAllAgree !== false) extras.push(`stop on ${chat.stopToken || 'DONE'}`);
         const routes = multiaiState.routes || {};
@@ -862,8 +872,8 @@ function multiaiRenderChat() {
     if (st) st.value = chat.stopToken || 'DONE';
     const sa = document.getElementById('multiai-stop-when-agree');
     if (sa) sa.checked = chat.stopWhenAllAgree !== false;
-    const ind = document.getElementById('multiai-independent-first');
-    if (ind) ind.checked = !!chat.independentFirstRound;
+    const ind = document.getElementById('multiai-independent');
+    if (ind) ind.value = multiaiIndependentMode(chat);
     const ch = document.getElementById('multiai-charter-mode');
     if (ch) ch.checked = !!chat.charterMode;
 
@@ -1293,7 +1303,7 @@ const MULTIAI_BUILTIN_SETUPS = [
     {
         id: 'builtin:second-opinion', name: 'Second opinion', builtIn: true,
         note: 'Two browser seats answer the same question once. The cheapest useful setup.',
-        discussMode: 'discuss', rounds: 1, brevity: 'max 6 sentences', independentFirstRound: true,
+        discussMode: 'discuss', rounds: 1, brevity: 'max 6 sentences', independentRounds: 'all',
         agents: [
             { provider: 'chatgpt', route: 'auto' },
             { provider: 'claude', route: 'auto' },
@@ -1311,7 +1321,7 @@ const MULTIAI_BUILTIN_SETUPS = [
     {
         id: 'builtin:local-panel', name: 'Local CLI panel', builtIn: true,
         note: 'Claude Code and Codex on your own subscriptions — no API keys, nothing leaves the machine except the CLIs\' own calls.',
-        discussMode: 'discuss', rounds: 2, brevity: 'max 6 sentences', independentFirstRound: true,
+        discussMode: 'discuss', rounds: 2, brevity: 'max 6 sentences', independentRounds: 'all',
         agents: [
             { provider: 'claude-cli', route: 'cli', tools: 'none' },
             { provider: 'codex-cli', route: 'cli', tools: 'none' },
@@ -1320,7 +1330,7 @@ const MULTIAI_BUILTIN_SETUPS = [
     {
         id: 'builtin:same-model-two-efforts', name: 'Same model, two efforts', builtIn: true,
         note: 'One CLI twice, thinking hard and thinking fast, to see what the extra effort buys.',
-        discussMode: 'discuss', rounds: 1, brevity: 'max 6 sentences', independentFirstRound: true,
+        discussMode: 'discuss', rounds: 1, brevity: 'max 6 sentences', independentRounds: 'all',
         agents: [
             { provider: 'claude-cli', route: 'cli', effort: 'max', tools: 'none' },
             { provider: 'claude-cli', route: 'cli', effort: 'low', tools: 'none' },
@@ -1336,7 +1346,7 @@ function multiaiSetups() {
     return MULTIAI_BUILTIN_SETUPS.concat(prefs.setups);
 }
 
-const MULTIAI_SETUP_FIELDS = ['discussMode', 'rounds', 'brevity', 'contextMode', 'independentFirstRound',
+const MULTIAI_SETUP_FIELDS = ['discussMode', 'rounds', 'brevity', 'contextMode', 'independentRounds', 'independentFirstRound',
     'charterMode', 'stopWhenAllAgree', 'stopToken', 'judgeProvider', 'judgeScope', 'autoSummaryEvery'];
 
 function multiaiApplySetup(id) {
@@ -1364,6 +1374,9 @@ function multiaiApplySetup(id) {
         return seat;
     });
     MULTIAI_SETUP_FIELDS.forEach(f => { if (setup[f] !== undefined) chat[f] = setup[f]; });
+    if (setup.independentRounds === undefined && setup.independentFirstRound !== undefined) {
+        chat.independentRounds = setup.independentFirstRound ? 'first' : 'off';
+    }
     multiaiEnsureAgents(chat);
     // Seats from a setup join the library too, so they are reusable singly and
     // the roster's own library lookups resolve them.
@@ -2785,8 +2798,8 @@ function multiaiReadClassicFields(chat) {
     if (st) chat.stopToken = (st.value || 'DONE').trim().split(/\s+/)[0] || 'DONE';
     const sa = document.getElementById('multiai-stop-when-agree');
     if (sa) chat.stopWhenAllAgree = !!sa.checked;
-    const ind = document.getElementById('multiai-independent-first');
-    if (ind) chat.independentFirstRound = !!ind.checked;
+    const ind = document.getElementById('multiai-independent');
+    if (ind) { chat.independentRounds = ind.value; delete chat.independentFirstRound; }
     const ch = document.getElementById('multiai-charter-mode');
     if (ch) chat.charterMode = !!ch.checked;
     const js = document.getElementById('multiai-judge-scope');

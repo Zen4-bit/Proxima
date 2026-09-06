@@ -147,7 +147,7 @@ test('buildClassicPrompt: mentions others, assigns debate stances for 3+, includ
     assert.ok(p.includes('single word DONE'));
 });
 
-test('buildClassicPrompt: independent first round hides same-cycle replies from others', () => {
+test('buildClassicPrompt: a blind round with no round named hides the whole cycle', () => {
     const messages = [
         msg({ role: 'user', who: 'You', text: 'Q', cycle: 2, round: 0 }),
         msg({ provider: 'chatgpt', who: 'chatgpt', text: 'CHATGPT-SAME-CYCLE', cycle: 2, round: 1 }),
@@ -156,7 +156,7 @@ test('buildClassicPrompt: independent first round hides same-cycle replies from 
     const p = core.buildClassicPrompt({ topic: 'Q', mode: 'discuss', participants: ['chatgpt', 'claude'], provider: 'claude', messages, independent: { cycle: 2 } });
     assert.ok(!p.includes('CHATGPT-SAME-CYCLE'));
     assert.ok(p.includes('CHATGPT-OLD-CYCLE'));
-    assert.ok(p.includes('independent first round'));
+    assert.ok(p.includes('This round is independent'));
 });
 
 test('parseMentions: directed order, "only" restriction, label aliases', () => {
@@ -318,4 +318,35 @@ test('normalizeAgents: agents switched off in the roster are left out (unless in
     assert.deepEqual(core.normalizeAgents(chat, { includeDisabled: true }).map(a => [a.id, a.enabled]), [['bull', true], ['bear', false], ['ref', true]]);
     assert.equal(core.normalizeAgents({ agents: [{ provider: 'chatgpt', enabled: false }] }).length, 0, 'all off → nobody takes turns');
     assert.equal(core.findAgent(core.normalizeAgents(chat), 'bear'), null, 'a disabled agent cannot be mentioned');
+});
+
+test('buildClassicPrompt: a blind round hides its own round and keeps the ones before it', () => {
+    const messages = [
+        msg({ role: 'user', who: 'You', text: 'Q', cycle: 1, round: 0 }),
+        msg({ provider: 'chatgpt', who: 'chatgpt', text: 'CHATGPT-R1', cycle: 1, round: 1 }),
+        msg({ provider: 'chatgpt', who: 'chatgpt', text: 'CHATGPT-R2', cycle: 1, round: 2 }),
+        msg({ provider: 'gemini', who: 'gemini', text: 'GEMINI-PASS-R2', role: 'pass', cycle: 1, round: 2 }),
+        msg({ provider: 'gemini', who: 'gemini · changes', text: 'GEMINI-DIFF-R2', role: 'change', cycle: 1, round: 2 }),
+    ];
+    const p = core.buildClassicPrompt({
+        topic: 'Q', mode: 'discuss', contextMode: 'full', participants: ['chatgpt', 'claude', 'gemini'],
+        provider: 'claude', messages, independent: { cycle: 1, round: 2 },
+    });
+    assert.ok(p.includes('CHATGPT-R1'), 'the completed round is still shown');
+    assert.ok(!p.includes('CHATGPT-R2'), 'this round is not');
+    // A PASS and a workspace diff are round output too; hiding only
+    // role 'assistant' left both of them visible to a blind peer.
+    assert.ok(!p.includes('GEMINI-PASS-R2'));
+    assert.ok(!p.includes('GEMINI-DIFF-R2'));
+    assert.ok(/NOT what the others are saying in round 2/.test(p));
+});
+
+test('independentMode: the new setting wins, the old boolean is honoured, and the default is every round', () => {
+    assert.equal(core.independentMode({ independentRounds: 'off' }), 'off');
+    assert.equal(core.independentMode({ independentRounds: 'first' }), 'first');
+    assert.equal(core.independentMode({ independentRounds: 'nonsense' }), 'all');
+    assert.equal(core.independentMode({ independentFirstRound: true }), 'first');
+    assert.equal(core.independentMode({ independentFirstRound: false }), 'all');
+    assert.equal(core.independentMode({}), 'all');
+    assert.equal(core.independentMode(null), 'all');
 });

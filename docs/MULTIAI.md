@@ -203,9 +203,23 @@ bleed into each other or into the MCP tools' `mcp-session` thread.
   (`3.5-flash`, `3.1-pro`, `3.1-flash-lite`, `auto`); other browser agents ignore it.
 - **Stop early when all agree.** A round where everyone says the stop token or
   passes ends the run and posts a system note.
-- **Independent first round.** Off by default; tick it in the Discussion tab.
-  Round 1 of each Send then runs everyone in parallel and blind (no same-cycle
-  replies in their prompt); later rounds are round-robin.
+- **Independent rounds.** `every round` by default; `first round only` or `off`
+  in the Discussion tab. A blind round runs every participant at once and shows
+  none of them what the others are saying *in that round* — replies, passes and
+  workspace diffs alike. Completed rounds stay visible, so round 2 answers
+  round 1 and the discussion still happens, one round later.
+
+  Turn-taking makes a round asymmetric: the first seat answers the human and the
+  last answers five peers, and later seats tend to converge on whoever spoke
+  first. Blind rounds remove that anchor, and each round is one parallel batch,
+  so a run is about as slow as its slowest seat rather than the sum of them.
+
+  The cost is in charter mode: a `HANDOFF →` cannot pull a seat forward inside a
+  blind round, so it applies to the next one and the run posts a note saying so.
+  Set `off` if in-round handoffs matter more.
+
+  Chats saved before this setting existed keep what their `independentFirstRound`
+  boolean asked for (`true` → `first`); everything else takes the new default.
 - **Directed turns.** `@claude kick off, others react` puts Claude first;
   `only @gemini and @chatgpt …` restricts the round to those two. Mention agents
   by id (`@opus-max`), by name with the spaces dropped (`@gptlow` for "GPT low")

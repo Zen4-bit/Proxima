@@ -1532,8 +1532,12 @@
                                 <label class="multiai-check" title="End the run early once every participant in a round says the stop token (or passes) — no more rounds of “Agreed, nothing further”.">
                                     <input id="multiai-stop-when-agree" type="checkbox" checked onchange="multiaiOnClassicFieldChange()"> Stop early when all agree
                                 </label>
-                                <label class="multiai-check" title="Round 1 of each Send runs all participants in parallel without showing them each other's replies — independent positions first, then discussion. Faster, and it breaks the “everyone agrees with whoever spoke first” pattern.">
-                                    <input id="multiai-independent-first" type="checkbox" onchange="multiaiOnClassicFieldChange()"> Independent first round
+                                <label class="multiai-field" title="A blind round runs every participant at once and shows none of them what the others are saying in that round — completed rounds stay visible, so the discussion still happens, one round later.&#10;&#10;every round — no reply is ever anchored on a peer's reply from the same round, and each round is one parallel batch (faster).&#10;first round only — independent opening positions, then strict turn-taking.&#10;off — seats take turns; each sees everyone who has already spoken this round.&#10;&#10;In charter mode a HANDOFF cannot pull a seat forward inside a blind round; it applies to the next one.">Independent rounds
+                                    <select id="multiai-independent" onchange="multiaiOnClassicFieldChange()">
+                                        <option value="all">every round</option>
+                                        <option value="first">first round only</option>
+                                        <option value="off">off — take turns</option>
+                                    </select>
                                 </label>
                                 <span style="flex: 1;"></span>
                                 <button class="multiai-btn" onclick="multiaiRunRound()" id="multiai-run-btn" title="Run the configured rounds on the current transcript without posting a new message">▶ Run round</button>
