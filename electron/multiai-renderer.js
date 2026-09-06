@@ -1498,7 +1498,7 @@ function multiaiRenderParticipants(chat) {
         return `
             <tr class="${on ? '' : 'off'}" title="${multiaiEscapeAttr(multiaiRouteLabel(a))}">
                 <td style="width: 24px;"><input type="checkbox" ${on ? 'checked' : ''} onchange="multiaiAgentToggle(${i}, this.checked)" title="${on ? 'Taking turns in this chat — untick to bench' : 'Benched — tick to include'}"></td>
-                <td class="nm" style="min-width: 150px;"><div style="display: flex; align-items: center; gap: 6px;">${multiaiColorsEnabled() ? `<input type="color" value="${multiaiEscapeAttr(multiaiAgentSwatch(a))}" onchange="multiaiSetAgentColor(${i}, this.value)" aria-label="Colour for ${multiaiEscapeAttr(a.name)}" title="Colour for this seat in the transcript. Derived from its id by default — pick one to override, or turn colours off in the roster footer." style="width: 18px; height: 18px; padding: 0; border: none; background: none; cursor: pointer; flex-shrink: 0;">` : ''}<span class="code" title="Label code">${multiaiEscape(code)}</span><input type="text" value="${multiaiEscapeAttr(a.name)}" oninput="multiaiAgentField(${i}, 'name', this.value)" title="Name — also the @mention id"></div></td>
+                <td class="nm" style="min-width: 150px;"><div style="display: flex; align-items: center; gap: 6px;">${multiaiColorsEnabled() ? `<input type="color" value="${multiaiEscapeAttr((a.color || multiaiAgentColor(a, chat) || '#93c5fd'))}" onchange="multiaiSetAgentColor(${i}, this.value)" aria-label="Colour for ${multiaiEscapeAttr(a.name)}" title="Colour for this seat in the transcript. Derived from its id by default — pick one to override, or turn colours off in the roster footer." style="width: 18px; height: 18px; padding: 0; border: none; background: none; cursor: pointer; flex-shrink: 0;">` : ''}<span class="code" title="Label code">${multiaiEscape(code)}</span><input type="text" value="${multiaiEscapeAttr(a.name)}" oninput="multiaiAgentField(${i}, 'name', this.value)" title="Name — also the @mention id"></div></td>
                 <td style="width: 122px;"><select onchange="multiaiAgentField(${i}, 'provider', this.value)" aria-label="Provider for ${multiaiEscapeAttr(a.name)}" title="Provider">${(providerOptions.includes(a.provider) ? providerOptions : providerOptions.concat([a.provider])).map(pv => opt(pv, MULTIAI_CLI_PROVIDERS[pv] || multiaiProviderLabel(pv), a.provider === pv)).join('')}</select></td>
                 <td style="width: 118px;"><select onchange="multiaiAgentField(${i}, 'route', this.value)" aria-label="Route for ${multiaiEscapeAttr(a.name)}" ${isCli || apiOnly ? 'disabled' : ''} title="${multiaiEscapeAttr(apiOnly ? 'API only — this provider has no browser tab' : `Route — auto follows Settings (API mode on + key → API, else the browser tab); resolved: ${resolved}`)}">${routeOpts}</select></td>
                 <td style="width: 150px;"><div style="display: flex; align-items: center; gap: 4px;"><input type="text" list="multiai-models-${i}" value="${multiaiEscapeAttr(a.model || '')}" placeholder="${multiaiEscapeAttr(modelPh)}" oninput="multiaiAgentField(${i}, 'model', this.value)" onchange="multiaiAgentField(${i}, 'model:commit', this.value)" ${modelOn ? '' : 'disabled'} ${modelUnknown ? 'style="border-color: rgba(245,158,11,0.7);"' : ''} title="${multiaiEscapeAttr(isCli ? (modelUnknown ? `Not in this CLI's model list — ${cliInfo.note || ''}` : (cliInfo && cliInfo.note ? cliInfo.note : 'CLI model (blank = its default)')) : (apiOnly ? (modelUnknown ? 'This endpoint needs a model id (e.g. llama3.2, qwen2.5-coder) — ↻ lists what it serves' : 'Model id as the endpoint names it — ↻ lists what it serves') : (a.provider === 'gemini' && !apiOk ? 'Gemini engine (3.1-pro, 3.5-flash…)' : 'API model id — blank uses the model selected in Settings')))}"><datalist id="multiai-models-${i}">${cliModels.length ? cliModels.map(m => `<option value="${multiaiEscapeAttr(m.id)}">${multiaiEscape(m.label && m.label !== m.id ? m.label : '')}</option>`).join('') : hints.map(h => `<option value="${multiaiEscapeAttr(h)}">`).join('')}</datalist>${isCli ? `<button id="multiai-test-${i}" class="multiai-btn ghost" style="padding: 2px 6px; flex-shrink: 0;" onclick="multiaiTestModel(${i})" aria-label="Test this model" title="Run one short turn on this model now. It is the only way to know a model works — Claude Code accepts full ids its --help never lists, and Codex's cached list can be from another build. A model that answers is remembered and offered from then on.">▷</button>` : ''}</div></td>
@@ -2086,58 +2086,53 @@ function multiaiSetNewBelow(on) {
     if (pill) pill.style.display = on ? 'block' : 'none';
 }
 
-// Colour per seat, so a five-round transcript can be read by eye instead of by
-// name. Derived rather than assigned: the hue comes from the agent's id, so it
-// is stable across sessions and machines and never needs storing, and the two
-// seats most likely to be confused — the same provider at different efforts —
-// get separated because their ids differ. Effort nudges lightness, so
-// "Opus · max" and "Opus · low" read as the same family, not as strangers.
-const MULTIAI_EFFORT_TINT = { minimal: 16, low: 12, medium: 0, high: -6, xhigh: -10, max: -14 };
+// Colour per seat. Its only job is telling rows apart, so it carries no
+// meaning: a fixed palette of well-separated hues, handed out by position in
+// the roster. Nothing is derived from provider, model or effort, because a
+// colour that looks meaningful invites people to read meaning into it.
+const MULTIAI_AGENT_PALETTE = [
+    '#60a5fa', '#fb923c', '#a78bfa', '#34d399', '#f472b6',
+    '#22d3ee', '#facc15', '#a3e635', '#e879f9', '#94a3b8',
+];
 
-function multiaiAgentHue(agent) {
-    const key = String((agent && (agent.id || agent.name || agent.provider)) || '');
-    let h = 0;
-    for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
-    // Skip a band of muddy yellows that reads badly on the dark panel.
-    const raw = h % 320;
-    return raw >= 40 ? raw + 40 : raw;
-}
-
-function multiaiAgentColor(agent) {
+function multiaiAgentColor(agent, chat) {
     if (!agent) return null;
-    const prefs = multiaiUiPrefs();
-    if (prefs.agentColors === 'off') return null;
+    if (multiaiUiPrefs().agentColors === 'off') return null;
     if (agent.color) return agent.color;                    // explicit user override wins
-    const light = 62 + (MULTIAI_EFFORT_TINT[agent.effort] || 0);
-    return `hsl(${multiaiAgentHue(agent)} 70% ${Math.max(40, Math.min(80, light))}%)`;
+    const roster = ((chat || multiaiCurrentChat() || {}).agents) || [];
+    const i = roster.findIndex(x => x && x.id === agent.id);
+    return MULTIAI_AGENT_PALETTE[(i === -1 ? 0 : i) % MULTIAI_AGENT_PALETTE.length];
 }
 
-// Same hue, low alpha, for the card behind a turn.
-function multiaiAgentTint(agent, alpha) {
-    const c = multiaiAgentColor(agent);
-    if (!c) return null;
-    const m = /^hsl\((\d+)/.exec(c);
-    if (m) return `hsl(${m[1]} 70% 60% / ${alpha})`;
-    return null;
+// The same colour at low alpha, for the card behind a turn.
+function multiaiAgentTint(agent, alpha, chat) {
+    const c = multiaiAgentColor(agent, chat);
+    if (!c || !/^#[0-9a-f]{6}$/i.test(c)) return null;
+    const n = parseInt(c.slice(1), 16);
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 }
 
 function multiaiColorsEnabled() {
     return multiaiUiPrefs().agentColors !== 'off';
 }
 
-// <input type="color"> only speaks hex, and the derived colours are HSL, so the
-// swatch needs a conversion. An explicit override is already hex and passes
-// straight through.
-function multiaiAgentSwatch(agent) {
-    const c = multiaiAgentColor(agent) || '#93c5fd';
-    if (c.startsWith('#')) return c;
-    const m = /^hsl\((\d+(?:\.\d+)?)\s+(\d+)%\s+(\d+(?:\.\d+)?)%/.exec(c);
-    if (!m) return '#93c5fd';
-    const h = Number(m[1]) / 360, sat = Number(m[2]) / 100, l = Number(m[3]) / 100;
-    const k = (n) => (n + h * 12) % 12;
-    const a = sat * Math.min(l, 1 - l);
-    const f = (n) => Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)))));
-    return '#' + [f(0), f(8), f(4)].map(v => v.toString(16).padStart(2, '0')).join('');
+function multiaiToggleAgentColors() {
+    const prefs = multiaiUiPrefs();
+    prefs.agentColors = prefs.agentColors === 'off' ? 'auto' : 'off';
+    multiaiPersist();
+    const chat = multiaiCurrentChat();
+    if (chat) { multiaiRerenderAgents(chat); multiaiRenderFeed(chat); }
+}
+
+function multiaiSetAgentColor(i, value) {
+    const chat = multiaiCurrentChat();
+    const a = chat && (chat.agents || [])[i];
+    if (!a) return;
+    if (value) a.color = value; else delete a.color;        // blank clears the override
+    multiaiLibrarySave(a);
+    multiaiPersist();
+    multiaiRerenderAgents(chat);
+    multiaiRenderFeed(chat);
 }
 
 function multiaiToggleAgentColors() {
