@@ -20,10 +20,20 @@ const os = require('os');
 
 const URL = 'https://models.dev/api.json';
 const TTL_MS = 24 * 60 * 60 * 1000;
+// The cache stores the *shaped* result, so a change to what shape() keeps or
+// drops must invalidate it — otherwise an old machine keeps serving models a
+// newer filter would have excluded. Bump on any change to shape().
+const SHAPE_VERSION = 2;
 const FETCH_TIMEOUT_MS = 20000;
 
 // models.dev groups by API provider; these are the ones our CLI kinds speak.
 const PROVIDER_FOR_KIND = { claude: 'anthropic', codex: 'openai', gemini: 'google' };
+
+// Same provider, different product. Gemma is open-weights and is not served
+// by the Gemini CLI, and the image / computer-use / deep-research variants are
+// task-specific surfaces rather than models a discussion seat can drive. They
+// pass the text+tools test above, so they need naming explicitly.
+const EXCLUDE = /^gemma|-image$|computer-use|deep-research/;
 
 let _cacheDir = null;
 let _mem = null;
@@ -37,7 +47,7 @@ function cacheFile() {
 function readCache() {
     try {
         const raw = JSON.parse(fs.readFileSync(cacheFile(), 'utf8'));
-        if (raw && raw.at && raw.byKind) return raw;
+        if (raw && raw.at && raw.byKind && raw.v === SHAPE_VERSION) return raw;
     } catch { /* no cache yet, or unreadable */ }
     return null;
 }
@@ -59,12 +69,21 @@ function shape(api) {
         byKind[kind] = Object.keys(models).map(id => {
             const m = models[id] || {};
             const effort = (m.reasoning_options || []).find(o => o && o.type === 'effort');
+            const out = (m.modalities && m.modalities.output) || [];
             return {
                 id,
                 label: m.name || id,
                 efforts: Array.isArray(effort && effort.values) ? effort.values.slice() : [],
+                // These decide whether the model could plausibly drive a coding
+                // CLI at all. models.dev lists a provider's whole API surface,
+                // which for OpenAI and Google includes image, audio and
+                // open-weights models — a music model in the roster's model
+                // picker is worse than a short list.
+                textOut: out.includes('text'),
+                toolCall: m.tool_call === true,
             };
-        }).filter(m => m.id);
+        }).filter(m => m.id && m.textOut && m.toolCall && !EXCLUDE.test(m.id))
+          .map(({ id, label, efforts }) => ({ id, label, efforts }));
     }
     return byKind;
 }
@@ -98,7 +117,7 @@ async function load({ force = false } = {}) {
     if (!_inflight) {
         _inflight = fetchCatalog()
             .then(byKind => {
-                if (byKind) { _mem = { byKind, at: Date.now() }; writeCache(_mem); }
+                if (byKind) { _mem = { byKind, at: Date.now(), v: SHAPE_VERSION }; writeCache(_mem); }
                 return _mem;
             })
             .finally(() => { _inflight = null; });

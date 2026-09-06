@@ -396,6 +396,12 @@ function mergeCatalog(kind, local) {
     const cat = catalog.loaded();
     const extra = (cat && cat.byKind && cat.byKind[kind]) || [];
     if (!extra.length) return local;
+    // Only fill a genuine void. Codex publishes its own complete, entitlement-
+    // aware list once refreshed, so padding it from a public API catalogue adds
+    // ids the CLI would reject. Claude Code is the opposite case: its list is
+    // knowingly partial (aliases only), so the catalogue is what supplies the
+    // full ids it also accepts. Gemini CLI reports nothing, so it is all there is.
+    if (kind === 'codex' && local.length) return local;
     const out = local.slice();
     const seen = new Set(out.map(m => m.id));
     for (const m of extra) {
