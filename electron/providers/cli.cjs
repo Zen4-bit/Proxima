@@ -731,7 +731,6 @@ function runClaude({ model, effort, prompt, systemPrompt, cwd, workspace, timeou
     const run = runProcess('claude', 'claude', args, { cwd: level !== 'none' ? workspace.root : dir, prompt, timeoutMs, onState, queueDeadlineMs });
     // finally, not then: an aborted or timed-out turn used to leave its system
     // prompt behind forever.
-    run.promise.finally(() => removeScratch(dir)).catch(() => {});
     const promise = run.promise.then(({ code, stdout, stderr }) => {
         let parsed = null;
         const text = stdout.trim();
@@ -752,6 +751,9 @@ function runClaude({ model, effort, prompt, systemPrompt, cwd, workspace, timeou
         if (!text) throw new Error('Claude Code returned no output');
         return { text, model: model || null };
     });
+    // After the result is read, never before: Codex's answer arrives in a file
+    // inside this directory.
+    promise.finally(() => removeScratch(dir)).catch(() => {});
     return { promise, abort: run.abort };
 }
 
@@ -787,7 +789,6 @@ function runCodex({ model, effort, prompt, systemPrompt, cwd, workspace, timeout
     // the one on PATH — see resolveCodex); resolve first so the first turn
     // after startup doesn't guess.
     const run = runProcess('codex', 'codex', args, { cwd: level !== 'none' ? workspace.root : dir, prompt: full, timeoutMs, onState, queueDeadlineMs, exe: () => resolveCodex().then(p => (p ? p.exe : undefined)) });
-    run.promise.finally(() => removeScratch(dir)).catch(() => {});
     const promise = run.promise.then(({ code, stdout, stderr }) => {
         let text = '';
         try { text = fs.readFileSync(outFile, 'utf8').trim(); fs.unlinkSync(outFile); } catch { /* no file */ }
@@ -799,6 +800,9 @@ function runCodex({ model, effort, prompt, systemPrompt, cwd, workspace, timeout
         }
         return { text, model: model || null };
     });
+    // After the result is read, never before: Codex's answer arrives in a file
+    // inside this directory.
+    promise.finally(() => removeScratch(dir)).catch(() => {});
     return { promise, abort: run.abort };
 }
 
@@ -824,7 +828,6 @@ function runGemini({ model, prompt, systemPrompt, cwd, workspace, timeoutMs, onS
     const args = geminiArgs({ model, workspace: level !== 'none' ? workspace : null });
     const full = `${systemPrompt || (level !== 'none' ? workspaceSystemPrompt(workspace) : DISCUSSION_SYSTEM_PROMPT)}\n\n${prompt}`;
     const run = runProcess('gemini', 'gemini', args, { cwd: level !== 'none' ? workspace.root : dir, prompt: full, timeoutMs, onState, queueDeadlineMs });
-    run.promise.finally(() => removeScratch(dir)).catch(() => {});
     const promise = run.promise.then(({ code, stdout, stderr }) => {
         const text = stdout.trim();
         let parsed = null;
@@ -847,6 +850,9 @@ function runGemini({ model, prompt, systemPrompt, cwd, workspace, timeoutMs, onS
         if (!text) throw new Error('Gemini CLI returned no output');
         return { text, model: model || null };
     });
+    // After the result is read, never before: Codex's answer arrives in a file
+    // inside this directory.
+    promise.finally(() => removeScratch(dir)).catch(() => {});
     return { promise, abort: run.abort };
 }
 

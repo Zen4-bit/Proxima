@@ -277,7 +277,9 @@ async function multiaiInit() {
 // submitted message runs the configured number of rounds, not just one.
 function multiaiSend() {
     const chat = multiaiCurrentChat();
-    if (chat && multiaiIsRunning(chat.id)) return;
+    // Silently swallowing the submit is what makes it look like the box just
+    // ignored you. Say why, and leave the text alone so it is not lost.
+    if (chat && multiaiIsRunning(chat.id)) { showToast('A run is in progress — press Stop first.'); return; }
     if (multiaiState.mode === 'classic') multiaiRunRound();
     else multiaiRunOrchestrated();
 }
@@ -1021,6 +1023,35 @@ function multiaiCliInfo(provider) {
     return kind && info && info[kind] ? info[kind] : null;
 }
 
+// Where to go when a CLI seat cannot run because the CLI is not installed.
+// The docs link is the authority — package names move, and sending someone to
+// a stale npm command is worse than sending them to the page that maintains it.
+const MULTIAI_CLI_INSTALL = {
+    'claude-cli': { name: 'Claude Code', cmd: 'npm install -g @anthropic-ai/claude-code', url: 'https://docs.claude.com/en/docs/claude-code/overview' },
+    'codex-cli': { name: 'Codex', cmd: 'npm install -g @openai/codex', url: 'https://developers.openai.com/codex/cli' },
+    'gemini-cli': { name: 'Gemini CLI', cmd: 'npm install -g @google/gemini-cli', url: 'https://github.com/google-gemini/gemini-cli' },
+};
+
+function multiaiMissingClis() {
+    return Object.keys(MULTIAI_CLI_INSTALL).filter(pv => !multiaiCliAvailable(pv));
+}
+
+// Offered rather than forced: a seat whose CLI is missing is disabled in the
+// menus, and this is the way out of that dead end.
+function multiaiInstallHelp(provider) {
+    const info = MULTIAI_CLI_INSTALL[provider];
+    if (!info) return;
+    const go = window.confirm(`${info.name} is not installed on this machine, so its seats cannot run.
+
+Usual install:
+    ${info.cmd}
+
+The command is copied to your clipboard. Open the official instructions?`);
+    try { if (agentHub.copyToClipboard) agentHub.copyToClipboard(info.cmd); } catch { /* clipboard is a convenience */ }
+    if (go && agentHub.openExternal) agentHub.openExternal(info.url);
+    else if (!go) showToast(`Copied: ${info.cmd} — then press ↻ to re-probe.`);
+}
+
 function multiaiCliAvailable(provider) {
     const kind = MULTIAI_CLI_KIND[provider];
     const r = multiaiState.routes || { cli: {} };
@@ -1467,7 +1498,7 @@ function multiaiRenderParticipants(chat) {
         return `
             <tr class="${on ? '' : 'off'}" title="${multiaiEscapeAttr(multiaiRouteLabel(a))}">
                 <td style="width: 24px;"><input type="checkbox" ${on ? 'checked' : ''} onchange="multiaiAgentToggle(${i}, this.checked)" title="${on ? 'Taking turns in this chat — untick to bench' : 'Benched — tick to include'}"></td>
-                <td class="nm" style="min-width: 150px;"><div style="display: flex; align-items: center; gap: 6px;"><span class="code" title="Label code">${multiaiEscape(code)}</span><input type="text" value="${multiaiEscapeAttr(a.name)}" oninput="multiaiAgentField(${i}, 'name', this.value)" title="Name — also the @mention id"></div></td>
+                <td class="nm" style="min-width: 150px;"><div style="display: flex; align-items: center; gap: 6px;">${multiaiColorsEnabled() ? `<input type="color" value="${multiaiEscapeAttr(multiaiAgentSwatch(a))}" onchange="multiaiSetAgentColor(${i}, this.value)" aria-label="Colour for ${multiaiEscapeAttr(a.name)}" title="Colour for this seat in the transcript. Derived from its id by default — pick one to override, or turn colours off in the roster footer." style="width: 18px; height: 18px; padding: 0; border: none; background: none; cursor: pointer; flex-shrink: 0;">` : ''}<span class="code" title="Label code">${multiaiEscape(code)}</span><input type="text" value="${multiaiEscapeAttr(a.name)}" oninput="multiaiAgentField(${i}, 'name', this.value)" title="Name — also the @mention id"></div></td>
                 <td style="width: 122px;"><select onchange="multiaiAgentField(${i}, 'provider', this.value)" aria-label="Provider for ${multiaiEscapeAttr(a.name)}" title="Provider">${(providerOptions.includes(a.provider) ? providerOptions : providerOptions.concat([a.provider])).map(pv => opt(pv, MULTIAI_CLI_PROVIDERS[pv] || multiaiProviderLabel(pv), a.provider === pv)).join('')}</select></td>
                 <td style="width: 118px;"><select onchange="multiaiAgentField(${i}, 'route', this.value)" aria-label="Route for ${multiaiEscapeAttr(a.name)}" ${isCli || apiOnly ? 'disabled' : ''} title="${multiaiEscapeAttr(apiOnly ? 'API only — this provider has no browser tab' : `Route — auto follows Settings (API mode on + key → API, else the browser tab); resolved: ${resolved}`)}">${routeOpts}</select></td>
                 <td style="width: 150px;"><div style="display: flex; align-items: center; gap: 4px;"><input type="text" list="multiai-models-${i}" value="${multiaiEscapeAttr(a.model || '')}" placeholder="${multiaiEscapeAttr(modelPh)}" oninput="multiaiAgentField(${i}, 'model', this.value)" onchange="multiaiAgentField(${i}, 'model:commit', this.value)" ${modelOn ? '' : 'disabled'} ${modelUnknown ? 'style="border-color: rgba(245,158,11,0.7);"' : ''} title="${multiaiEscapeAttr(isCli ? (modelUnknown ? `Not in this CLI's model list — ${cliInfo.note || ''}` : (cliInfo && cliInfo.note ? cliInfo.note : 'CLI model (blank = its default)')) : (apiOnly ? (modelUnknown ? 'This endpoint needs a model id (e.g. llama3.2, qwen2.5-coder) — ↻ lists what it serves' : 'Model id as the endpoint names it — ↻ lists what it serves') : (a.provider === 'gemini' && !apiOk ? 'Gemini engine (3.1-pro, 3.5-flash…)' : 'API model id — blank uses the model selected in Settings')))}"><datalist id="multiai-models-${i}">${cliModels.length ? cliModels.map(m => `<option value="${multiaiEscapeAttr(m.id)}">${multiaiEscape(m.label && m.label !== m.id ? m.label : '')}</option>`).join('') : hints.map(h => `<option value="${multiaiEscapeAttr(h)}">`).join('')}</datalist>${isCli ? `<button id="multiai-test-${i}" class="multiai-btn ghost" style="padding: 2px 6px; flex-shrink: 0;" onclick="multiaiTestModel(${i})" aria-label="Test this model" title="Run one short turn on this model now. It is the only way to know a model works — Claude Code accepts full ids its --help never lists, and Codex's cached list can be from another build. A model that answers is remembered and offered from then on.">▷</button>` : ''}</div></td>
@@ -1498,7 +1529,7 @@ function multiaiRenderParticipants(chat) {
     const addMenu = `<select onchange="multiaiAgentAddFromMenu(this.value); this.value='';" title="Add an agent to this chat" style="min-width: 150px;">
             <option value="">+ add agent…</option>
             ${libFree.length ? `<optgroup label="Library">${libFree.map(a => opt('lib:' + a.uid, `${a.name} — ${multiaiAgentMeta(a)}`)).join('')}</optgroup>` : ''}
-            <optgroup label="New">${presets.map(pv => opt('new:' + pv, (MULTIAI_CLI_PROVIDERS[pv] || (multiaiIsApiOnly(pv) ? multiaiProviderLabel(pv) + ' (API)' : multiaiProviderLabel(pv) + ' tab')) + (cliOkFor(pv) ? '' : ' (CLI not found)'), false, !cliOkFor(pv))).join('')}</optgroup>
+            <optgroup label="New">${presets.map(pv => opt('new:' + pv, (MULTIAI_CLI_PROVIDERS[pv] || (multiaiIsApiOnly(pv) ? multiaiProviderLabel(pv) + ' (API)' : multiaiProviderLabel(pv) + ' tab')) + (cliOkFor(pv) ? '' : ' — not installed'), false, !cliOkFor(pv))).join('')}</optgroup>
         </select>`;
     const libManage = multiaiState.agentMenuOpen && lib.length ? `
         <div style="flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 0 2px;">
@@ -1533,6 +1564,8 @@ function multiaiRenderParticipants(chat) {
             <button class="multiai-btn ghost" onclick="multiaiAgentsSetAll(false)" title="Disable all">none</button>
             <button class="multiai-btn ghost" onclick="multiaiAgentMenuToggle()" title="Show the library (what new chats start with)">📚 library · ${lib.length}</button>
             <button class="multiai-btn ghost" onclick="multiaiOpenPersonasFolder()" title="Open the folder of persona .md/.txt files">🎭 personas</button>
+            ${multiaiMissingClis().map(pv => `<button class="multiai-btn ghost" style="border-color: rgba(245,158,11,0.5);" onclick="multiaiInstallHelp('${pv}')" title="${multiaiEscapeAttr(MULTIAI_CLI_INSTALL[pv].name)} is not installed, so its seats are greyed out. Click for the install command and the official instructions.">⬇ ${multiaiEscape(MULTIAI_CLI_INSTALL[pv].name)}</button>`).join('')}
+            <button class="multiai-btn ghost" onclick="multiaiToggleAgentColors()" title="Colour each seat's turns in the transcript so you can tell who said what at a glance. Off makes every card look the same.">${multiaiColorsEnabled() ? '🎨 colours on' : '🎨 colours off'}</button>
             <button id="multiai-refresh-routes" class="multiai-btn ghost" onclick="multiaiRefreshRoutes()" aria-label="Re-probe CLIs and re-read Settings" title="Re-read Settings (API mode, keys, models) and re-probe the local CLIs">↻</button>
             <span style="flex: 1;"></span>
             <span>${enabledN}/${agents.length} enabled · ${multiaiEscape(mode)}</span>
@@ -2053,6 +2086,79 @@ function multiaiSetNewBelow(on) {
     if (pill) pill.style.display = on ? 'block' : 'none';
 }
 
+// Colour per seat, so a five-round transcript can be read by eye instead of by
+// name. Derived rather than assigned: the hue comes from the agent's id, so it
+// is stable across sessions and machines and never needs storing, and the two
+// seats most likely to be confused — the same provider at different efforts —
+// get separated because their ids differ. Effort nudges lightness, so
+// "Opus · max" and "Opus · low" read as the same family, not as strangers.
+const MULTIAI_EFFORT_TINT = { minimal: 16, low: 12, medium: 0, high: -6, xhigh: -10, max: -14 };
+
+function multiaiAgentHue(agent) {
+    const key = String((agent && (agent.id || agent.name || agent.provider)) || '');
+    let h = 0;
+    for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+    // Skip a band of muddy yellows that reads badly on the dark panel.
+    const raw = h % 320;
+    return raw >= 40 ? raw + 40 : raw;
+}
+
+function multiaiAgentColor(agent) {
+    if (!agent) return null;
+    const prefs = multiaiUiPrefs();
+    if (prefs.agentColors === 'off') return null;
+    if (agent.color) return agent.color;                    // explicit user override wins
+    const light = 62 + (MULTIAI_EFFORT_TINT[agent.effort] || 0);
+    return `hsl(${multiaiAgentHue(agent)} 70% ${Math.max(40, Math.min(80, light))}%)`;
+}
+
+// Same hue, low alpha, for the card behind a turn.
+function multiaiAgentTint(agent, alpha) {
+    const c = multiaiAgentColor(agent);
+    if (!c) return null;
+    const m = /^hsl\((\d+)/.exec(c);
+    if (m) return `hsl(${m[1]} 70% 60% / ${alpha})`;
+    return null;
+}
+
+function multiaiColorsEnabled() {
+    return multiaiUiPrefs().agentColors !== 'off';
+}
+
+// <input type="color"> only speaks hex, and the derived colours are HSL, so the
+// swatch needs a conversion. An explicit override is already hex and passes
+// straight through.
+function multiaiAgentSwatch(agent) {
+    const c = multiaiAgentColor(agent) || '#93c5fd';
+    if (c.startsWith('#')) return c;
+    const m = /^hsl\((\d+(?:\.\d+)?)\s+(\d+)%\s+(\d+(?:\.\d+)?)%/.exec(c);
+    if (!m) return '#93c5fd';
+    const h = Number(m[1]) / 360, sat = Number(m[2]) / 100, l = Number(m[3]) / 100;
+    const k = (n) => (n + h * 12) % 12;
+    const a = sat * Math.min(l, 1 - l);
+    const f = (n) => Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)))));
+    return '#' + [f(0), f(8), f(4)].map(v => v.toString(16).padStart(2, '0')).join('');
+}
+
+function multiaiToggleAgentColors() {
+    const prefs = multiaiUiPrefs();
+    prefs.agentColors = prefs.agentColors === 'off' ? 'auto' : 'off';
+    multiaiPersist();
+    const chat = multiaiCurrentChat();
+    if (chat) { multiaiRerenderAgents(chat); multiaiRenderFeed(chat); }
+}
+
+function multiaiSetAgentColor(i, value) {
+    const chat = multiaiCurrentChat();
+    const a = chat && (chat.agents || [])[i];
+    if (!a) return;
+    if (value) a.color = value; else delete a.color;        // blank clears the override
+    multiaiLibrarySave(a);
+    multiaiPersist();
+    multiaiRerenderAgents(chat);
+    multiaiRenderFeed(chat);
+}
+
 // The whole point of the feature is running one provider several times at
 // different models and efforts, but the feed showed only the agent's name — so
 // if a name was edited, or an `api` seat quietly fell back to the browser tab,
@@ -2155,8 +2261,15 @@ function multiaiAppendFeedItem(message, skipScroll) {
         : isUser ? 'border-color: rgba(99,102,241,0.35); background: rgba(99,102,241,0.08);'
         : isPass ? 'opacity: 0.55; background: rgba(255,255,255,0.02);'
         : 'background: rgba(255,255,255,0.03);';
-    const color = isError ? '#f87171' : isJudge ? '#c084fc' : isSummary ? '#34d399' : isUser ? '#a5b4fc' : '#93c5fd';
-    item.style.cssText = `border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px 14px; ${border}`;
+    // A seat's own colour, when it has one and the role is not already saying
+    // something louder (an error is red before it is anybody's colour).
+    const seat = (!isError && !isJudge && !isSummary && !isUser && message.agentId)
+        ? ((multiaiCurrentChat() || {}).agents || []).find(x => x.id === message.agentId) : null;
+    const seatColor = seat ? multiaiAgentColor(seat) : null;
+    const seatTint = seat ? multiaiAgentTint(seat, 0.10) : null;
+    const color = isError ? '#f87171' : isJudge ? '#c084fc' : isSummary ? '#34d399' : isUser ? '#a5b4fc' : (seatColor || '#93c5fd');
+    const seatSkin = seatColor ? `border-color: ${multiaiAgentTint(seat, 0.45)}; background: ${seatTint};` : '';
+    item.style.cssText = `border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px 14px; ${border}${seatSkin}`;
     const attach = message.attachmentsText ? `<details style="margin-top: 6px; font-size: 0.76rem; color: #9ca3af;"><summary style="cursor: pointer;">📎 attached context (${message.attachmentsText.length.toLocaleString()} chars)</summary><pre style="white-space: pre-wrap; margin: 6px 0 0 0; font-family: inherit;">${multiaiEscape(message.attachmentsText)}</pre></details>` : '';
     item.innerHTML = `
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
@@ -2331,6 +2444,13 @@ async function multiaiRunRound() {
         showToast(multiaiEnsureAgents(chat).length ? 'Enable at least one agent (tick a box in Agents).' : 'Add at least one agent.');
         return;
     }
+    // Empty the box now, not after the checks below. One of them asks main
+    // whether a run is already in flight, and main is often busy spawning CLI
+    // processes, so anything after that await leaves the text sitting there
+    // long enough to look like the send did not register. Put it back if we
+    // turn out not to be sending.
+    const restoreTopic = () => { if (topicEl.value === '') { topicEl.value = topic; topicEl.dispatchEvent(new Event('input')); } };
+    topicEl.value = '';
     // Ask main, not our cached set: a run started over REST or MCP may be in
     // flight that this window never heard about. Everything below mutates the
     // chat and persists it *before* the IPC round-trip, so without this the
@@ -2343,6 +2463,7 @@ async function multiaiRunRound() {
         if (busy) {
             multiaiSetRunning(chat.id, true);
             showToast('A run is already in progress for this chat — press Stop first.');
+            restoreTopic();
             return;
         }
     } catch { /* older main without the handler: fall through */ }
@@ -2369,7 +2490,6 @@ async function multiaiRunRound() {
         multiaiAppendFeedItem(userMsg);
         multiaiRenderLedger(chat);
     }
-    topicEl.value = '';
 
     if (isFirstMessage && topic) multiaiMaybeAutoTitle(chat, topic);
 
