@@ -220,6 +220,15 @@ bleed into each other or into the MCP tools' `mcp-session` thread.
 
   Chats saved before this setting existed keep what their `independentFirstRound`
   boolean asked for (`true` → `first`); everything else takes the new default.
+- **The guided tour.** Help (next to Settings) → Take the tour: nine steps
+  over the real screen, dimming everything but the control each step is about.
+  It points at live elements rather than screenshots, so it is either correct
+  or visibly broken when something moves — `tests/electron/multiai-tour.test.js`
+  checks every selector, options tab and roster column index against the
+  markup. The tour’s `auto` button advances it hands-off, and
+  `npm run tour:gif` records that window into `docs/tour/tour.gif` — needs
+  ffmpeg, and takes `--seconds`, `--fps`, `--width`, `--out` and `--title`.
+
 - **Directed turns.** `@claude kick off, others react` puts Claude first;
   `only @gemini and @chatgpt …` restricts the round to those two. Mention agents
   by id (`@opus-max`), by name with the spaces dropped (`@gptlow` for "GPT low")

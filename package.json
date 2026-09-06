@@ -33,7 +33,8 @@
         "build:linux": "electron-builder --linux --x64",
         "build:all": "electron-builder -mwl",
         "build:installer": "electron-builder --win --x64 -c.win.target=nsis",
-        "test": "node --experimental-vm-modules --test tests/**/*.test.js"
+        "tour:gif": "node scripts/record-tour.mjs",
+    "test": "node --experimental-vm-modules --test tests/**/*.test.js"
     },
     "build": {
         "appId": "com.proxima.app",
