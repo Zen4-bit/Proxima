@@ -35,6 +35,7 @@ const PATHS = flag('paths', '');
 const ROUNDS = Math.max(1, Math.min(6, Number(flag('rounds', 2))));
 const PORT = Number(flag('port', 3210));
 const OUT = flag('out', '');
+const WORKSPACE = flag('workspace', '');
 const GO = has('go');
 
 // Antigravity takes its prompt on the command line and refuses past ~28k
@@ -135,7 +136,7 @@ const panel = await seats();
 const prompt = brief(t);
 
 console.log(`\nReview target : ${t.label}`);
-console.log(`Workspace     : ${ROOT}  (read-only tools)`);
+console.log(`Workspace     : ${WORKSPACE || 'a throwaway worktree at HEAD'}  (read-only tools)`);
 console.log(`Brief         : ${prompt.length.toLocaleString()} characters`);
 console.log(`Rounds        : ${ROUNDS}  (independent — each round is blind to itself)`);
 console.log('Panel         :');
@@ -155,6 +156,20 @@ try {
     process.exit(1);
 }
 
+// A seat with any tools level — read included — makes Proxima cut and check out
+// a multiai/... branch in the folder it is given. That is right for a writing
+// seat and wrong for a review, which would move your checkout out from under you
+// just for reading. So the panel reads a throwaway worktree at the same commit
+// unless told otherwise, and it is removed afterwards.
+let workspaceRoot = WORKSPACE ? path.resolve(WORKSPACE) : '';
+let temporary = '';
+if (!workspaceRoot) {
+    temporary = path.join(path.dirname(ROOT), `.${path.basename(ROOT)}-review-${Date.now()}`);
+    git('worktree', 'add', '--detach', temporary, 'HEAD');
+    workspaceRoot = temporary;
+    console.log(`Worktree      : ${temporary}`);
+}
+
 const { chat } = await api('POST', '/v1/multiai/chats', {
     title: `Review · ${t.label}`,
     agents: panel,
@@ -164,11 +179,18 @@ const { chat } = await api('POST', '/v1/multiai/chats', {
     contextMode: 'bounded',
     independentRounds: 'all',
     stopWhenAllAgree: true,
-    workspace: { root: ROOT },
+    workspace: { root: workspaceRoot },
 });
 console.log(`\nChat ${chat.id} created. Watch it in the Multi-AI tab.`);
 
-const { messages } = await api('POST', `/v1/multiai/chats/${chat.id}/run`, { text: prompt, who: 'You', rounds: ROUNDS, wait: true });
+let messages = [];
+try {
+    ({ messages } = await api('POST', `/v1/multiai/chats/${chat.id}/run`, { text: prompt, who: 'You', rounds: ROUNDS, wait: true }));
+} finally {
+    // Even on a failed run: a worktree left behind is a second checkout of the
+    // repo that git will keep reporting until someone prunes it.
+    if (temporary) { try { git('worktree', 'remove', '--force', temporary); } catch { /* prune later */ } }
+}
 const replies = (messages || []).filter(m => m.role === 'assistant');
 console.log(`Done: ${replies.length} replies.`);
 
