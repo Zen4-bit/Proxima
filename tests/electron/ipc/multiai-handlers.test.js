@@ -114,6 +114,15 @@ function userMsg(chatId, text, cycle = 1) {
 
 function messagesOf(chatId) { return store.getChat(chatId).messages; }
 
+// Parallel rather than serial, without a stopwatch: every call in the round was
+// dispatched before the first reply came back. Serial dispatch cannot do that —
+// each turn waits for the one before it — so this separates the two without
+// asserting anything about how fast the machine is.
+function startedTogether(calls) {
+    const firstDone = Math.min(...calls.map(c => c.done));
+    return calls.every(c => c.at <= firstDone);
+}
+
 // ---- tests -----------------------------------------------------------------
 
 test('run-round: records one turn per participant per round, on per-chat session ids, and emits them', async () => {
@@ -154,16 +163,14 @@ test('run-round: independent first round runs participants in parallel and blind
     replyFn = async (p) => { await delay(60); return `${p} independent view`; };
     const chat = newChat({ participants: ['chatgpt', 'claude', 'gemini'], independentRounds: 'first', rounds: 2, stopWhenAllAgree: false });
     userMsg(chat.id, 'Positions please');
-    const t0 = Date.now();
     await invoke('multiai-run-round', { chatId: chat.id, rounds: 2 });
     const r1 = providerCalls.slice(0, 3);
-    assert.ok(Math.max(...r1.map(c => c.at)) - Math.min(...r1.map(c => c.at)) < 40, 'round 1 calls start together');
+    assert.ok(startedTogether(r1), 'round 1 calls start together');
     assert.ok(r1.every(c => c.message.includes('This round is independent')));
     assert.ok(r1.every(c => !c.message.includes('independent view')), 'round 1 prompts contain no same-cycle replies');
     const r2 = providerCalls.slice(3);
     assert.equal(r2.length, 3);
     assert.ok(r2[0].message.includes('claude independent view'), 'round 2 sees round 1');
-    assert.ok(Date.now() - t0 < 60 * 6 + 200, 'parallel round is faster than 6 serial calls');
 });
 
 test('run-round: @mentions set order and "only" restricts the round', async () => {
@@ -1022,12 +1029,11 @@ test("independentRounds 'all': every round is blind to itself and sees the ones 
     replyFn = markerReply();
     const chat = newChat({ participants: ['chatgpt', 'claude', 'gemini'], independentRounds: 'all', rounds: 3, stopWhenAllAgree: false });
     userMsg(chat.id, 'Positions please');
-    const t0 = Date.now();
     await invoke('multiai-run-round', { chatId: chat.id, rounds: 3 });
     assert.equal(providerCalls.length, 9);
     for (const r of [1, 2, 3]) {
         const calls = providerCalls.slice((r - 1) * 3, r * 3);
-        assert.ok(Math.max(...calls.map(c => c.at)) - Math.min(...calls.map(c => c.at)) < 30, `round ${r} starts together`);
+        assert.ok(startedTogether(calls), `round ${r} starts together`);
         for (const c of calls) {
             const marks = marksIn(c.message);
             // Nothing from this round…
@@ -1037,7 +1043,6 @@ test("independentRounds 'all': every round is blind to itself and sees the ones 
         }
     }
     assert.ok(providerCalls.slice(3).every(c => /NOT what the others are saying in round/.test(c.message)));
-    assert.ok(Date.now() - t0 < 40 * 9, 'three parallel rounds beat nine serial calls');
 });
 
 test("independentRounds 'off' is the old turn-taking: a seat sees the seats before it", async () => {
@@ -1069,7 +1074,7 @@ test('a chat saved before independentRounds existed keeps what its boolean asked
     userMsg(legacy.id, 'go');
     await invoke('multiai-run-round', { chatId: legacy.id, rounds: 2 });
     const r1 = providerCalls.slice(0, 3);
-    assert.ok(Math.max(...r1.map(c => c.at)) - Math.min(...r1.map(c => c.at)) < 30, 'round 1 is blind');
+    assert.ok(startedTogether(r1), 'round 1 is blind');
     // 'first' and nothing more: round 2 takes turns again.
     assert.deepEqual(providerCalls.slice(3).map(c => marksIn(c.message).length), [3, 4, 5]);
 });
