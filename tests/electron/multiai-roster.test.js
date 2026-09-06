@@ -172,7 +172,7 @@ test('the provider menu lists vendors once, not one entry per surface', () => {
         { apiMode: false, providers: {}, cli: { claude: true } });
     t.render(chat);
     const provs = optionsOf(t.box.innerHTML, 'Provider for');
-    assert.deepEqual(provs.map(o => o.value), ['claude', 'chatgpt', 'gemini', 'perplexity']);
+    assert.deepEqual(provs.map(o => o.value), ['claude', 'chatgpt', 'gemini', 'perplexity', 'antigravity']);
     // A CLI seat is its vendor with the CLI route selected.
     assert.ok(provs.find(o => o.value === 'claude').selected);
 });
@@ -382,8 +382,8 @@ test('the add menu picks who answers, never how it is reached', () => {
     // Grouping the menu by surface asked the same question the Route cell owns:
     // "Browser tab · Claude" and then browser / Claude Code / API on the row.
     assert.deepEqual(g.map(x => x.label), ['New · pick its route on the row']);
-    assert.deepEqual(g[0].items.map(i => i[0]), ['new:claude', 'new:chatgpt', 'new:gemini', 'new:perplexity']);
-    assert.deepEqual(g[0].items.map(i => i[1]), ['Claude', 'ChatGPT', 'Gemini', 'Perplexity']);
+    assert.deepEqual(g[0].items.map(i => i[0]), ['new:claude', 'new:chatgpt', 'new:gemini', 'new:perplexity', 'new:antigravity']);
+    assert.deepEqual(g[0].items.map(i => i[1]), ['Claude', 'ChatGPT', 'Gemini', 'Perplexity', 'Antigravity']);
 });
 
 test('an endpoint you registered is its own group — it really has one route', () => {
@@ -529,4 +529,24 @@ test('the setups menu offers applying and pinning, and shows which is pinned', (
     m = t.box.innerHTML.match(/<select[^>]*aria-label="Apply a saved setup"[\s\S]*?<\/select>/);
     assert.match(m[0], /value="pin:builtin:second-opinion">Second opinion ✓/);
     assert.match(m[0], /📌 Second opinion/, 'the closed menu says what new chats start from');
+});
+
+test('Antigravity is a vendor with one route and no tab', () => {
+    const t = load();
+    const chat = chatWith(t, [], {
+        apiMode: false, providers: {}, cli: { antigravity: true },
+        cliInfo: { antigravity: { available: true, version: '1.1.27', loggedIn: true, models: [{ id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', efforts: ['low', 'medium', 'high'] }] } },
+    });
+    t.addFromMenu('new:antigravity');
+    const a = chat.agents[0];
+    // The add menu hands over a vendor key; a vendor with no tab starts on its CLI.
+    assert.equal(a.provider, 'antigravity-cli');
+    assert.equal(a.route, 'cli');
+    assert.equal(a.tools, 'none');
+    t.render(chat);
+    const routes = optionsOf(t.box.innerHTML, 'Route for');
+    assert.deepEqual(routes.map(o => o.value), ['cli'], 'no browser tab to offer');
+    assert.match(routes[0].label, /Antigravity 1\.1\.27/);
+    const provs = optionsOf(t.box.innerHTML, 'Provider for');
+    assert.ok(provs.some(o => o.value === 'antigravity' && o.selected));
 });

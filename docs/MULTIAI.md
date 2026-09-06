@@ -227,6 +227,22 @@ bleed into each other or into the MCP tools' `mcp-session` thread.
   chats from…** and they start from that instead. Before this, every new chat
   cloned the whole library and the library grew on every add.
 
+- **Antigravity vs Gemini CLI.** Google retired Gemini CLI for individual
+  plans on 2026-06-18: a free / AI Pro / AI Ultra sign-in now gets
+  `IneligibleTierError` and the seat cannot run. **Antigravity** (`agy`) is the
+  replacement and is a vendor of its own here rather than Gemini’s CLI route,
+  because `agy models` also lists Claude Sonnet 4.6, Claude Opus 4.6 and
+  GPT-OSS 120B. It enumerates its own models, so no catalogue padding is
+  needed, and it has a real `--effort` switch.
+
+  Its ids encode effort (`gemini-3.8-flash-high`) *and* it takes `--effort`,
+  and passing both is a hard error — so discovery folds the ids back into
+  families and the Effort column drives `--effort`, as it does for every other
+  CLI. Keep a Gemini CLI seat only for an enterprise licence or a paid API
+  key. Antigravity takes its prompt as an argument, so a turn is capped near
+  32,000 characters on Windows (measured: 30k runs, 60k is ENAMETOOLONG);
+  over that the seat refuses with an explanation instead of failing at spawn.
+
 - **The guided tour.** Help (next to Settings) → Take the tour: nine steps
   over the real screen, dimming everything but the control each step is about.
   It points at live elements rather than screenshots, so it is either correct

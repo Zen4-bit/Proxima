@@ -75,7 +75,7 @@ const ROUND_OUTPUT_ROLES = new Set(['assistant', 'pass', 'change']);
 //   model:    api/cli model id (or the Gemini engine string for the browser route)
 //   effort:   '' | minimal | low | medium | high | xhigh | max (api/cli only)
 const ROUTES = ['auto', 'browser', 'api', 'cli'];
-const CLI_PROVIDERS = { 'claude-cli': { label: 'Claude Code', bin: 'claude' }, 'codex-cli': { label: 'Codex', bin: 'codex' }, 'gemini-cli': { label: 'Gemini CLI', bin: 'gemini' } };
+const CLI_PROVIDERS = { 'claude-cli': { label: 'Claude Code', bin: 'claude' }, 'codex-cli': { label: 'Codex', bin: 'codex' }, 'gemini-cli': { label: 'Gemini CLI', bin: 'gemini' }, 'antigravity-cli': { label: 'Antigravity', bin: 'agy' } };
 const EFFORTS = ['', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 // Workspace tools a CLI seat may use inside the chat's workspace folder.
 const TOOLS = ['none', 'read', 'write', 'full'];

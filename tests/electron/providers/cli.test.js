@@ -91,7 +91,7 @@ test('geminiAuthFrom: env, settings variants, or nothing', () => {
 test('run: unknown provider rejects; gemini-cli is a known kind', async () => {
     await assert.rejects(cli.run('nope', {}).promise, /Unknown CLI provider/);
     assert.equal(cli.KINDS['gemini-cli'], 'gemini');
-    assert.deepEqual(Object.keys(cli.availability()).sort(), ['claude', 'codex', 'gemini']);
+    assert.deepEqual(Object.keys(cli.availability()).sort(), ['antigravity', 'claude', 'codex', 'gemini']);
 });
 
 test('runGemini: reaches the process layer for the gemini kind (concurrency slot exists) and reports a missing binary cleanly', async () => {

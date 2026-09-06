@@ -29,11 +29,18 @@ const catalog = require('./catalog.cjs');
 const IS_WIN = process.platform === 'win32';
 const NEWLINE_RE = new RegExp('\r?\n');
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
-const MAX_PARALLEL = { claude: 2, codex: 2, gemini: 2 };
+const MAX_PARALLEL = { claude: 2, codex: 2, gemini: 2, antigravity: 2 };
 
-const KINDS = { 'claude-cli': 'claude', 'codex-cli': 'codex', 'gemini-cli': 'gemini' };
-const BINS = { claude: 'claude', codex: 'codex', gemini: 'gemini' };
-const LABELS = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI' };
+const KINDS = { 'claude-cli': 'claude', 'codex-cli': 'codex', 'gemini-cli': 'gemini', 'antigravity-cli': 'antigravity' };
+const BINS = { claude: 'claude', codex: 'codex', gemini: 'gemini', antigravity: 'agy' };
+const LABELS = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI', antigravity: 'Antigravity' };
+
+// agy takes its prompt as an argument — it has no stdin prompt mode that we
+// could get an answer out of — so a turn is bounded by the Windows command
+// line. Measured on this machine: 30k characters runs, 60k is ENAMETOOLONG.
+// Refuse just under the cliff with something the user can act on, rather than
+// letting spawn fail with an errno.
+const AGY_PROMPT_MAX = 28000;
 
 const EFFORT_MAP = {
     claude: { minimal: 'low', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' },
@@ -261,6 +268,7 @@ function availability() {
         claude: !!which('claude'),
         codex: !!which('codex') || !!codexSandboxBundle(),
         gemini: !!which('gemini'),
+        antigravity: !!which('agy'),
     };
 }
 
@@ -422,7 +430,7 @@ async function discover({ force = false } = {}) {
     if (_discovering && !force) return _discovering;
     _discovering = (async () => {
         const home = os.homedir();
-        const out = { claude: null, codex: null, gemini: null, at: Date.now() };
+        const out = { claude: null, codex: null, gemini: null, antigravity: null, at: Date.now() };
         await warmAvailability();
         // Fire-and-forget: a cached copy is used immediately and the network
         // refresh lands on a later discover(). Discovery never waits on it.
@@ -438,7 +446,7 @@ async function discover({ force = false } = {}) {
         // the local list already carries — so patching an already-merged kind
         // is a no-op.
         catalog.load({ force }).then(() => {
-            for (const kind of ['claude', 'codex', 'gemini']) {
+            for (const kind of ['claude', 'codex', 'gemini']) {   // agy enumerates itself; it needs no catalogue
                 const d = out[kind];
                 if (d && d.available) d.models = mergeCatalog(kind, d.models || []);
             }
@@ -513,9 +521,33 @@ async function discover({ force = false } = {}) {
                 defaultEffort: '',
                 auth,
                 loggedIn: !!auth,
-                note: auth ? 'Model ids as the CLI accepts them (blank = its default). No effort switch.' : 'Not configured: run `gemini` once and choose a login method (Google account or API key).',
+                // Individual tiers (free, AI Pro, AI Ultra) stopped being served on
+                // 2026-06-18 and the CLI answers IneligibleTierError; an enterprise
+                // licence or a paid API key still works. Say so here rather than
+                // letting a seat fail with a stack trace.
+                note: auth
+                    ? 'Model ids as the CLI accepts them (blank = its default). No effort switch. Free / AI Pro / AI Ultra sign-ins are no longer served — use an Antigravity seat, or a paid API key / enterprise licence here.'
+                    : 'Not configured: run `gemini` once and choose a login method (Google account or API key).',
             };
         } else out.gemini = { available: false, label: LABELS.gemini };
+        if (avail.antigravity) {
+            const [ver, list] = await Promise.all([runQuick('agy', ['--version']), runQuick('agy', ['models'])]);
+            const models = parseAgyModels(list.stdout);
+            out.antigravity = {
+                available: true, label: LABELS.antigravity,
+                version: (ver.stdout.trim().split(/\s+/).pop() || '').trim(),
+                // Effort is per model here, the way Codex reports it: agy lists
+                // one id per family-and-effort, and this folds them back into a
+                // family with the efforts it was listed at.
+                efforts: [],
+                models,
+                defaultModel: '', defaultEffort: '',
+                loggedIn: models.length > 0,
+                note: models.length
+                    ? 'Models your account can run (agy models). Effort is a separate switch, not part of the id.'
+                    : 'Signed out or unreachable: run `agy` once and sign in, then press ↻.',
+            };
+        } else out.antigravity = { available: false, label: LABELS.antigravity };
         _discovered = out;
         return out;
     })();
@@ -877,6 +909,73 @@ function geminiArgs({ model, workspace }) {
     return args;
 }
 
+// `agy models` prints "<id>\t<label>" a line at a time, and encodes reasoning
+// effort in both: gemini-3.8-flash-high / "Gemini 3.8 Flash (High)". The CLI
+// refuses a suffixed id together with --effort ("--model gemini-3.8-flash-low
+// conflicts with --effort=high"), so a seat must carry one or the other. It
+// carries the family, and Effort stays the column it is everywhere else.
+function parseAgyModels(stdout) {
+    const byFamily = new Map();
+    for (const line of String(stdout || '').split('\n')) {
+        const cut = line.indexOf('\t');
+        if (cut === -1) continue;
+        const id = line.slice(0, cut).trim();
+        const label = line.slice(cut + 1).trim();
+        if (!id || /\s/.test(id)) continue;                  // "Fetching available models..." and friends
+        const m = /^(.*)-(low|medium|high)$/.exec(id);
+        const family = m ? m[1] : id;
+        const effort = m ? m[2] : null;
+        if (!byFamily.has(family)) {
+            byFamily.set(family, { id: family, label: label.replace(/\s*\((?:Low|Medium|High)\)\s*$/i, '').trim() || family, efforts: [] });
+        }
+        const entry = byFamily.get(family);
+        if (effort && !entry.efforts.includes(effort)) entry.efforts.push(effort);
+    }
+    const rank = { low: 0, medium: 1, high: 2 };
+    return [...byFamily.values()].map(m => Object.assign(m, { efforts: m.efforts.sort((a, b) => rank[a] - rank[b]) }));
+}
+
+function antigravityArgs({ model, effort, workspace }) {
+    const level = workspace && TOOLS_LEVELS.includes(workspace.tools) ? workspace.tools : 'none';
+    const args = ['--output-format', 'json'];
+    if (model) args.push('--model', String(model));
+    if (effort) args.push('--effort', String(effort));
+    if (level === 'full') args.push('--dangerously-skip-permissions');
+    else args.push('--mode', level === 'write' ? 'accept-edits' : 'plan');
+    if (level !== 'none' && workspace && workspace.root) args.push('--add-dir', workspace.root);
+    return args;
+}
+
+function runAntigravity({ model, effort, prompt, systemPrompt, cwd, workspace, timeoutMs, onState, queueDeadlineMs }) {
+    const dir = scratchDir(cwd);
+    const level = workspace && workspace.root && workspace.tools && workspace.tools !== 'none' ? workspace.tools : 'none';
+    const full = `${systemPrompt || (level !== 'none' ? workspaceSystemPrompt(workspace) : DISCUSSION_SYSTEM_PROMPT)}\n\n${prompt}`;
+    if (full.length > AGY_PROMPT_MAX) {
+        return {
+            promise: Promise.reject(new Error(`This turn is ${full.length.toLocaleString()} characters and Antigravity takes its prompt on the command line, which Windows caps near 32,000. Shorten it in the Context tab — a smaller context window, or Bounded instead of Full.`)),
+            abort() { },
+        };
+    }
+    // Attached form on purpose: `agy -p --output-format json` makes agy take
+    // "--output-format" as the prompt and say so.
+    const args = [`-p=${full}`].concat(antigravityArgs({ model, effort, workspace: level !== 'none' ? workspace : null }));
+    // Nothing on stdin: the prompt is in argv, and runProcess writes whatever
+    // it is given, so an absent prompt would be written as undefined.
+    const run = runProcess('antigravity', 'agy', args, { cwd: level !== 'none' ? workspace.root : dir, prompt: '', timeoutMs, onState, queueDeadlineMs });
+    const promise = run.promise.then(({ code, stdout, stderr }) => {
+        let parsed = null;
+        const at = stdout.indexOf('{');
+        if (at !== -1) { try { parsed = JSON.parse(stdout.slice(at)); } catch { /* not the envelope */ } }
+        const text = parsed && typeof parsed.response === 'string' ? parsed.response.trim() : stdout.trim();
+        if (parsed && parsed.status && parsed.status !== 'SUCCESS') {
+            throw new Error(parsed.error || `Antigravity returned ${parsed.status}`);
+        }
+        if (!text) throw new Error((stderr || '').trim() || `Antigravity exited ${code} with no output`);
+        return { text, model: model || null };
+    });
+    return { promise, abort: run.abort };
+}
+
 function runGemini({ model, prompt, systemPrompt, cwd, workspace, timeoutMs, onState, queueDeadlineMs }) {
     const dir = scratchDir(cwd);
     const level = workspace && workspace.root && workspace.tools && workspace.tools !== 'none' ? workspace.tools : 'none';
@@ -916,6 +1015,7 @@ function run(provider, opts) {
     if (base === 'claude-cli') return runClaude(opts);
     if (base === 'codex-cli') return runCodex(opts);
     if (base === 'gemini-cli') return runGemini(opts);
+    if (base === 'antigravity-cli') return runAntigravity(opts);
     return { promise: Promise.reject(new Error(`Unknown CLI provider: ${provider}`)), abort() { } };
 }
 
@@ -925,5 +1025,6 @@ module.exports = {
     claudeArgs, codexArgs, geminiArgs, workspaceSystemPrompt, codexSandboxHelperDir, codexSandboxBundle, codexSandboxSupport, hasCodexHelpers,
     codexCandidates, resolveCodex, codexExe, parseVersion, cmpVersion, spawnCli, winQuote, cmdCommandLine, killAll, whichAsync, warmAvailability, queueDepth, preferExecutable,
     __acquire: acquire, __release: release,   // concurrency internals, for tests
+    __parseAgyModels: parseAgyModels,        // folds agy models into families, for tests
     EFFORT_MAP, DISCUSSION_SYSTEM_PROMPT, MAX_PARALLEL, KINDS, BINS, LABELS, TOOLS_LEVELS, CLAUDE_TOOLS,
 };

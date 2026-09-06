@@ -1034,7 +1034,7 @@ function multiaiOnLedgerFilterChange() {
 // whole library switched on. Agents that arrive without a uid (legacy
 // participants, REST-created chats) are chat-local.
 
-const MULTIAI_CLI_PROVIDERS = { 'claude-cli': 'Claude Code', 'codex-cli': 'Codex', 'gemini-cli': 'Gemini CLI' };
+const MULTIAI_CLI_PROVIDERS = { 'claude-cli': 'Claude Code', 'codex-cli': 'Codex', 'gemini-cli': 'Gemini CLI', 'antigravity-cli': 'Antigravity' };
 
 // ---- vendors and routes -------------------------------------------------
 // The roster used to ask one question where there are two. "Claude" and
@@ -1053,6 +1053,13 @@ const MULTIAI_VENDORS = {
     chatgpt: { label: 'ChatGPT', browser: 'chatgpt', cli: 'codex-cli' },
     gemini: { label: 'Gemini', browser: 'gemini', cli: 'gemini-cli' },
     perplexity: { label: 'Perplexity', browser: 'perplexity', cli: null },
+    // Google retired Gemini CLI for individual plans on 2026-06-18 and replaced
+    // it with Antigravity. It is its own vendor rather than Gemini's CLI route,
+    // because it does not only serve Gemini: `agy models` also lists Claude
+    // Sonnet 4.6, Claude Opus 4.6 and GPT-OSS 120B, and filing those under a
+    // vendor called Gemini would be the mislabelling this column exists to end.
+    // No browser tab — it is a CLI and nothing else.
+    antigravity: { label: 'Antigravity', browser: null, cli: 'antigravity-cli' },
 };
 const MULTIAI_VENDOR_OF = Object.entries(MULTIAI_VENDORS).reduce((m, [v, d]) => {
     if (d.browser) m[d.browser] = v;
@@ -1101,7 +1108,7 @@ function multiaiLibraryMenuLabel(a) {
     const meta = multiaiAgentMeta(a);
     return meta && meta !== name && !name.includes(meta) ? `${name} — ${meta}` : name;
 }
-const MULTIAI_CLI_KIND = { 'claude-cli': 'claude', 'codex-cli': 'codex', 'gemini-cli': 'gemini' };
+const MULTIAI_CLI_KIND = { 'claude-cli': 'claude', 'codex-cli': 'codex', 'gemini-cli': 'gemini', 'antigravity-cli': 'antigravity' };
 const MULTIAI_EFFORTS = ['', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 // Fallbacks when discovery (multiaiState.routes.cliInfo) has nothing.
 const MULTIAI_MODEL_HINTS = {
@@ -1141,6 +1148,7 @@ const MULTIAI_CLI_INSTALL = {
     'claude-cli': { name: 'Claude Code', cmd: 'npm install -g @anthropic-ai/claude-code', url: 'https://docs.claude.com/en/docs/claude-code/overview' },
     'codex-cli': { name: 'Codex', cmd: 'npm install -g @openai/codex', url: 'https://developers.openai.com/codex/cli' },
     'gemini-cli': { name: 'Gemini CLI', cmd: 'npm install -g @google/gemini-cli', url: 'https://github.com/google-gemini/gemini-cli' },
+    'antigravity-cli': { name: 'Antigravity', cmd: 'curl -fsSL https://antigravity.google/cli/install.sh | bash', url: 'https://antigravity.google' },
 };
 
 function multiaiMissingClis() {
@@ -1641,7 +1649,7 @@ function multiaiRenderParticipants(chat) {
             : (vend
                 ? (
                     (curRoute === 'auto' ? opt('auto', `follow Settings → ${apiOk ? 'API key' : 'browser tab'}`, true) : '')
-                    + opt('browser', 'subscription · browser tab', curRoute === 'browser')
+                    + (vend.browser ? opt('browser', 'subscription · browser tab', curRoute === 'browser') : '')
                     + (vend.cli ? opt('cli', `subscription · ${cliName}${cliOkFor(vend.cli) ? cliVer : ' — not installed'}`, curRoute === 'cli', !cliOkFor(vend.cli)) : '')
                     + (routes.apiMode ? opt('api', p.hasKey ? 'API key' : 'API key — no key in Settings', curRoute === 'api', !p.hasKey) : '')
                 )
@@ -1731,7 +1739,7 @@ function multiaiRenderParticipants(chat) {
             <span style="font-size: 0.7rem; color: #9ca3af;">— new chats start with all of these, and each is also served as <code>cli:&lt;id&gt;</code> on the REST port and to MCP clients (its persona goes along as the system prompt)</span>
         </div>` : '';
     const mode = routes.apiMode ? 'API mode ON in Settings — the API route is offered where a key exists' : 'API mode OFF in Settings — no API routes; turn it on there to offer them';
-    const cliLine = ['claude-cli', 'codex-cli', 'gemini-cli'].map(pv => {
+    const cliLine = ['claude-cli', 'codex-cli', 'gemini-cli', 'antigravity-cli'].map(pv => {
         const info = multiaiCliInfo(pv);
         if (!multiaiCliAvailable(pv)) return null;
         const bits = [MULTIAI_CLI_PROVIDERS[pv] + (info && info.version ? ' ' + info.version : '') + (info && info.source === 'bundle' ? ' (desktop app)' : '')];
@@ -1961,9 +1969,11 @@ function multiaiAgentPreset(provider) {
 }
 
 // Quick add: a preset agent goes straight into the chat and the library.
-function multiaiAgentAdd(provider) {
+function multiaiAgentAdd(vendorOrProvider) {
     const chat = multiaiCurrentChat();
     if (!chat) return;
+    const d = MULTIAI_VENDORS[vendorOrProvider];
+    const provider = d ? (d.browser || d.cli) : vendorOrProvider;
     multiaiEnsureAgents(chat);
     const a = multiaiAgentPreset(provider);
     chat.agents.push(a);
@@ -2107,7 +2117,7 @@ function multiaiAgentField(i, field, value) {
             // is just a provider change.
             if (field === 'vendor' && value !== a.provider) { a.provider = value; multiaiApplyProviderDefaults(a, value); }
         } else {
-            const provider = (want === 'cli' && d.cli) ? d.cli : d.browser;
+            const provider = (want === 'cli' && d.cli) ? d.cli : (d.browser || d.cli);
             if (provider !== a.provider) { a.provider = provider; multiaiApplyProviderDefaults(a, provider); }
             // The route follows the provider that was actually chosen, not the
             // one asked for: moving a CLI seat to a vendor with no CLI
