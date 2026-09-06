@@ -100,4 +100,45 @@ async function _sendMessageToProviderImplInner(provider, message, attachments = 
     throw new Error(`API failed: ${lastError}`);
 }
 
-module.exports = { init, sendMessageToProvider, abortActive };
+
+// What model is that tab actually set to? The engines cannot drive a web UI's
+// model menu, so a browser seat answers on whatever the user last picked there
+// — and until now the transcript simply omitted it, which meant a five-round
+// debate recorded nothing about what half the seats were. Reading it makes the
+// record honest without pretending we control it.
+//
+// This scrapes a menu button's label, so it is best-effort by construction:
+// these sites restyle often, and every failure returns null rather than a guess.
+// The value is only ever used as a label, never to route a request.
+const MODEL_LABEL_SELECTORS = {
+    chatgpt: ['[data-testid="model-switcher-dropdown-button"]', 'button[aria-label*="odel"]'],
+    claude: ['[data-testid="model-selector-dropdown"]', 'button[aria-haspopup="menu"][aria-label*="odel"]'],
+    gemini: ['button.gds-mode-switch-button', 'bard-mode-switcher button'],
+    perplexity: ['button[aria-label*="odel"]'],
+};
+
+async function readTabModel(provider) {
+    const base = String(provider || '').split(':')[0];
+    const sel = MODEL_LABEL_SELECTORS[base];
+    if (!sel || !browserManager || !browserManager.getWebContents(base)) return null;
+    const script = `(() => {
+        const sels = ${JSON.stringify(sel)};
+        for (const s of sels) {
+            const el = document.querySelector(s);
+            const t = el && (el.innerText || el.textContent || '').trim();
+            if (t) return t.split(String.fromCharCode(10))[0].slice(0, 60);
+        }
+        return null;
+    })()`;
+    try {
+        const raw = await browserManager.executeScript(base, script);
+        if (!raw || typeof raw !== 'string') return null;
+        // Menu buttons often carry chrome around the name ("Claude Opus 5 ▾").
+        const cleaned = raw.replace(/[▾▼⌄˅]/g, '').replace(/\s+/g, ' ').trim();
+        return cleaned && cleaned.length <= 60 ? cleaned : null;
+    } catch {
+        return null;                                    // tab closed, navigating, or restyled
+    }
+}
+
+module.exports = { init, sendMessageToProvider, abortActive, readTabModel };

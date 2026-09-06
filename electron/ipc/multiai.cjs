@@ -367,7 +367,10 @@ function registerMultiAiHandlers(deps) {
             next = { gen: st.gen + 1, turns: 0, lastId: null };
         }
         if (next) saveSession(chat, agent.id, next);
-        if (result.ok) result.value = { response: result.value.response, model: agent.model || null, route: 'browser' };
+        // The seat's configured model means nothing on a browser route, so
+        // record what the tab is actually set to and fall back to null
+        // rather than labelling the turn with a model it did not use.
+        if (result.ok) result.value = { response: result.value.response, model: (sender.readTabModel ? await sender.readTabModel(agent.provider).catch(() => null) : null), route: 'browser' };
         return result;
     }
 
@@ -474,7 +477,7 @@ function registerMultiAiHandlers(deps) {
         const providerString = (agent.provider === 'gemini' && agent.model) ? (agent.model.startsWith('gemini:') ? agent.model : `gemini:${agent.model}`) : agent.provider;
         const result = await sender.sendMessageToProvider(providerString, prompt, null, null, sessionId);
         saveSession(chat, key, { gen: st.gen, turns: st.turns + 1 });
-        return { response: result.response, model: agent.model || null, route: 'browser' };
+        return { response: result.response, model: (sender.readTabModel ? await sender.readTabModel(agent.provider).catch(() => null) : null), route: 'browser' };
     }
 
     function contextOpts(chat) {
