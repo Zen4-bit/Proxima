@@ -51,12 +51,33 @@ command that was actually run.
 | 10 | `P-R1-5` — WIP attribution + `inspect()` warning | **Done** `e9dd4d7` |
 | 14 | `P-R2-3` — armed seats marked distinctly from inert ones | **Done** `ab24845` |
 
-**All fourteen done.** Remaining open items are the *Accepted, not blocking*
-list, the deferred behavioural half of #3 (scheduled with `P-R3-2`), the
-stricter provider-only resolver from #5, and the two confirmation dialogs,
-which the panel agreed to ship together as one design rather than piecemeal.
+**All fourteen done**, and the *Accepted, not blocking* list is now largely
+through as well — see the commit log from `331bb9c` onward. Landed since:
+stale-Codex-cache detection and cold-start effort clamping (`P-R1-20`,
+`P-R3-2`), the standalone server's probe and its corrected header (`P-R3-1`),
+timer/stdout hygiene (`P-R1-13`), async binary lookup so the main thread no
+longer freezes (`P-R1-12`), sticky-bottom scrolling (`P-R2-6`), markdown
+rendering (`P-R2-15`), model/route in the transcript (`P-R2-4`), the
+fabricated-tool-call badge (`P-R2-20`), the diff card's height cap and honest
+truncation (`P-R2-5`), toast collision and contrast (`P-R2-14`, `P-R2-9`),
+route and workspace staleness (`P-R2-10`, `P-R2-12`), the refresh button's
+states (`P-R2-23`), the library-as-model-catalogue text and both delete
+confirmations (`P-R2-21`), the empty state (`P-R2-11`), warnings sorted ahead of
+the ellipsis (`P-R2-13`), the per-agent status strip and its `onState` hook
+(`P-R2-1`, `P-R1-19`), roster focus retention and ARIA names (`P-R2-7`,
+`P-R2-8`), the bounded queue wait with abort-on-disconnect (`P-R1-14`,
+`P-R3-3`, `P-R3-14`, `P-R3-15`), the OpenAPI spec, CHANGELOG and README
+(`P-R3-4`, `P-R3-5`), the streaming and drift corrections in `MULTIAI.md`
+(`P-R3-6`), and the test gaps (`P-R3-8`, `P-R3-9`, `P-R3-10`, `P-R3-12`).
 
-Suite: **737 pass / 0 fail**, from 731 before. The three assertions that pinned
+Still open by design: the behavioural half of #3 (deferred with `P-R3-2` —
+`codexArgs` cannot see helper presence at the point it is built), the stricter
+provider-only resolver from #5 (the `sendAux` and Orchestrated pins already
+close the hazard), the `full`-seat confirmation dialogs, which the panel agreed
+to ship together as one design rather than piecemeal, and the full tablist
+`role`/roving-tabindex pass.
+
+Suite: **740 pass / 0 fail**, from 731 before. The three assertions that pinned
 the old substitute-the-prompt behaviour were rewritten to assert the new order,
 and eleven tests were added: the quoting layer and the rejected injection
 payloads, cross-client run visibility, the per-repo refusal over both REST and
