@@ -550,3 +550,21 @@ test('Antigravity is a vendor with one route and no tab', () => {
     const provs = optionsOf(t.box.innerHTML, 'Provider for');
     assert.ok(provs.some(o => o.value === 'antigravity' && o.selected));
 });
+
+test('a CLI seat can reach its vendor’s API key', () => {
+    const t = load();
+    // routes.providers is keyed by vendor, so asking under 'claude-cli' found
+    // nothing and the API option was offered disabled, saying there was no key,
+    // while the Claude key was right there.
+    const chat = chatWith(t, [{ id: 'a', name: 'A', provider: 'claude-cli', route: 'cli', model: 'sonnet' }],
+        { apiMode: true, providers: { claude: { hasKey: true } }, cli: { claude: true } });
+    t.render(chat);
+    const api = optionsOf(t.box.innerHTML, 'Route for').find(o => o.value === 'api');
+    assert.ok(api && !api.disabled, 'the vendor has a key, so the route is selectable');
+    assert.equal(api.label, 'API key');
+    // ...and it is still refused when the vendor genuinely has none.
+    const chat2 = chatWith(t, [{ id: 'a', name: 'A', provider: 'claude-cli', route: 'cli', model: 'sonnet' }],
+        { apiMode: true, providers: { claude: { hasKey: false } }, cli: { claude: true } });
+    t.render(chat2);
+    assert.ok(optionsOf(t.box.innerHTML, 'Route for').find(o => o.value === 'api').disabled);
+});

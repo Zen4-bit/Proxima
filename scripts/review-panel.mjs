@@ -188,7 +188,12 @@ let workspaceRoot = WORKSPACE ? path.resolve(WORKSPACE) : '';
 let temporary = '';
 if (!workspaceRoot) {
     temporary = path.join(path.dirname(ROOT), `.${path.basename(ROOT)}-review-${Date.now()}`);
-    git('worktree', 'add', '--detach', temporary, 'HEAD');
+    // On a branch, not detached. workspace.prepare() cuts its chat branch from
+    // the *default* branch whenever HEAD is detached or already on multiai/*,
+    // so a detached worktree had the seats reviewing main while the brief
+    // described this branch — they read a different revision than the one they
+    // were shown, and said so.
+    git('worktree', 'add', '-b', `proxima-review-${Date.now()}`, temporary, 'HEAD');
     workspaceRoot = temporary;
     console.log(`Worktree      : ${temporary}`);
 }
@@ -208,7 +213,18 @@ console.log(`\nChat ${chat.id} created. Watch it in the Multi-AI tab.`);
 
 let messages = [];
 try {
-    ({ messages } = await api('POST', `/v1/multiai/chats/${chat.id}/run`, { text: prompt, who: 'You', rounds: ROUNDS, wait: true }));
+    // wait:false, then poll. Holding the request open for the whole run meant
+    // node's fetch timed out at five minutes and the REST layer, which aborts a
+    // run when its caller hangs up, killed the remaining turns.
+    await api('POST', `/v1/multiai/chats/${chat.id}/run`, { text: prompt, who: 'You', rounds: ROUNDS, wait: false });
+    for (let running = true; running;) {
+        const r = await api('POST', `/v1/multiai/chats/${chat.id}/wait`, { maxMs: 120000 });
+        running = !!r.running;
+        const n = (r.messages || []).filter(m => m.role === 'assistant').length;
+        process.stdout.write(String.fromCharCode(13) + "  " + n + " replies so far   ");
+    }
+    process.stdout.write('\n');
+    ({ messages } = await api('GET', `/v1/multiai/chats/${chat.id}`).then(x => x.chat));
 } finally {
     // Even on a failed run: a worktree left behind is a second checkout of the
     // repo that git will keep reporting until someone prunes it.

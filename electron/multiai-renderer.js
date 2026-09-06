@@ -1620,7 +1620,13 @@ function multiaiRenderParticipants(chat) {
         const isCli = !!MULTIAI_CLI_PROVIDERS[a.provider];
         const p = routes.providers[a.provider] || {};
         const apiOnly = !!p.apiOnly;
-        const apiOk = multiaiApiAvailable(a.provider);
+        // The API route belongs to the vendor, not to the surface the seat is on
+        // now: routes.providers has no 'claude-cli' entry, so asking under the
+        // seat's own id found nothing and offered a Claude Code seat a disabled
+        // "API key — no key in Settings" while the Claude key sat right there.
+        const apiProvider = (MULTIAI_VENDORS[multiaiVendorOf(a.provider)] || {}).browser || a.provider;
+        const pApi = routes.providers[apiProvider] || {};
+        const apiOk = multiaiApiAvailable(apiProvider);
         const vendor = multiaiVendorOf(a.provider);
         const vend = MULTIAI_VENDORS[vendor] || null;
         const curRoute = multiaiRouteOf(a);
@@ -1651,7 +1657,7 @@ function multiaiRenderParticipants(chat) {
                     (curRoute === 'auto' ? opt('auto', `follow Settings → ${apiOk ? 'API key' : 'browser tab'}`, true) : '')
                     + (vend.browser ? opt('browser', 'subscription · browser tab', curRoute === 'browser') : '')
                     + (vend.cli ? opt('cli', `subscription · ${cliName}${cliOkFor(vend.cli) ? cliVer : ' — not installed'}`, curRoute === 'cli', !cliOkFor(vend.cli)) : '')
-                    + (routes.apiMode ? opt('api', p.hasKey ? 'API key' : 'API key — no key in Settings', curRoute === 'api', !p.hasKey) : '')
+                    + (routes.apiMode ? opt('api', pApi.hasKey ? 'API key' : 'API key — no key in Settings', curRoute === 'api', !pApi.hasKey) : '')
                 )
                 : opt(curRoute, curRoute, true));
         const cliDefault = cliInfo && cliInfo.defaultModel ? `${cliInfo.defaultModel} (CLI default)` : 'CLI default';
