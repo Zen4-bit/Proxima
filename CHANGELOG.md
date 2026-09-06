@@ -8,6 +8,31 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 > Dates reflect the project's 2026 development cycle. Where the repository did
 > not record an exact release day, the day is omitted.
 
+## [5.1.0] - 2026-09
+
+Fork release. Adds the **Multi-AI Chat** tab: discussions, debates and pipelines
+run across several AI seats at once, with a shared transcript that local agents
+can read and append to.
+
+### Added
+- **Multi-AI Chat tab.** Classic mode (round-robin discussion, debate, rounds, brevity, personas, charter mode, `@mentions`, HANDOFF routing, a judge and rolling summaries) and Orchestrated mode (crew / workflow / loop / file-tools pipelines).
+- **Agents with routes.** A participant is `name + provider + route + model + effort + persona`, so the same provider can hold several seats at different models and efforts. Routes: the logged-in browser tab, the provider's API per Settings, or Claude Code / Codex / Gemini CLI running locally on your own subscription.
+- **Discovered CLI capabilities.** Models, effort levels, versions, configured defaults and login state are probed from the installed CLIs rather than hard-coded.
+- **Workspace seats.** Attach a git folder to a chat and give CLI seats a Tools level (`none` / `read` / `write` / `full`). Runs happen on the chat's own `multiai/…` branch, cut fresh from your base branch; each writer turn is committed and shown in the transcript as a diff card. Writers are serialised per repository.
+- **Local-model seats.** Any OpenAI-compatible endpoint (Ollama, LM Studio, vLLM, a gateway) registered in Settings → API becomes a seat.
+- **Variants everywhere.** The same CLI seats are exposed as `cli:<seat>` over REST, an OpenAI-compatible `/v1/chat/completions`, a WebSocket fan-out, MCP tools (`cli_variants` / `ask_variant` / `ask_variants`), and a standalone `proxima-variants-mcp` server that runs without the app.
+- **MCP and REST for the transcript.** `multiai_*` tools and `/v1/multiai/*` routes let Claude Desktop, Claude Code, Codex or a script create chats, post messages, run rounds and read results.
+
+### Fixed
+- Codex now runs the newest binary present on the machine (the desktop app's bundle or the one on `PATH`) for runs, discovery and availability.
+- Every chat's branch starts from your base branch, never from another chat's changes.
+
+### Security
+- Model and effort values arriving over REST, WebSocket or MCP are validated before they become CLI arguments, and Windows spawns no longer route through `cmd.exe` except for `.cmd`/`.bat` shims, which get an explicitly quoted command line.
+- A caller-supplied `system` message is appended to the no-tools clause rather than replacing it.
+- File tools are confined to the paths that prepare a workspace: aux turns (judge, summary, title) and Orchestrated steps always run tool-less.
+- CLI child processes are killed when the app quits, and each run gets a private scratch directory.
+
 ## [5.0.0] - 2026-07
 
 A major release that expands Proxima from a browser-session gateway into a full agentic platform. It introduces a modular local agentic pipeline inside the MCP process, an autonomous self-healing Python execution agent, Bring-Your-Own-Key (BYOK) mode with context compaction, and advanced repository intelligence utilities.

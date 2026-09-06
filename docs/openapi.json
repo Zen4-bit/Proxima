@@ -20,20 +20,40 @@
     }
   ],
   "tags": [
-    { "name": "Chat", "description": "OpenAI-compatible chat completions" },
-    { "name": "Functions", "description": "Function-based routing (search, translate, code, etc.)" },
-    { "name": "Multi-Provider", "description": "Multi-AI and battle mode endpoints" },
-    { "name": "Management", "description": "Status, stats, and conversation management" },
-    { "name": "Legacy", "description": "Legacy /api/* endpoints (backwards compatible)" },
-    { "name": "WebSocket", "description": "WebSocket-based real-time chat" }
+    {
+      "name": "Chat",
+      "description": "OpenAI-compatible chat completions"
+    },
+    {
+      "name": "Functions",
+      "description": "Function-based routing (search, translate, code, etc.)"
+    },
+    {
+      "name": "Multi-Provider",
+      "description": "Multi-AI and battle mode endpoints"
+    },
+    {
+      "name": "Management",
+      "description": "Status, stats, and conversation management"
+    },
+    {
+      "name": "Legacy",
+      "description": "Legacy /api/* endpoints (backwards compatible)"
+    },
+    {
+      "name": "WebSocket",
+      "description": "WebSocket-based real-time chat"
+    }
   ],
   "paths": {
     "/v1/chat/completions": {
       "post": {
         "summary": "Chat Completion (OpenAI-compatible)",
-        "description": "Send a message to any AI provider. Supports OpenAI message format, simple message format, and function-based routing. This single endpoint handles ALL Proxima capabilities.",
+        "description": "Send a message to any AI provider. Supports OpenAI message format, simple message format, and function-based routing. This single endpoint handles ALL Proxima capabilities.\n\nAlso accepts a local CLI seat as the model: \"cli:opus:max\", \"cli:gpt-5.5:high\", \"cli:<library id>\", or a library seat's name. For those, `stream: true` is a single-shot pseudo-stream — the CLI produces no incremental tokens, so nothing arrives until the turn finishes and the whole answer is then sent as one delta chunk. `usage` is reported as zeros, since the CLIs do not report token counts.",
         "operationId": "chatCompletion",
-        "tags": ["Chat"],
+        "tags": [
+          "Chat"
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -54,7 +74,10 @@
                   "value": {
                     "model": "chatgpt",
                     "messages": [
-                      { "role": "user", "content": "Explain quantum computing" }
+                      {
+                        "role": "user",
+                        "content": "Explain quantum computing"
+                      }
                     ]
                   }
                 },
@@ -103,7 +126,11 @@
                 "multi_provider": {
                   "summary": "Query multiple providers",
                   "value": {
-                    "model": ["claude", "chatgpt", "gemini"],
+                    "model": [
+                      "claude",
+                      "chatgpt",
+                      "gemini"
+                    ],
                     "message": "What is consciousness?"
                   }
                 },
@@ -147,7 +174,9 @@
             "description": "Bad request — missing message or invalid model",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           },
@@ -155,7 +184,9 @@
             "description": "Provider not available",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           },
@@ -163,7 +194,9 @@
             "description": "Internal server error",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           }
@@ -175,7 +208,9 @@
         "summary": "List available models",
         "description": "Returns all available model aliases and which providers are currently enabled.",
         "operationId": "listModels",
-        "tags": ["Management"],
+        "tags": [
+          "Management"
+        ],
         "responses": {
           "200": {
             "description": "List of available models",
@@ -195,7 +230,9 @@
         "summary": "List available functions",
         "description": "Returns all available function types (search, translate, code, etc.) with their parameters and examples.",
         "operationId": "listFunctions",
-        "tags": ["Functions"],
+        "tags": [
+          "Functions"
+        ],
         "responses": {
           "200": {
             "description": "Available function specifications",
@@ -204,7 +241,10 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "endpoint": { "type": "string", "example": "POST /v1/chat/completions" },
+                    "endpoint": {
+                      "type": "string",
+                      "example": "POST /v1/chat/completions"
+                    },
                     "functions": {
                       "type": "object",
                       "additionalProperties": {
@@ -224,7 +264,9 @@
         "summary": "Get API statistics",
         "description": "Returns request counts, error counts, per-provider timing stats, and uptime information.",
         "operationId": "getStats",
-        "tags": ["Management"],
+        "tags": [
+          "Management"
+        ],
         "responses": {
           "200": {
             "description": "API statistics",
@@ -244,7 +286,9 @@
         "summary": "Start new conversations",
         "description": "Resets conversations across all providers. Equivalent to clicking 'New Chat' on each AI provider.",
         "operationId": "newConversation",
-        "tags": ["Management"],
+        "tags": [
+          "Management"
+        ],
         "responses": {
           "200": {
             "description": "Conversations reset",
@@ -253,8 +297,14 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean", "example": true },
-                    "message": { "type": "string", "example": "New conversations started" }
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "New conversations started"
+                    }
                   }
                 }
               }
@@ -264,7 +314,9 @@
             "description": "Server error",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           }
@@ -276,7 +328,9 @@
         "summary": "Server status (legacy)",
         "description": "Returns server health, version, enabled providers, and statistics.",
         "operationId": "getStatusLegacy",
-        "tags": ["Legacy"],
+        "tags": [
+          "Legacy"
+        ],
         "responses": {
           "200": {
             "description": "Server status",
@@ -296,13 +350,17 @@
         "summary": "API statistics (legacy)",
         "description": "Same as /v1/stats. Returns request counts and provider timings.",
         "operationId": "getStatsLegacy",
-        "tags": ["Legacy"],
+        "tags": [
+          "Legacy"
+        ],
         "responses": {
           "200": {
             "description": "API statistics",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/StatsResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/StatsResponse"
+                }
               }
             }
           }
@@ -314,7 +372,9 @@
         "summary": "Ask a specific provider (legacy)",
         "description": "Send a message to a specific provider. Use 'all' to query all providers simultaneously.",
         "operationId": "askProviderLegacy",
-        "tags": ["Legacy"],
+        "tags": [
+          "Legacy"
+        ],
         "parameters": [
           {
             "name": "provider",
@@ -323,7 +383,14 @@
             "description": "Provider name or 'all'",
             "schema": {
               "type": "string",
-              "enum": ["claude", "chatgpt", "gemini", "perplexity", "auto", "all"]
+              "enum": [
+                "claude",
+                "chatgpt",
+                "gemini",
+                "perplexity",
+                "auto",
+                "all"
+              ]
             }
           }
         ],
@@ -333,9 +400,14 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["message"],
+                "required": [
+                  "message"
+                ],
                 "properties": {
-                  "message": { "type": "string", "description": "The message to send" }
+                  "message": {
+                    "type": "string",
+                    "description": "The message to send"
+                  }
                 }
               }
             }
@@ -349,17 +421,43 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
-                    "provider": { "type": "string" },
-                    "response": { "type": "string" },
-                    "responseTimeMs": { "type": "integer" }
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "provider": {
+                      "type": "string"
+                    },
+                    "response": {
+                      "type": "string"
+                    },
+                    "responseTimeMs": {
+                      "type": "integer"
+                    }
                   }
                 }
               }
             }
           },
-          "400": { "description": "Missing message", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
-          "503": { "description": "Provider not available", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+          "400": {
+            "description": "Missing message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Provider not available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -368,13 +466,17 @@
         "summary": "API Documentation (HTML)",
         "description": "Interactive HTML documentation page with live chat widget and API reference.",
         "operationId": "getDocs",
-        "tags": ["Management"],
+        "tags": [
+          "Management"
+        ],
         "responses": {
           "200": {
             "description": "HTML documentation page",
             "content": {
               "text/html": {
-                "schema": { "type": "string" }
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           }
@@ -386,13 +488,17 @@
         "summary": "CLI Documentation (HTML)",
         "description": "HTML page documenting all Proxima CLI commands and usage.",
         "operationId": "getCLIDocs",
-        "tags": ["Management"],
+        "tags": [
+          "Management"
+        ],
         "responses": {
           "200": {
             "description": "CLI documentation page",
             "content": {
               "text/html": {
-                "schema": { "type": "string" }
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           }
@@ -404,15 +510,516 @@
         "summary": "WebSocket Documentation (HTML)",
         "description": "HTML page documenting WebSocket real-time chat protocol.",
         "operationId": "getWSDocs",
-        "tags": ["WebSocket"],
+        "tags": [
+          "WebSocket"
+        ],
         "responses": {
           "200": {
             "description": "WebSocket documentation page",
             "content": {
               "text/html": {
-                "schema": { "type": "string" }
+                "schema": {
+                  "type": "string"
+                }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/multiai/chats": {
+      "get": {
+        "tags": [
+          "Multi-AI"
+        ],
+        "summary": "List Multi-AI chats",
+        "description": "Every chat with its id, title, mode and message count.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Chat or variant not found"
+          },
+          "409": {
+            "description": "A run is already in progress, or the workspace is in use by another chat"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Multi-AI"
+        ],
+        "summary": "Create a Multi-AI chat",
+        "description": "Creates a chat. `agents[]` may set provider, model, effort, persona and a CLI tools level; `workspace.root` attaches a git folder. A seat with tools other than \"none\" reads and writes that folder.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "classic",
+                      "orchestrated"
+                    ]
+                  },
+                  "rounds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 30
+                  },
+                  "agents": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "description": ""
+                        },
+                        "provider": {
+                          "type": "string",
+                          "description": "chatgpt, claude, gemini, perplexity, claude-cli, codex-cli, gemini-cli or a registered local endpoint"
+                        },
+                        "route": {
+                          "type": "string",
+                          "description": "auto, browser, api or cli"
+                        },
+                        "model": {
+                          "type": "string",
+                          "description": ""
+                        },
+                        "effort": {
+                          "type": "string",
+                          "description": ""
+                        },
+                        "persona": {
+                          "type": "string",
+                          "description": ""
+                        },
+                        "tools": {
+                          "type": "string",
+                          "enum": [
+                            "none",
+                            "read",
+                            "write",
+                            "full"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "workspace": {
+                    "type": "object",
+                    "properties": {
+                      "root": {
+                        "type": "string",
+                        "description": "Absolute path of a git repository."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Created"
+          },
+          "404": {
+            "description": "Chat or variant not found"
+          },
+          "409": {
+            "description": "A run is already in progress, or the workspace is in use by another chat"
+          }
+        }
+      }
+    },
+    "/v1/multiai/chats/{id}": {
+      "get": {
+        "tags": [
+          "Multi-AI"
+        ],
+        "summary": "Read a chat",
+        "description": "The chat with its messages, agents and whether a run is in progress.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Chat id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Chat or variant not found"
+          },
+          "409": {
+            "description": "A run is already in progress, or the workspace is in use by another chat"
+          }
+        }
+      }
+    },
+    "/v1/multiai/chats/{id}/messages": {
+      "post": {
+        "tags": [
+          "Multi-AI"
+        ],
+        "summary": "Append a message",
+        "description": "Adds a message to the transcript without starting a run.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Chat id."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "who": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "provider": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "role": {
+                    "type": "string",
+                    "description": ""
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Chat or variant not found"
+          },
+          "409": {
+            "description": "A run is already in progress, or the workspace is in use by another chat"
+          }
+        }
+      }
+    },
+    "/v1/multiai/chats/{id}/run": {
+      "post": {
+        "tags": [
+          "Multi-AI"
+        ],
+        "summary": "Run rounds",
+        "description": "Runs `rounds` rounds. Returns {started:true} immediately unless `wait` is true, in which case it returns the messages this cycle produced. Refused with 409 if the chat is already running, or if another running chat has claimed the same workspace folder.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Chat id."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "description": "Optional message to record first."
+                  },
+                  "rounds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 30
+                  },
+                  "wait": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Chat or variant not found"
+          },
+          "409": {
+            "description": "A run is already in progress, or the workspace is in use by another chat"
+          }
+        }
+      }
+    },
+    "/v1/multiai/chats/{id}/wait": {
+      "get": {
+        "tags": [
+          "Multi-AI"
+        ],
+        "summary": "Wait for a run",
+        "description": "Blocks until the run finishes or `maxMs` elapses (capped at 120s), then returns the messages after `since` plus whether it is still running.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Chat id."
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "maxMs",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "maximum": 120000
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Chat or variant not found"
+          },
+          "409": {
+            "description": "A run is already in progress, or the workspace is in use by another chat"
+          }
+        }
+      }
+    },
+    "/v1/multiai/chats/{id}/stop": {
+      "post": {
+        "tags": [
+          "Multi-AI"
+        ],
+        "summary": "Stop a run",
+        "description": "Aborts browser turns, kills CLI process trees, and discards an in-flight API result.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Chat id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Chat or variant not found"
+          },
+          "409": {
+            "description": "A run is already in progress, or the workspace is in use by another chat"
+          }
+        }
+      }
+    },
+    "/v1/multiai/running": {
+      "get": {
+        "tags": [
+          "Multi-AI"
+        ],
+        "summary": "List running chats",
+        "description": "`{running: [chatId]}` for every chat with a run in flight, whichever surface started it.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Chat or variant not found"
+          },
+          "409": {
+            "description": "A run is already in progress, or the workspace is in use by another chat"
+          }
+        }
+      }
+    },
+    "/v1/multiai/variants": {
+      "get": {
+        "tags": [
+          "Variants"
+        ],
+        "summary": "List CLI variants",
+        "description": "What each installed CLI offers on this machine — version, models, effort levels, defaults, login state — plus the agent library.",
+        "parameters": [
+          {
+            "name": "probe",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Re-probe the CLIs instead of using the cache."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Chat or variant not found"
+          },
+          "409": {
+            "description": "A run is already in progress, or the workspace is in use by another chat"
+          }
+        }
+      }
+    },
+    "/v1/multiai/variants/ask": {
+      "post": {
+        "tags": [
+          "Variants"
+        ],
+        "summary": "Ask one CLI variant",
+        "description": "Runs a single one-shot CLI turn. `variant` accepts a library seat name or id, or shorthand such as \"opus:max\". The seat has no tools; a supplied `system` is appended to that clause, never substituted for it.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "variant": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "provider": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "model": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "effort": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "message": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "system": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "timeoutMs": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Chat or variant not found"
+          },
+          "409": {
+            "description": "A run is already in progress, or the workspace is in use by another chat"
+          }
+        }
+      }
+    },
+    "/v1/multiai/variants/ask-many": {
+      "post": {
+        "tags": [
+          "Variants"
+        ],
+        "summary": "Ask several CLI variants",
+        "description": "Fans out to at most 8 seats. Every seat reports its own result or error; one failure does not sink the others.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "variants": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "message": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "system": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "timeoutMs": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Chat or variant not found"
+          },
+          "409": {
+            "description": "A run is already in progress, or the workspace is in use by another chat"
           }
         }
       }
@@ -427,8 +1034,20 @@
           "model": {
             "description": "Model/provider to use. Can be a string, array of strings, or special values 'auto'/'all'.",
             "oneOf": [
-              { "type": "string", "example": "claude" },
-              { "type": "array", "items": { "type": "string" }, "example": ["claude", "chatgpt"] }
+              {
+                "type": "string",
+                "example": "claude"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "example": [
+                  "claude",
+                  "chatgpt"
+                ]
+              }
             ]
           },
           "message": {
@@ -446,12 +1065,25 @@
           "function": {
             "type": "string",
             "description": "Function routing — changes behavior of the same endpoint",
-            "enum": ["search", "translate", "brainstorm", "code", "analyze", "security_audit", "debate"]
+            "enum": [
+              "search",
+              "translate",
+              "brainstorm",
+              "code",
+              "analyze",
+              "security_audit",
+              "debate"
+            ]
           },
           "action": {
             "type": "string",
             "description": "Sub-action for code function",
-            "enum": ["generate", "review", "debug", "explain"]
+            "enum": [
+              "generate",
+              "review",
+              "debug",
+              "explain"
+            ]
           },
           "to": {
             "type": "string",
@@ -502,11 +1134,18 @@
       },
       "Message": {
         "type": "object",
-        "required": ["role", "content"],
+        "required": [
+          "role",
+          "content"
+        ],
         "properties": {
           "role": {
             "type": "string",
-            "enum": ["system", "user", "assistant"],
+            "enum": [
+              "system",
+              "user",
+              "assistant"
+            ],
             "description": "Message role"
           },
           "content": {
@@ -549,17 +1188,25 @@
             "type": "object",
             "description": "Proxima-specific metadata",
             "properties": {
-              "provider": { "type": "string" },
-              "responseTimeMs": { "type": "integer" },
+              "provider": {
+                "type": "string"
+              },
+              "responseTimeMs": {
+                "type": "integer"
+              },
               "providers": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "description": "Providers used (multi-provider mode)"
               },
               "timings": {
                 "type": "object",
                 "description": "Per-provider timing (multi-provider mode)",
-                "additionalProperties": { "type": "integer" }
+                "additionalProperties": {
+                  "type": "integer"
+                }
               }
             }
           }
@@ -568,19 +1215,41 @@
       "Choice": {
         "type": "object",
         "properties": {
-          "index": { "type": "integer" },
-          "message": { "$ref": "#/components/schemas/Message" },
-          "finish_reason": { "type": "string", "example": "stop" },
-          "model": { "type": "string", "description": "Provider (in multi-provider mode)" },
-          "responseTimeMs": { "type": "integer", "description": "Time taken (in multi-provider mode)" }
+          "index": {
+            "type": "integer"
+          },
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "finish_reason": {
+            "type": "string",
+            "example": "stop"
+          },
+          "model": {
+            "type": "string",
+            "description": "Provider (in multi-provider mode)"
+          },
+          "responseTimeMs": {
+            "type": "integer",
+            "description": "Time taken (in multi-provider mode)"
+          }
         }
       },
       "Usage": {
         "type": "object",
         "properties": {
-          "prompt_tokens": { "type": "integer", "example": 0 },
-          "completion_tokens": { "type": "integer", "example": 0 },
-          "total_tokens": { "type": "integer", "example": 0 }
+          "prompt_tokens": {
+            "type": "integer",
+            "example": 0
+          },
+          "completion_tokens": {
+            "type": "integer",
+            "example": 0
+          },
+          "total_tokens": {
+            "type": "integer",
+            "example": 0
+          }
         }
       },
       "ModelsResponse": {
@@ -588,18 +1257,32 @@
         "properties": {
           "enabled": {
             "type": "array",
-            "items": { "type": "string" },
-            "example": ["claude", "chatgpt", "gemini", "perplexity"]
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "claude",
+              "chatgpt",
+              "gemini",
+              "perplexity"
+            ]
           },
           "aliases": {
             "type": "object",
             "description": "All model aliases mapping to provider names",
-            "additionalProperties": { "type": "string" }
+            "additionalProperties": {
+              "type": "string"
+            }
           },
           "special": {
             "type": "array",
-            "items": { "type": "string" },
-            "example": ["auto", "all"],
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "auto",
+              "all"
+            ],
             "description": "Special model keywords"
           }
         }
@@ -607,60 +1290,121 @@
       "FunctionSpec": {
         "type": "object",
         "properties": {
-          "description": { "type": "string" },
-          "body": { "type": "object" },
-          "optional": { "type": "object" },
-          "example": { "type": "object" },
+          "description": {
+            "type": "string"
+          },
+          "body": {
+            "type": "object"
+          },
+          "optional": {
+            "type": "object"
+          },
+          "example": {
+            "type": "object"
+          },
           "examples": {
             "type": "array",
-            "items": { "type": "object" }
+            "items": {
+              "type": "object"
+            }
           }
         }
       },
       "StatsResponse": {
         "type": "object",
         "properties": {
-          "uptime": { "type": "string", "example": "3600s" },
-          "totalRequests": { "type": "integer", "example": 42 },
-          "totalErrors": { "type": "integer", "example": 2 },
+          "uptime": {
+            "type": "string",
+            "example": "3600s"
+          },
+          "totalRequests": {
+            "type": "integer",
+            "example": 42
+          },
+          "totalErrors": {
+            "type": "integer",
+            "example": 2
+          },
           "providers": {
             "type": "object",
             "additionalProperties": {
               "$ref": "#/components/schemas/ProviderStats"
             }
           },
-          "timestamp": { "type": "string", "format": "date-time" }
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "ProviderStats": {
         "type": "object",
         "properties": {
-          "calls": { "type": "integer" },
-          "errors": { "type": "integer" },
-          "avgTime": { "type": "string", "example": "6.2s" },
-          "minTime": { "type": "string", "example": "4.1s" },
-          "maxTime": { "type": "string", "example": "12.5s" },
+          "calls": {
+            "type": "integer"
+          },
+          "errors": {
+            "type": "integer"
+          },
+          "avgTime": {
+            "type": "string",
+            "example": "6.2s"
+          },
+          "minTime": {
+            "type": "string",
+            "example": "4.1s"
+          },
+          "maxTime": {
+            "type": "string",
+            "example": "12.5s"
+          },
           "last5": {
             "type": "array",
-            "items": { "type": "string" },
-            "example": ["5.2s", "6.8s", "4.1s"]
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "5.2s",
+              "6.8s",
+              "4.1s"
+            ]
           },
-          "lastCall": { "type": "string", "format": "date-time" }
+          "lastCall": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "StatusResponse": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "server": { "type": "string", "example": "Proxima API" },
-          "version": { "type": "string", "example": "5.0.0" },
-          "port": { "type": "integer", "example": 3210 },
+          "success": {
+            "type": "boolean"
+          },
+          "server": {
+            "type": "string",
+            "example": "Proxima API"
+          },
+          "version": {
+            "type": "string",
+            "example": "5.0.0"
+          },
+          "port": {
+            "type": "integer",
+            "example": 3210
+          },
           "enabledProviders": {
             "type": "array",
-            "items": { "type": "string" }
+            "items": {
+              "type": "string"
+            }
           },
-          "providers": { "type": "object" },
-          "stats": { "$ref": "#/components/schemas/StatsResponse" }
+          "providers": {
+            "type": "object"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/StatsResponse"
+          }
         }
       },
       "ErrorResponse": {
@@ -669,12 +1413,24 @@
           "error": {
             "type": "object",
             "properties": {
-              "message": { "type": "string", "example": "message required" },
-              "type": { "type": "string", "example": "api_error" },
-              "code": { "type": "integer", "example": 400 }
+              "message": {
+                "type": "string",
+                "example": "message required"
+              },
+              "type": {
+                "type": "string",
+                "example": "api_error"
+              },
+              "code": {
+                "type": "integer",
+                "example": 400
+              }
             }
           },
-          "timestamp": { "type": "string", "format": "date-time" }
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       }
     }

@@ -148,7 +148,7 @@ and aren't introduced to the others (`enabled: false` on the stored agent;
 `normalizeAgents` drops them). Agents are defined once — *+ add agent…* offers
 a new row per provider and anything in the library — and live in a library
 (`uiPrefs.agentLibrary`, keyed by `uid`). Every new chat starts with the whole
-library switched on; editing a library agent (✎) applies to every chat that
+library switched on; editing a library agent in its row applies to every chat that
 carries it; ✕ on a row removes the agent from that chat only, ✕ in the library
 list removes it for good (chats keep a chat-local copy). Agents that arrive
 without a `uid` — legacy `participants`, chats created over REST/MCP — are
@@ -203,8 +203,9 @@ bleed into each other or into the MCP tools' `mcp-session` thread.
   (`3.5-flash`, `3.1-pro`, `3.1-flash-lite`, `auto`); other browser agents ignore it.
 - **Stop early when all agree.** A round where everyone says the stop token or
   passes ends the run and posts a system note.
-- **Independent first round.** Round 1 of each Send runs everyone in parallel
-  and blind (no same-cycle replies in their prompt); later rounds are round-robin.
+- **Independent first round.** Off by default; tick it in the Discussion tab.
+  Round 1 of each Send then runs everyone in parallel and blind (no same-cycle
+  replies in their prompt); later rounds are round-robin.
 - **Directed turns.** `@claude kick off, others react` puts Claude first;
   `only @gemini and @chatgpt …` restricts the round to those two. Mention agents
   by id (`@opus-max`), by name with the spaces dropped (`@gptlow` for "GPT low")
@@ -341,8 +342,23 @@ The same seats are reachable from anything that speaks HTTP, on the gateway
 | GET | `/v1/multiai/variants` | `?probe=1` to re-probe the CLIs | `{cli: {claude, codex, gemini}, library: [{id, name, provider, model, effort, persona}]}` |
 | POST | `/v1/multiai/variants/ask` | `{message, variant? \| provider?+model?+effort?, system?, timeoutMs?}` | `{variant, id, provider, model, effort, text, ms, costUsd}` |
 | POST | `/v1/multiai/variants/ask-many` | `{message, variants: [...≤8], system?, timeoutMs?}` | `{results: [{ok, …} \| {ok:false, variant, error}]}` |
-| POST | `/v1/chat/completions` | OpenAI body with `model: "cli:opus:max"`, `"cli:gpt-5.5:high"`, `"cli:<library id>"` or a library seat's name; `stream: true` supported | a standard `chat.completion` (or SSE chunks); `proxima` carries variant/model/effort/time |
+| POST | `/v1/chat/completions` | OpenAI body with `model: "cli:opus:max"`, `"cli:gpt-5.5:high"`, `"cli:<library id>"` or a library seat's name; `stream: true` accepted, but see below | a standard `chat.completion` (or SSE chunks); `proxima` carries variant/model/effort/time |
 | GET | `/v1/models` | | now also lists `cli:<seat>` entries — library seats first, then each logged-in CLI's models — so OpenAI-compatible clients can pick them from a menu |
+
+**`stream: true` on a `cli:` model is a single-shot pseudo-stream.** The CLIs are
+invoked in a way that yields no incremental tokens — Claude Code with
+`--output-format json` (one blob at exit), Codex with `--output-last-message`
+(read whole afterwards) — so the whole answer is produced first and then written
+as one delta chunk, a stop chunk and `[DONE]`. Nothing arrives until the turn
+finishes, which can be many minutes: clients that apply a first-byte stall
+timeout should raise it or use the non-streaming form. (The gateway's genuine
+incremental streaming is Gemini-only and predates this; the `cli:` path is
+consistent with the rest of it, not a regression.) `usage` is reported as zeros,
+since the CLIs do not report token counts.
+
+**`system` is appended, not substituted.** A `cli:` seat has no tools, and the
+clause saying so is what stops it emitting tool-call syntax and inventing the
+results; a caller's own system message is added after it rather than replacing it.
 
 The OpenAI-compatible path is the one to point Open WebUI, a Python
 `openai` client, the VariantArena UI or any other OpenAI-speaking tool at:

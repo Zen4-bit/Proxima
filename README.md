@@ -106,6 +106,28 @@ Proxima serves as a local development gateway that centralizes and runs all your
 
 ---
 
+## Multi-AI Chat
+
+A native tab that runs discussions, debates and pipelines across several AI
+seats at once. A seat can be a logged-in browser session, the same provider over
+its API, or **Claude Code / Codex / Gemini CLI running locally on your own
+subscription** — so you can put "Opus · max" and "Sonnet · low" in the same
+conversation and watch them argue.
+
+- **Agents, not just providers.** Each seat has a route, model, effort level and
+  persona, and the roster order is the turn order.
+- **A workspace, optionally.** Attach a git folder and give CLI seats a tools
+  level; every writing turn lands on the chat's own branch and appears in the
+  transcript as a reviewable diff.
+- **Open to your other tools.** The transcript is readable and appendable over
+  REST and MCP, and every CLI seat is served as an OpenAI-compatible model
+  (`cli:opus:max`), so Open WebUI, an `openai` client or your own script can
+  call it.
+
+See **[docs/MULTIAI.md](docs/MULTIAI.md)** for the full reference.
+
+---
+
 ## Routing Modes
 
 Proxima supports two primary modes to power your editor and agent integrations:

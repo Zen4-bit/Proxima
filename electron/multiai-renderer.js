@@ -2298,6 +2298,12 @@ async function multiaiExportMd() {
 
 function multiaiOptionsWithSelected(options, value) {
     if (!value) return options;
+    // A saved provider that is no longer on offer (a CLI seat, or one disabled
+    // in Settings) used to fall silently to the first option, so the step ran
+    // as something the user never chose. Keep it, marked.
+    if (!options.includes(`value="${multiaiEscapeAttr(value)}"`) && !options.includes(`value="${value}"`)) {
+        return `<option value="${multiaiEscapeAttr(value)}" selected>${multiaiEscape(value)} (unavailable)</option>` + options;
+    }
     return options.replace(`value="${value}"`, `value="${value}" selected`);
 }
 

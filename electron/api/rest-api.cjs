@@ -215,10 +215,17 @@ function parseBody(req) {
     });
 }
 
+// Some handlers await work that can outlast the client — a CLI variant call
+// runs for up to 20 minutes — so by the time they answer, the socket may be
+// gone. Writing to a destroyed response throws, and the top-level catch would
+// then re-enter sendError and throw again with nothing to catch it.
 function sendJSON(res, code, data) {
+    if (!res || res.writableEnded || res.destroyed) return;
     const cors = res._proximaCors || { 'Access-Control-Allow-Origin': 'http://localhost', 'Vary': 'Origin' };
-    res.writeHead(code, { 'Content-Type': 'application/json', ...cors, 'X-Powered-By': 'Proxima AI' });
-    res.end(JSON.stringify(data, null, 2));
+    try {
+        res.writeHead(code, { 'Content-Type': 'application/json', ...cors, 'X-Powered-By': 'Proxima AI' });
+        res.end(JSON.stringify(data, null, 2));
+    } catch { /* client went away mid-write */ }
 }
 
 function sendError(res, code, msg, type = 'api_error') {

@@ -1450,6 +1450,10 @@ function registerMultiAiHandlers(deps) {
                     const r = await askVariant({ variant: String(body.model), message, system: body.system || system });
                     const completion = completionFor(r, String(body.model));
                     if (body.stream === true) {
+                        // askVariant above can take many minutes, so the client
+                        // is quite likely gone by now; the pre-existing chunked
+                        // path guards every write for the same reason.
+                        if (res.writableEnded || res.destroyed) return true;
                         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', ...(res._proximaCors || {}) });
                         const base = { id: completion.id, object: 'chat.completion.chunk', created: completion.created, model: completion.model };
                         res.write(`data: ${JSON.stringify(Object.assign({}, base, { choices: [{ index: 0, delta: { role: 'assistant', content: r.text }, finish_reason: null }] }))}\n\n`);
