@@ -197,6 +197,28 @@ function knownLocations(bin) {
     return (IS_WIN ? win : nix)[bin] || [];
 }
 
+// npm installs three files side by side on Windows — `claude` (an extensionless
+// shell script), `claude.cmd` and `claude.ps1` — and `where` lists the
+// extensionless one first. cmd.exe used to paper over that: given a path with
+// no extension it appends each PATHEXT entry until something exists. Spawning
+// the resolved path directly does not, so the extensionless script reaches
+// CreateProcess and fails with ENOENT. Pick a runnable one instead.
+function preferExecutable(candidates) {
+    const list = (candidates || []).filter(Boolean);
+    if (!list.length) return null;
+    if (!IS_WIN) return list[0];
+    const exts = String(process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').map(e => e.trim().toLowerCase()).filter(Boolean);
+    const direct = list.find(f => exts.includes(path.extname(f).toLowerCase()));
+    if (direct) return direct;
+    // Nothing on the list is runnable as-is: try siblings of the first hit in
+    // PATHEXT order, the way cmd.exe would have.
+    for (const ext of exts) {
+        const candidate = list[0] + ext;
+        try { if (fs.existsSync(candidate)) return candidate; } catch { /* keep looking */ }
+    }
+    return list[0];
+}
+
 const _avail = {};
 // Resolved path of a CLI (PATH first, then the usual install folders), or null.
 function which(bin) {
@@ -204,7 +226,7 @@ function which(bin) {
     let found = null;
     try {
         const out = execFileSync(IS_WIN ? 'where' : 'which', [bin], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000, env: childEnv() });
-        found = out.split(/\r?\n/).map(l => l.trim()).filter(Boolean)[0] || null;
+        found = preferExecutable(out.split(NEWLINE_RE).map(l => l.trim()).filter(Boolean));
     } catch { found = null; }
     if (!found) found = knownLocations(bin).find(p => { try { return fs.existsSync(p); } catch { return false; } }) || null;
     _avail[bin] = found;
@@ -840,7 +862,7 @@ module.exports = {
     run, runClaude, runCodex, runGemini, availability, resetAvailabilityCache, which, discover, discovered, childEnv, knownLocations,
     parseClaudeHelp, parseCodexModelsCache, parseCodexConfig, geminiAuthFrom, codexEffortFor,
     claudeArgs, codexArgs, geminiArgs, workspaceSystemPrompt, codexSandboxHelperDir, codexSandboxBundle, codexSandboxSupport, hasCodexHelpers,
-    codexCandidates, resolveCodex, codexExe, parseVersion, cmpVersion, spawnCli, winQuote, cmdCommandLine, killAll, whichAsync, warmAvailability, queueDepth,
+    codexCandidates, resolveCodex, codexExe, parseVersion, cmpVersion, spawnCli, winQuote, cmdCommandLine, killAll, whichAsync, warmAvailability, queueDepth, preferExecutable,
     __acquire: acquire, __release: release,   // concurrency internals, for tests
     EFFORT_MAP, DISCUSSION_SYSTEM_PROMPT, MAX_PARALLEL, KINDS, BINS, LABELS, TOOLS_LEVELS, CLAUDE_TOOLS,
 };

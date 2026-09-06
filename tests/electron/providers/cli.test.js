@@ -240,6 +240,22 @@ test('codexEffortFor: clamps down to the nearest supported level, not the highes
     assert.equal(cli.codexEffortFor('mid', '', models), null);
 });
 
+// npm installs `claude`, `claude.cmd` and `claude.ps1` side by side and `where`
+// lists the extensionless shell script first. cmd.exe used to hide that: given a
+// path with no extension it appends PATHEXT entries until one exists. Spawning
+// the resolved path directly does not, so picking the first hit handed an
+// extensionless script to CreateProcess and every Claude Code seat failed with
+// ENOENT. Caught by running the app, not by the suite — hence this test.
+test('preferExecutable: picks a runnable file, not the extensionless shim', () => {
+    if (process.platform !== 'win32') return;   // PATHEXT is a Windows concern
+    assert.equal(cli.preferExecutable(['C:/x/claude', 'C:/x/claude.cmd', 'C:/x/claude.ps1']), 'C:/x/claude.cmd',
+        'an executable extension wins over the extensionless script');
+    assert.equal(cli.preferExecutable(['C:/x/codex.exe']), 'C:/x/codex.exe', 'a real .exe is left alone');
+    assert.equal(cli.preferExecutable(['C:/x/nope']), 'C:/x/nope',
+        'with no runnable sibling on disk, the original is returned rather than nothing');
+    assert.equal(cli.preferExecutable([]), null);
+});
+
 test('winQuote: a trailing backslash run is doubled so it cannot escape the closing quote', () => {
     assert.equal(cli.winQuote('plain'), '"plain"');
     assert.equal(cli.winQuote('a b'), '"a b"');
