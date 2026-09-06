@@ -440,7 +440,12 @@ function registerMultiAiHandlers(deps) {
     function workspaceFor(chat, agent) {
         const root = chat && chat.workspace && chat.workspace.root;
         if (!root || !agent || !core.CLI_PROVIDERS[agent.provider] || !agent.tools || agent.tools === 'none') return null;
-        return { root, branch: (chat.workspace && chat.workspace.branch) || workspace.branchFor(chat.id), tools: agent.tools };
+        // A read-only seat commits nothing, so it is on no branch: it reads the
+        // folder as it stands. Only a writing run has one, and prepareWorkspace
+        // has stored it before any turn asks.
+        const writing = agent.tools === 'write' || agent.tools === 'full';
+        const branch = writing ? ((chat.workspace && chat.workspace.branch) || workspace.branchFor(chat.id)) : null;
+        return { root, branch, tools: agent.tools };
     }
 
     // CLI route: Claude Code / Codex / Gemini CLI on the local machine.
@@ -637,7 +642,11 @@ function registerMultiAiHandlers(deps) {
             delta: { sinceId: (!st || st.rotated || st.turns === 0) ? null : st.lastId, provider: agent.provider, agentId: agent.id },
             charter: !!chat.charterMode,
             redTeam: !!(chat.charterMode && opts.redTeam && opts.redTeam.id === agent.id),
-            workspace: chat.workspace && chat.workspace.root ? { root: chat.workspace.root, branch: chat.workspace.branch || workspace.branchFor(chat.id) } : null,
+            // Only name a branch the run is actually on. This used to fall back
+            // to branchFor(chat.id) whether or not one had been cut, so a
+            // read-only run told every seat it was working on a multiai/... branch
+            // that did not exist.
+            workspace: chat.workspace && chat.workspace.root ? { root: chat.workspace.root, branch: chat.workspace.branch || null } : null,
         });
         // Writers take turns in the folder one at a time (readers and
         // discussion seats can overlap), so parallel first rounds never race
@@ -779,6 +788,16 @@ function registerMultiAiHandlers(deps) {
         if (!root) return null;
         const seats = agents.filter(a => workspaceFor(chat, a));
         if (!seats.length) return null;
+        // Only a run that will write needs a branch. Cutting one for a read-only
+        // panel moved the user's checkout onto multiai/... as a side effect of
+        // reading files, and refused to start at all over uncommitted work they
+        // very likely wanted reviewed. Nothing here commits, so nothing here
+        // needs a branch — or even a git repository.
+        const writers = seats.filter(a => a.tools === 'write' || a.tools === 'full');
+        if (!writers.length) {
+            note(chatId, `Workspace ${root} — read-only this run, so it stays on your branch and your uncommitted work is visible.`);
+            return null;
+        }
         const branch = chat.workspace.branch || workspace.branchFor(chat.id);
         const r = await workspace.prepare(root, branch, { pending: chat.workspace.pending || null });
         if (!r.ok) throw new Error(r.error);

@@ -1117,3 +1117,45 @@ test('"only @x" still runs blind — it restricts who takes part, not the order'
     assert.deepEqual(providerCalls.map(c => c.provider).sort(), ['claude', 'gemini']);
     assert.ok(providerCalls.every(c => marksIn(c.message).length === 0), 'still blind');
 });
+
+test('workspace: a read-only panel stays on your branch and needs no repo', { skip: !gitOk && 'git not installed' }, async () => {
+    const root = tempRepo();
+    // Uncommitted work is the normal state of a folder you want reviewed, and it
+    // used to stop the run outright.
+    fs.writeFileSync(path.join(root, 'wip.txt'), 'half-finished\n');
+    providerCalls.length = 0;
+    replyFn = async () => 'looks fine';
+    const chat = newChat({ participants: [], agents: [
+        { name: 'R1', provider: 'claude-cli', model: 'r1', tools: 'read' },
+        { name: 'R2', provider: 'codex-cli', model: 'r2', tools: 'read' },
+    ], workspace: { root }, stopWhenAllAgree: false });
+    userMsg(chat.id, 'review this');
+    const r = await invoke('multiai-run-round', { chatId: chat.id, rounds: 1 });
+    assert.equal(r.success, true, r.error);
+    // Nothing here commits, so nothing here needs a branch.
+    assert.equal(gitIn(root, ['rev-parse', '--abbrev-ref', 'HEAD']).trim(), 'main');
+    assert.equal(gitIn(root, ['branch', '--list', 'multiai/*']).trim(), '');
+    assert.equal(store.getChat(chat.id).workspace.branch, undefined);
+    assert.ok(fs.existsSync(path.join(root, 'wip.txt')), 'their uncommitted work is untouched');
+    // ...and the seats are told the folder without naming a branch they are not on.
+    assert.ok(providerCalls.every(c => c.message.includes(root)));
+    assert.ok(providerCalls.every(c => !/git branch multiai/.test(c.message)));
+});
+
+test('workspace: one writer in the panel still gets a branch', { skip: !gitOk && 'git not installed' }, async () => {
+    const root = tempRepo();
+    providerCalls.length = 0;
+    replyFn = async () => 'done';
+    const chat = newChat({ participants: [], agents: [
+        { name: 'R', provider: 'claude-cli', model: 'r', tools: 'read' },
+        { name: 'W', provider: 'codex-cli', model: 'w', tools: 'write' },
+    ], workspace: { root }, stopWhenAllAgree: false });
+    userMsg(chat.id, 'go');
+    assert.equal((await invoke('multiai-run-round', { chatId: chat.id, rounds: 1 })).success, true);
+    assert.match(gitIn(root, ['rev-parse', '--abbrev-ref', 'HEAD']).trim(), /^multiai\//);
+    // Everyone is told the branch, reader included: it exists this time, and a
+    // reader reviewing a writer's commits needs to know where they landed.
+    const branch = store.getChat(chat.id).workspace.branch;
+    assert.match(branch, /^multiai\//);
+    assert.ok(providerCalls.every(c => c.message.includes(`git branch ${branch}`)));
+});
