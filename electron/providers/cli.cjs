@@ -251,7 +251,15 @@ function whichAsync(bin) {
     if (_avail[bin] !== undefined) return Promise.resolve(_avail[bin]);
     return new Promise(resolve => {
         execFile(IS_WIN ? 'where' : 'which', [bin], { encoding: 'utf8', timeout: 5000, env: childEnv(), windowsHide: true }, (err, stdout) => {
-            let found = err ? null : (String(stdout).split(NEWLINE_RE).map(l => l.trim()).filter(Boolean)[0] || null);
+            // preferExecutable, exactly as the synchronous which() does. Without
+            // it this took `where`'s first line, which for an npm-installed CLI is
+            // gemini.ps1 or the extensionless shim — neither of which spawn on
+            // Windows. warmAvailability() calls this for every CLI at startup and
+            // writes into the same _avail cache which() then reads, so one bad
+            // pick poisoned every later lookup: discovery still worked (it reads
+            // --version through the same path and got lucky on ordering for some
+            // bins) while every real turn died with spawn ... ENOENT.
+            let found = err ? null : preferExecutable(String(stdout).split(NEWLINE_RE).map(l => l.trim()).filter(Boolean));
             if (!found) found = knownLocations(bin).find(f => { try { return fs.existsSync(f); } catch { return false; } }) || null;
             _avail[bin] = found;
             resolve(found);
@@ -507,7 +515,15 @@ async function discover({ force = false } = {}) {
             };
         } else out.codex = { available: false, label: LABELS.codex };
         if (avail.gemini) {
-            const ver = await runQuick('gemini', ['--version']);
+            const [ver, help] = await Promise.all([runQuick('gemini', ['--version']), runQuick('gemini', ['--help'])]);
+            // Gemini CLI refuses to run in a folder it has not been told to
+            // trust, and says so instead of answering: "not running in a trusted
+            // directory ... use `--skip-trust`". Every seat here runs either in
+            // a scratch folder we made or in the workspace the user attached,
+            // and neither can be trusted interactively from a headless turn, so
+            // the flag is the only way through. It is not on every build, and an
+            // unknown flag is itself a failed turn, so ask this one.
+            const skipTrust = /--skip-trust/.test(`${help.stdout}${help.stderr}`);
             const settings = readJson(path.join(home, '.gemini', 'settings.json')) || {};
             const auth = geminiAuthFrom(settings);
             out.gemini = {
@@ -520,13 +536,14 @@ async function discover({ force = false } = {}) {
                 defaultModel: (settings.model && (settings.model.name || settings.model)) || '',
                 defaultEffort: '',
                 auth,
+                skipTrust,
                 loggedIn: !!auth,
                 // Individual tiers (free, AI Pro, AI Ultra) stopped being served on
                 // 2026-06-18 and the CLI answers IneligibleTierError; an enterprise
                 // licence or a paid API key still works. Say so here rather than
                 // letting a seat fail with a stack trace.
                 note: auth
-                    ? 'Model ids as the CLI accepts them (blank = its default). No effort switch. Free / AI Pro / AI Ultra sign-ins are no longer served — use an Antigravity seat, or a paid API key / enterprise licence here.'
+                    ? `Model ids as the CLI accepts them (blank = its default). No effort switch. Free / AI Pro / AI Ultra sign-ins are no longer served — use an Antigravity seat, or a paid API key / enterprise licence here.${skipTrust ? '' : ' This build has no --skip-trust, so turns outside a folder you have trusted interactively will be refused.'}`
                     : 'Not configured: run `gemini` once and choose a login method (Google account or API key).',
             };
         } else out.gemini = { available: false, label: LABELS.gemini };
@@ -901,10 +918,14 @@ function runCodex({ model, effort, prompt, systemPrompt, cwd, workspace, timeout
 // auto_edit (write), yolo (full). No effort switch. The workspace folder must
 // be trusted in Gemini CLI, or it falls back to prompting and headless
 // tool calls are denied.
-function geminiArgs({ model, workspace }) {
+function geminiArgs({ model, workspace, skipTrust }) {
     const level = workspace && TOOLS_LEVELS.includes(workspace.tools) ? workspace.tools : 'none';
     const mode = level === 'write' ? 'auto_edit' : (level === 'full' ? 'yolo' : 'plan');
     const args = ['-p', 'Follow the instructions above and reply now.', '-o', 'json', '--approval-mode', mode];
+    // Trust is about the folder, not about what the seat may do there: the tools
+    // level above is what decides that, and a `none` seat is in plan mode in an
+    // empty scratch directory either way.
+    if (skipTrust) args.push('--skip-trust');
     if (model) args.push('-m', String(model));
     return args;
 }
@@ -979,7 +1000,11 @@ function runAntigravity({ model, effort, prompt, systemPrompt, cwd, workspace, t
 function runGemini({ model, prompt, systemPrompt, cwd, workspace, timeoutMs, onState, queueDeadlineMs }) {
     const dir = scratchDir(cwd);
     const level = workspace && workspace.root && workspace.tools && workspace.tools !== 'none' ? workspace.tools : 'none';
-    const args = geminiArgs({ model, workspace: level !== 'none' ? workspace : null });
+    // Unknown means discovery has not run yet (a REST or MCP call before the
+    // editor asked): send it, because every build that still serves a turn has
+    // it, and a build that does not would have refused the folder anyway.
+    const info = _discovered && _discovered.gemini;
+    const args = geminiArgs({ model, workspace: level !== 'none' ? workspace : null, skipTrust: !info || info.skipTrust !== false });
     const full = `${systemPrompt || (level !== 'none' ? workspaceSystemPrompt(workspace) : DISCUSSION_SYSTEM_PROMPT)}\n\n${prompt}`;
     const run = runProcess('gemini', 'gemini', args, { cwd: level !== 'none' ? workspace.root : dir, prompt: full, timeoutMs, onState, queueDeadlineMs });
     const promise = run.promise.then(({ code, stdout, stderr }) => {
@@ -1026,5 +1051,7 @@ module.exports = {
     codexCandidates, resolveCodex, codexExe, parseVersion, cmpVersion, spawnCli, winQuote, cmdCommandLine, killAll, whichAsync, warmAvailability, queueDepth, preferExecutable,
     __acquire: acquire, __release: release,   // concurrency internals, for tests
     __parseAgyModels: parseAgyModels,        // folds agy models into families, for tests
+    __geminiArgs: geminiArgs,
+    __preferExecutable: preferExecutable,
     EFFORT_MAP, DISCUSSION_SYSTEM_PROMPT, MAX_PARALLEL, KINDS, BINS, LABELS, TOOLS_LEVELS, CLAUDE_TOOLS,
 };

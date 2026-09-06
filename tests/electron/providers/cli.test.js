@@ -289,3 +289,30 @@ test('acquire: a queued caller can be given a deadline, and gets a 503-shaped er
     cli.__release(kind);
     assert.equal(cli.queueDepth()[kind].running, 0);
 });
+
+test('gemini: the trusted-folder gate is cleared where the build can clear it', () => {
+    // Every seat runs in a scratch folder we made or the workspace the user
+    // attached, and a headless turn cannot answer an interactive trust prompt —
+    // so without this the CLI refuses to answer at all.
+    const on = cli.__geminiArgs({ model: 'gemini-3.1-pro', skipTrust: true });
+    assert.ok(on.includes('--skip-trust'));
+    assert.deepEqual(on.slice(-2), ['-m', 'gemini-3.1-pro'], 'the model still lands last');
+    // Not every build has the flag, and an unknown flag is itself a failed turn.
+    assert.ok(!cli.__geminiArgs({ model: 'x', skipTrust: false }).includes('--skip-trust'));
+    // Trust is about the folder; what the seat may do there is still the tools level.
+    assert.ok(cli.__geminiArgs({ skipTrust: true }).includes('plan'));
+});
+
+test('which: prefers a binary Windows can actually spawn', () => {
+    const pick = cli.__preferExecutable;
+    // `where gemini` lists the PowerShell shim first and the extensionless one
+    // last; neither spawns. Taking line one — which the async path used to do,
+    // into the same cache the sync path reads — made every turn die with
+    // spawn ... ENOENT while discovery still reported a version.
+    const npm = ['C:\npm\gemini.ps1', 'C:\npm\gemini.cmd', 'C:\npm\gemini'];
+    // PATHEXT only means anything on Windows; elsewhere the first hit is right.
+    assert.equal(pick(npm), process.platform === 'win32' ? 'C:\npm\gemini.cmd' : npm[0]);
+    assert.equal(pick(['/usr/local/bin/gemini']), '/usr/local/bin/gemini');
+    assert.equal(pick([]), null);
+    assert.equal(pick(null), null);
+});
