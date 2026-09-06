@@ -1604,6 +1604,22 @@ function multiaiAgentField(i, field, value) {
     const a = (chat.agents || [])[i];
     if (!a) return;
     const autoNamed = !a.name || a.name === multiaiDefaultAgentName(a.provider, a.model, a.effort);
+    // Arming a seat is one dropdown change away from giving a local CLI write
+    // access to a real repository — and at `full`, any shell command in it —
+    // with every turn committed. Say what is about to happen, once, before it
+    // is stored. Turning tools back down needs no confirmation.
+    if (field === 'tools' && (value === 'write' || value === 'full') && a.tools !== value) {
+        const root = chat.workspace && chat.workspace.root;
+        if (root) {
+            const what = value === 'full'
+                ? `edit files in ${root} AND run any shell command there, with no sandbox`
+                : `edit files in ${root}`;
+            if (!window.confirm(`Give "${a.name || 'this seat'}" permission to ${what}?\n\nWork happens on this chat's own branch and every turn is committed, so you can review or discard it with git.`)) {
+                multiaiRerenderAgents(chat);
+                return;
+            }
+        }
+    }
     if (field === 'model:commit') a.model = value; else a[field] = value;
     if (field === 'provider') {
         const isCli = !!MULTIAI_CLI_PROVIDERS[value];
