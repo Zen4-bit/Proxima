@@ -848,6 +848,13 @@ function registerMultiAiHandlers(deps) {
             }
             const mentions = core.parseMentions(latestText || '', agents);
             const order = mentions.order;
+            // "@claude kick off, others react" is an instruction about who
+            // speaks when, and a blind round has no "when" — every seat starts
+            // at once, so the order it just announced would mean nothing. The
+            // instruction wins for the round it refers to and the setting
+            // resumes after. "only @x" is untouched: it changes who takes part,
+            // not the order, which a blind round can honour perfectly well.
+            const directed = mentions.mentioned.length > 0 && !mentions.only;
             if (mentions.mentioned.length) {
                 note(chatId, `Directed turn: ${mentions.only ? 'only ' : ''}${mentions.mentioned.map(a => a.name).join(', ')}${mentions.only ? '' : ' first'}.`);
             }
@@ -887,6 +894,9 @@ function registerMultiAiHandlers(deps) {
             }
 
             const indMode = core.independentMode(chat0);
+            if (directed && indMode !== 'off' && order.length > 1) {
+                note(chatId, 'Round 1 takes turns so that order means something; independent rounds resume after it.');
+            }
             if (indMode === 'all' && n > 1 && chat0.charterMode) {
                 note(chatId, 'Independent rounds: a HANDOFF applies to the next round, not to a seat inside this one.');
             }
@@ -905,6 +915,7 @@ function registerMultiAiHandlers(deps) {
                 // One seat has nobody to be blind to, so it always just takes
                 // its turn.
                 const independent = turnOrder.length > 1
+                    && !(directed && r === 1)
                     && (indMode === 'all' || (indMode === 'first' && r === 1));
                 if (independent) {
                     const results = await Promise.all(turnOrder.map(a => takeTurn(chatId, a, r, { participants: order, independent: true, redTeam })

@@ -1086,3 +1086,29 @@ test('charter: a handoff inside a blind round applies to the next round', async 
     const notes = messagesOf(chat.id).filter(m => m.role === 'system').map(m => m.text).join(' | ');
     assert.match(notes, /HANDOFF applies to the next round/);
 });
+
+test('a directed turn beats a blind round for the round it names', async () => {
+    providerCalls.length = 0;
+    replyFn = markerReply();
+    const chat = newChat({ participants: ['chatgpt', 'claude', 'gemini'], independentRounds: 'all', rounds: 2, stopWhenAllAgree: false });
+    userMsg(chat.id, '@gemini kick off, others react');
+    await invoke('multiai-run-round', { chatId: chat.id, rounds: 2, latestText: '@gemini kick off, others react' });
+    // Round 1 takes turns, in the order asked for — a blind round starts
+    // everyone at once, so "gemini first" would have meant nothing.
+    assert.deepEqual(providerCalls.slice(0, 3).map(c => c.provider), ['gemini', 'chatgpt', 'claude']);
+    assert.deepEqual(providerCalls.slice(0, 3).map(c => marksIn(c.message).length), [0, 1, 2]);
+    // Round 2 has no order to honour, so the setting resumes.
+    const r2 = providerCalls.slice(3);
+    assert.ok(r2.every(c => marksIn(c.message).length === 3), 'round 2 is blind to itself again');
+    assert.ok(r2.every(c => /This round is independent/.test(c.message)));
+});
+
+test('"only @x" still runs blind — it restricts who takes part, not the order', async () => {
+    providerCalls.length = 0;
+    replyFn = markerReply();
+    const chat = newChat({ participants: ['chatgpt', 'claude', 'gemini'], independentRounds: 'all', rounds: 1, stopWhenAllAgree: false });
+    userMsg(chat.id, 'only @claude and @gemini answer');
+    await invoke('multiai-run-round', { chatId: chat.id, rounds: 1, latestText: 'only @claude and @gemini answer' });
+    assert.deepEqual(providerCalls.map(c => c.provider).sort(), ['claude', 'gemini']);
+    assert.ok(providerCalls.every(c => marksIn(c.message).length === 0), 'still blind');
+});
