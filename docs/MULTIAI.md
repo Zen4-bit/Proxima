@@ -243,6 +243,22 @@ bleed into each other or into the MCP tools' `mcp-session` thread.
   32,000 characters on Windows (measured: 30k runs, 60k is ENAMETOOLONG);
   over that the seat refuses with an explanation instead of failing at spawn.
 
+- **Handing a review to the panel.** `npm run review:panel` builds a review
+  brief from the working tree, picks a seat per installed and signed-in CLI,
+  and runs it through the REST port on the chat it creates. It prints the
+  plan and stops: `--go` is what spends anything. `--base <ref>` or
+  `--paths "<globs>"` choose the target, `--rounds` how many passes,
+  `--out <file.md>` writes the replies out.
+
+  Seats get the repo with **read-only** tools and the brief tells them to open
+  the files, because the inlined diff is capped (`--diff-budget`, 12k) — every
+  seat pays for the brief on every round, and an Antigravity seat refuses past
+  ~28k. Rounds are independent, which is the point: four models answering the
+  same brief blind give you the union of what they catch and the short list
+  they disagree about, where turn-taking would have them agreeing with
+  whoever went first. Gemini CLI is left out of the panel by default — see
+  Antigravity above.
+
 - **The guided tour.** Help (next to Settings) → Take the tour: nine steps
   over the real screen, dimming everything but the control each step is about.
   It points at live elements rather than screenshots, so it is either correct

@@ -34,6 +34,7 @@
         "build:all": "electron-builder -mwl",
         "build:installer": "electron-builder --win --x64 -c.win.target=nsis",
         "tour:gif": "node scripts/record-tour.mjs",
+    "review:panel": "node scripts/review-panel.mjs",
     "test": "node --experimental-vm-modules --test tests/**/*.test.js"
     },
     "build": {
