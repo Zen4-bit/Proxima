@@ -112,6 +112,14 @@ function fetchPage(url, depth = 0) {
                     : new URL(res.headers.location, url).href;
                 return fetchPage(nextUrl, depth + 1).then(resolve, reject);
             }
+            if (res.statusCode >= 400) {
+                res.resume();
+                return reject(new Error(`DuckDuckGo search failed with HTTP ${res.statusCode}`));
+            }
+            if (res.statusCode === 202) {
+                res.resume();
+                return reject(new Error('DuckDuckGo rate-limit or bot challenge encountered (HTTP 202)'));
+            }
             const chunks = [];
             let total = 0;
             res.on('data', c => {
@@ -122,7 +130,13 @@ function fetchPage(url, depth = 0) {
                 }
                 chunks.push(c);
             });
-            res.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+            res.on('end', () => {
+                const html = Buffer.concat(chunks).toString('utf-8');
+                if (html.includes('anomaly-modal') || html.includes('id="challenge-form"') || html.includes('action="/anomaly"')) {
+                    return reject(new Error('DuckDuckGo rate-limit or bot challenge encountered'));
+                }
+                resolve(html);
+            });
         });
         req.on('error', e => reject(e));
         req.on('timeout', () => { req.destroy(); reject(new Error('Search timeout')); });

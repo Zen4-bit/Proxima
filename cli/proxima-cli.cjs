@@ -6,13 +6,53 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-let version = '5.0.0';
+let version = '5.5.0';
 try { version = require('../package.json').version; } catch (e) { }
 
 const API_HOST = process.env.PROXIMA_HOST || '127.0.0.1';
-// Honor custom gateway ports via PROXIMA_REST_PORT or PROXIMA_PORT environment variables.
-const API_PORT = parseInt(process.env.PROXIMA_REST_PORT || process.env.PROXIMA_PORT) || 3210;
-const API_BASE = `http://${API_HOST}:${API_PORT}`;
+
+function resolveRestPort() {
+    if (process.env.PROXIMA_REST_PORT || process.env.PROXIMA_PORT) {
+        const p = parseInt(process.env.PROXIMA_REST_PORT || process.env.PROXIMA_PORT, 10);
+        if (Number.isInteger(p) && p > 0 && p <= 65535) return p;
+    }
+    try {
+        const candidates = [];
+        if (process.env.PROXIMA_DATA_DIR) {
+            candidates.push(path.join(process.env.PROXIMA_DATA_DIR, 'rest-port.json'));
+        } else {
+            const home = process.env.HOME || require('os').homedir();
+            if (process.platform === 'win32') {
+                const base = process.env.APPDATA || path.join(process.env.USERPROFILE || home, 'AppData', 'Roaming');
+                candidates.push(path.join(base, 'Proxima', 'rest-port.json'), path.join(base, 'proxima', 'rest-port.json'));
+            } else if (process.platform === 'darwin') {
+                const base = path.join(home, 'Library', 'Application Support');
+                candidates.push(path.join(base, 'Proxima', 'rest-port.json'), path.join(base, 'proxima', 'rest-port.json'));
+            } else {
+                const xdg = process.env.XDG_CONFIG_HOME || path.join(home, '.config');
+                candidates.push(path.join(xdg, 'Proxima', 'rest-port.json'), path.join(xdg, 'proxima', 'rest-port.json'));
+            }
+        }
+        const existing = candidates.filter(f => fs.existsSync(f));
+        if (existing.length > 1) {
+            existing.sort((a, b) => {
+                try { return fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs; } catch { return 0; }
+            });
+        }
+        for (const portFilePath of existing) {
+            try {
+                const data = JSON.parse(fs.readFileSync(portFilePath, 'utf8'));
+                const p = parseInt(data.port, 10);
+                if (Number.isInteger(p) && p > 0 && p <= 65535) return p;
+            } catch {}
+        }
+    } catch {}
+    return 3210;
+}
+
+function getApiBase() {
+    return `http://${API_HOST}:${resolveRestPort()}`;
+}
 
 const c = {
     reset: '\x1b[0m',
@@ -51,7 +91,7 @@ function hr(title) {
 
 function apiRequest(method, path, body = null) {
     return new Promise((resolve, reject) => {
-        const url = new URL(path, API_BASE);
+        const url = new URL(path, getApiBase());
         const options = {
             hostname: url.hostname,
             port: url.port,
@@ -128,7 +168,7 @@ const FALLBACK_INFO = {
 function fetchModelsInfo() {
     return new Promise((resolve) => {
         const req = http.request({
-            hostname: API_HOST, port: API_PORT,
+            hostname: API_HOST, port: resolveRestPort(),
             path: '/v1/models', method: 'GET',
             timeout: 2000
         }, (res) => {
@@ -138,7 +178,7 @@ function fetchModelsInfo() {
                 try {
                     const parsed = JSON.parse(data);
                     const mode = parsed.mode || 'session';
-                    const enabledModels = (parsed.data || []).filter(m => m.status === 'enabled' && m.id !== 'auto' && !m.id.includes('-flash') && m.id !== '3.1-pro' && m.id !== 'gemini:auto');
+                    const enabledModels = (parsed.data || []).filter(m => m.status === 'enabled' && m.id !== 'auto' && !m.id.includes(':') && !m.id.includes('-flash') && m.id !== '3.1-pro' && m.id !== 'latest' && m.id !== 'pro');
                     const providers = enabledModels.map(m => m.id);
                     const models = {};
                     enabledModels.forEach(m => { if (m.selectedModel) models[m.id] = m.selectedModel; });
@@ -259,10 +299,12 @@ function readStdin() {
             process.stdin.removeListener('data', onData);
             process.stdin.removeListener('end', finish);
             process.stdin.removeListener('error', finish);
+            // Release stdin
+            try { process.stdin.pause(); } catch {}
             resolve(data.trim());
         };
 
-        // Use two-phase timeouts to read piped stdin to completion without hanging if silent.
+        // Two-phase timeout for piped stdin
         const NO_DATA_MS = 500;
         const IDLE_AFTER_DATA_MS = 15000;
         let windowMs = NO_DATA_MS;
@@ -313,7 +355,7 @@ function buildMessage(userMessage, stdinContent, fileFlag) {
     }
 
     if (fileFlag) {
-        // Skip boolean true values from empty --file flags to avoid invalid path operations.
+        // Filter out empty flags
         const files = (Array.isArray(fileFlag) ? fileFlag : [fileFlag])
             .filter((f) => typeof f === 'string' && f.length > 0);
         for (const f of files) {
@@ -329,11 +371,12 @@ function buildMessage(userMessage, stdinContent, fileFlag) {
     return msg;
 }
 
-async function cmdAsk(model, message, filePath = null) {
+async function cmdAsk(model, message, filePath = null, thinkingLevel = null) {
     const spinner = startSpinner(`Asking ${model}...`);
     try {
         const body = { model, message };
         if (filePath) body.filePath = filePath;
+        if (thinkingLevel) body.thinking_level = thinkingLevel;
         const { data } = await apiRequest('POST', '/v1/chat/completions', body);
         spinner.stop(green('✓ Response received'));
         formatResponse(data);
@@ -523,7 +566,8 @@ async function cmdStatus() {
         spinner.stop();
         console.log();
         console.log(`${purple('⚡')} ${bold('Proxima')} v${data.version}`);
-        console.log(`${dim('   Port:')} ${data.port}`);
+        const displayPort = data.port != null ? data.port : 'unknown';
+        console.log(`${dim('   Port:')} ${displayPort}`);
         console.log(`${dim('   Providers:')}`);
         (data.enabledProviders || []).forEach(p => {
             console.log(`     ${green('●')} ${p}`);
@@ -619,8 +663,9 @@ async function showHelp() {
                       ${gray('Example:')} proxima ask ${isApi ? p1 : 'gemini'} "Describe" --file screenshot.png
 
   ${yellow('--model')}, ${yellow('-m')} ${gray('<name>')}   ${dim('Override provider or specific engine.')}
-                      ${gray('Available:')} ${providerList}${isApi ? '' : `\n                      ${gray('Engines:')} gemini:3.5-flash, gemini:3.1-pro, gemini:3.1-flash-lite, gemini:auto`}
+                      ${gray('Available:')} ${providerList}
 
+  ${yellow('--thinking')} ${gray('<level>')}      ${dim('Thinking/reasoning level: default, low, medium, high')}
   ${yellow('--lang')}, ${yellow('-l')} ${gray('<lang>')}     ${dim('Specify target programming language for code generation.')}
   ${yellow('--to')} / ${yellow('--from')}         ${dim('Target/source languages for translation.')}
   ${yellow('--json')}                 ${dim('Output raw JSON response (ideal for scripting).')}
@@ -660,10 +705,10 @@ function parseArgs(argv) {
             result.flags[key] = val;
         } else if (!result.command) {
             result.command = arg.toLowerCase();
-            // Preserve original case for the raw command string to avoid lowercasing query text.
+            // Preserve raw case for query text
             result.rawCommand = arg;
         } else if (result.command === 'code' && !result.subcommand && ['review', 'explain', 'debug', 'generate'].includes(arg.toLowerCase())) {
-            // Limit subcommand detection to the code command to avoid swallowing positional args.
+            // Restrict subcommands to code command
             result.subcommand = arg.toLowerCase();
         } else {
             result.positional.push(arg);
@@ -708,7 +753,8 @@ async function main() {
             const fileStr = flags.file ? (Array.isArray(flags.file) ? flags.file[0] : flags.file) : null;
             const filePath = fileStr && isBinaryOrMultimodal(fileStr) ? path.resolve(fileStr) : null;
             const fullMsg = buildMessage(message, stdinContent, flags.file);
-            await cmdAsk(model, fullMsg, filePath);
+            const thinkingLevel = flags.thinking || flags['thinking-level'] || flags.reasoning_effort || flags['reasoning-effort'] || null;
+            await cmdAsk(model, fullMsg, filePath, thinkingLevel);
             break;
         }
 
@@ -812,7 +858,8 @@ async function main() {
             const fileStr = flags.file ? (Array.isArray(flags.file) ? flags.file[0] : flags.file) : null;
             const filePath = fileStr && isBinaryOrMultimodal(fileStr) ? path.resolve(fileStr) : null;
             const fullQuickMsg = buildMessage(quickMessage, stdinContent, flags.file);
-            await cmdAsk('auto', fullQuickMsg, filePath);
+            const thinkingLevel = flags.thinking || flags['thinking-level'] || flags.reasoning_effort || flags['reasoning-effort'] || null;
+            await cmdAsk('auto', fullQuickMsg, filePath, thinkingLevel);
             break;
         }
     }
@@ -836,4 +883,6 @@ module.exports = {
     formatResponse,
     fail,
     usageError,
+    resolveRestPort,
+    getApiBase,
 };

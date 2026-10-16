@@ -38,18 +38,19 @@ test('exposes frozen default-model / endpoint / max-token maps for all core prov
 
 
 test('resolveModel: falls back to the provider default when nothing is configured', () => {
-    assert.equal(models.resolveModel('chatgpt'), 'gpt-5.5');
-    assert.equal(models.resolveModel('claude'), 'claude-sonnet-5');
+    assert.equal(models.resolveModel('chatgpt'), 'chatgpt');
+    assert.equal(models.resolveModel('claude'), 'claude');
 });
 
 test('resolveModel: a Gemini engine override maps to the real model id', () => {
-    assert.equal(models.resolveModel('gemini', '3.1-pro'), 'gemini-3.1-pro');
-    assert.equal(models.resolveModel('gemini', '3.5-flash'), 'gemini-3.5-flash');
-    assert.equal(models.resolveModel('gemini', 'bogus-engine'), 'gemini-3.5-flash');
+    assert.equal(models.resolveModel('gemini', 'pro'), 'gemini-pro');
+    assert.equal(models.resolveModel('gemini', 'flash'), 'gemini-flash');
+    assert.equal(models.resolveModel('gemini', 'argon'), 'gemini-argon');
+    assert.equal(models.resolveModel('gemini', 'bogus-engine'), 'gemini');
 });
 
 test('resolveModel: an explicit modelId is honored (fail-open when no model list configured)', () => {
-    assert.equal(models.resolveModel('chatgpt', null, 'gpt-4o-mini'), 'gpt-4o-mini');
+    assert.equal(models.resolveModel('chatgpt', null, 'custom-model'), 'custom-model');
 });
 
 test('resolveModel: an unknown provider with no config falls back to the provider name itself', () => {
@@ -73,7 +74,7 @@ test('getEndpoint: unknown provider with no stored endpoint returns null', () =>
 
 
 test('isModelEnabled: fails open (true) when no model list is configured', () => {
-    assert.equal(models.isModelEnabled('chatgpt', 'gpt-5.5'), true);
+    assert.equal(models.isModelEnabled('chatgpt', 'chatgpt'), true);
 });
 
 test('getEnabledModels: returns an empty array when nothing is configured', () => {

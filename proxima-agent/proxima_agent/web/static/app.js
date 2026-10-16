@@ -23,9 +23,14 @@ const State = {
     conversations: [],
     attachedFiles: [],
     selectedModel: 'claude',
+    selectedThinkingLevel: 'default',
     selectedMode: 'full_auto',
     activityPanelOpen: true,
     activeTimelineStep: null,
+    // Dynamic models & thinking capabilities
+    _geminiModelLabels: {},
+    _chatgptModelLabels: {},
+    _modelThinkingCapabilities: {},
     // BYOK state
     byokGlobalModels: [],
     byokGlobalEnabled: false,
@@ -198,6 +203,9 @@ function onStatus(msg) {
 function onSession(msg) {
     State.conversationId = msg.conversation_id;
     if (msg.type === 'session_reset') {
+        State.agentRunning = false;
+        hideTyping(true);
+        syncUI();
         DOM.chatMessages.innerHTML = '';
         State.messageCount = 0;
         State.currentStreamEl = null;
@@ -639,8 +647,11 @@ function onError(msg) {
     // Stop the orphaned exec-card timer on error too — otherwise a failure
     // between code_start and code_result leaves its interval running.
     _stopActiveExecCardTimer();
+    State.agentRunning = false;
+    hideTyping(true);
+    finalizeStream();
+    syncUI();
     if (State.messageCount > 0) {
-        hideTyping(); finalizeStream();
         const el = mkAssistantMsg();
         el.querySelector('.message-bubble').innerHTML = `<div class="error-notice">${esc(msg.message || 'Error')}</div>`;
     }
@@ -1824,14 +1835,18 @@ async function sendUserMsg() {
         }
     }
 
-    wsSend({
+    const payload = {
         type: 'message',
         content: text,
         model: State.selectedModel,
         mode: State.selectedMode,
         conversation_id: State.conversationId,
         file_path: filePath,
-    });
+    };
+    if (State.selectedThinkingLevel && State.selectedThinkingLevel !== 'default') {
+        payload.thinking_level = State.selectedThinkingLevel;
+    }
+    wsSend(payload);
 }
 
 function wsSend(data) {
@@ -2001,7 +2016,10 @@ function initModelDropdown() {
         e.stopPropagation();
         const open = DOM.modelPopup.classList.contains('open');
         if (open) closeModelPopup();
-        else openModelPopup();
+        else {
+            openModelPopup();
+            fetchAndRenderChatGPTModels();
+        }
     });
 
     document.querySelectorAll('.model-option').forEach(opt => {
@@ -2027,6 +2045,26 @@ function initModelDropdown() {
         });
     }
 
+    const chatgptGroup = document.getElementById('group-chatgpt-trigger');
+    if (chatgptGroup) {
+        chatgptGroup.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showModelPage('chatgpt');
+        });
+    }
+
+    const chatgptBack = document.getElementById('model-chatgpt-back');
+    if (chatgptBack) {
+        chatgptBack.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showModelPage('main');
+        });
+    }
+
+    fetchAndRenderChatGPTModels();
+    fetchAndRenderGeminiModels();
+    initThinkingSelector();
+
     document.querySelectorAll('.mode-segment-btn').forEach(opt => {
         opt.addEventListener('click', () => {
             setMode(opt.dataset.mode, true);
@@ -2043,13 +2081,254 @@ function initModelDropdown() {
     document.addEventListener('click', (e) => {
         if (!e.target.closest('.model-dropdown')) closeModelPopup();
         if (!e.target.closest('#export-dropdown-container')) closeExportPopup();
+        if (!e.target.closest('#thinking-dropdown')) {
+            const popup = document.getElementById('thinking-popup');
+            const trigger = document.getElementById('thinking-trigger');
+            if (popup) popup.classList.remove('open');
+            if (trigger) trigger.classList.remove('open');
+        }
     });
 
     // ── Default execution mode ──
-    // Ensure Smart is visually selected on page load (before WS status
-    // arrives). The server will override this if a different mode is saved
-    // in config — but if none is saved, Smart is the correct default.
     setMode(State.selectedMode || 'full_auto', false);
+}
+
+function initThinkingSelector() {
+    const trigger = document.getElementById('thinking-trigger');
+    const popup = document.getElementById('thinking-popup');
+    if (!trigger || !popup) return;
+
+    trigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = popup.classList.contains('open');
+        closeModelPopup();
+        popup.classList.toggle('open', !isOpen);
+        trigger.classList.toggle('open', !isOpen);
+    });
+
+    updateThinkingOptionsForModel(State.selectedModel);
+}
+
+function updateThinkingOptionsForModel(modelId) {
+    const dropdown = document.getElementById('thinking-dropdown');
+    const divider = document.getElementById('thinking-divider');
+    const container = document.getElementById('thinking-options-container');
+    const triggerText = document.getElementById('thinking-trigger-text');
+    if (!dropdown || !container) return;
+
+    // Thinking levels are strictly supported only for Gemini models
+    const isGemini = modelId && (modelId === 'gemini' || modelId.startsWith('gemini:') || modelId.startsWith('gemini-'));
+    let supported = null;
+    if (isGemini) {
+        supported = (State._modelThinkingCapabilities && State._modelThinkingCapabilities[modelId]) || ['default', 'low', 'medium', 'high'];
+    } else {
+        supported = ['default'];
+    }
+
+    if (supported.length <= 1) {
+        dropdown.style.display = 'none';
+        if (divider) divider.style.display = 'none';
+        State.selectedThinkingLevel = 'default';
+        if (triggerText) triggerText.textContent = 'Default';
+        const p = document.getElementById('thinking-popup');
+        const tr = document.getElementById('thinking-trigger');
+        if (p) p.classList.remove('open');
+        if (tr) tr.classList.remove('open');
+        return;
+    }
+
+    dropdown.style.display = 'inline-flex';
+    if (divider) divider.style.display = 'block';
+
+    if (!supported.includes(State.selectedThinkingLevel)) {
+        State.selectedThinkingLevel = 'default';
+        toast('Thinking reset to Default for selected model', 'info');
+    }
+
+    const labels = {
+        default: 'Default',
+        low: 'Low',
+        medium: 'Medium',
+        high: 'High',
+        off: 'Off'
+    };
+    const descs = {
+        default: 'Model default behavior',
+        low: 'Quick & efficient',
+        medium: 'Balanced depth',
+        high: 'Extra thorough reasoning',
+        off: 'Disable thinking'
+    };
+
+    if (triggerText) {
+        triggerText.textContent = labels[State.selectedThinkingLevel] || State.selectedThinkingLevel;
+    }
+
+    const checkSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>';
+    const levelIcons = {
+        default: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" stroke-dasharray="3 3"/><circle cx="12" cy="12" r="2.5" fill="currentColor"/></svg>',
+        low: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="6" y1="18" x2="6" y2="13" stroke="currentColor"/><line x1="12" y1="18" x2="12" y2="9" stroke="currentColor" opacity="0.25"/><line x1="18" y1="18" x2="18" y2="4" stroke="currentColor" opacity="0.25"/></svg>',
+        medium: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="6" y1="18" x2="6" y2="13" stroke="currentColor"/><line x1="12" y1="18" x2="12" y2="9" stroke="currentColor"/><line x1="18" y1="18" x2="18" y2="4" stroke="currentColor" opacity="0.25"/></svg>',
+        high: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="6" y1="18" x2="6" y2="13" stroke="currentColor"/><line x1="12" y1="18" x2="12" y2="9" stroke="currentColor"/><line x1="18" y1="18" x2="18" y2="4" stroke="currentColor"/></svg>',
+        off: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" opacity="0.4"/><line x1="7" y1="7" x2="17" y2="17" stroke="currentColor" opacity="0.6"/></svg>'
+    };
+
+    let html = '';
+    for (const lvl of supported) {
+        const isSelected = State.selectedThinkingLevel === lvl;
+        const iconSvg = levelIcons[lvl] || levelIcons.default;
+        html += `
+        <div class="model-option ${isSelected ? 'selected' : ''}" data-thinking="${esc(lvl)}">
+            <div class="model-option-icon" style="display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.04);border-radius:6px;border:1px solid rgba(255,255,255,0.08);color:${isSelected ? 'var(--accent)' : 'var(--text-secondary)'};">
+                ${iconSvg}
+            </div>
+            <div class="model-option-info">
+                <div class="model-option-name">${esc(labels[lvl] || lvl)}</div>
+                <div class="model-option-desc">${esc(descs[lvl] || '')}</div>
+            </div>
+            <div class="model-option-check">${isSelected ? checkSvg : ''}</div>
+        </div>`;
+    }
+    container.innerHTML = html;
+
+    container.querySelectorAll('.model-option').forEach(opt => {
+        opt.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const chosen = opt.dataset.thinking;
+            State.selectedThinkingLevel = chosen;
+            if (triggerText) triggerText.textContent = labels[chosen] || chosen;
+            updateThinkingOptionsForModel(State.selectedModel);
+            const p = document.getElementById('thinking-popup');
+            const tr = document.getElementById('thinking-trigger');
+            if (p) p.classList.remove('open');
+            if (tr) tr.classList.remove('open');
+            toast(`Thinking: ${labels[chosen] || chosen}`, 'info');
+        });
+    });
+}
+
+async function fetchAndRenderGeminiModels() {
+    try {
+        const r = await fetch('/api/models');
+        if (!r.ok) return;
+        const res = await r.json();
+        const models = Array.isArray(res.data) ? res.data : [];
+        const geminiModels = models.filter(m => m.id && m.id.startsWith('gemini:'));
+        if (geminiModels.length === 0) return;
+
+        const seenIds = new Set();
+        const uniqueGeminiModels = [];
+        for (const m of geminiModels) {
+            if (seenIds.has(m.id)) continue;
+            seenIds.add(m.id);
+            uniqueGeminiModels.push(m);
+        }
+
+        State._geminiModelLabels = State._geminiModelLabels || {};
+        State._modelThinkingCapabilities = State._modelThinkingCapabilities || {};
+        const listContainer = document.getElementById('gemini-sub-models-list');
+        if (!listContainer) return;
+
+        let html = '';
+        for (const m of uniqueGeminiModels) {
+            const isSelected = State.selectedModel === m.id;
+            State._geminiModelLabels[m.id] = m.description || m.id;
+            if (m.thinking_levels) {
+                State._modelThinkingCapabilities[m.id] = m.thinking_levels;
+            }
+            const tagPills = (m.tags || []).map(t => {
+                let bg = '#3b82f6';
+                if (t === 'Reasoning' || t === 'Complex') bg = '#8b5cf6';
+                else if (t === 'Pro') bg = '#ec4899';
+                else if (t === 'Fastest') bg = '#10b981';
+                else if (t.includes('Limit') || t.includes('Error')) bg = '#ef4444';
+                return `<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:${bg}22;color:${bg};border:1px solid ${bg}44;margin-left:4px;">${esc(t)}</span>`;
+            }).join('');
+
+            const checkSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>';
+            html += `
+            <div class="model-option ${isSelected ? 'selected' : ''}" data-value="${esc(m.id)}">
+                <img class="model-option-icon" src="/static/icons/gemini.png" alt="Gemini">
+                <div class="model-option-info">
+                    <div class="model-option-name" style="display:flex;align-items:center;">
+                        <span>${esc(m.description || m.id)}</span>
+                        ${tagPills}
+                    </div>
+                    <div class="model-option-desc">${esc(m.id)}</div>
+                </div>
+                <div class="model-option-check" id="check-${esc(m.id.replace(/:/g, '-'))}">${isSelected ? checkSvg : ''}</div>
+            </div>`;
+        }
+
+        listContainer.innerHTML = html;
+
+        listContainer.querySelectorAll('.model-option').forEach(opt => {
+            opt.addEventListener('click', () => {
+                setModel(opt.dataset.value, true);
+                closeModelPopup();
+            });
+        });
+    } catch (_) {}
+}
+
+async function fetchAndRenderChatGPTModels() {
+    try {
+        const r = await fetch('/api/models');
+        if (!r.ok) return;
+        const res = await r.json();
+        const models = Array.isArray(res.data) ? res.data : [];
+        const chatgptModels = models.filter(m => m.id && m.id.startsWith('chatgpt:'));
+        if (chatgptModels.length === 0) return;
+
+        // Deduplicate by ID so no duplicate entries or duplicate ticks ever appear
+        const seenIds = new Set();
+        const uniqueChatgptModels = [];
+        for (const m of chatgptModels) {
+            if (seenIds.has(m.id)) continue;
+            seenIds.add(m.id);
+            uniqueChatgptModels.push(m);
+        }
+
+        State._chatgptModelLabels = State._chatgptModelLabels || {};
+        const listContainer = document.getElementById('chatgpt-sub-models-list');
+        if (!listContainer) return;
+
+        let html = '';
+        for (const m of uniqueChatgptModels) {
+            const isSelected = State.selectedModel === m.id;
+            State._chatgptModelLabels[m.id] = m.description || m.id;
+            const tagPills = (m.tags || []).map(t => {
+                let bg = '#3b82f6';
+                if (t === 'Reasoning') bg = '#8b5cf6';
+                else if (t === 'Pro') bg = '#ec4899';
+                else if (t.includes('Limit') || t.includes('Error')) bg = '#ef4444';
+                return `<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:${bg}22;color:${bg};border:1px solid ${bg}44;margin-left:4px;">${esc(t)}</span>`;
+            }).join('');
+
+            const checkSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>';
+            html += `
+            <div class="model-option ${isSelected ? 'selected' : ''}" data-value="${esc(m.id)}">
+                <img class="model-option-icon" src="/static/icons/chatgpt.png" alt="ChatGPT">
+                <div class="model-option-info">
+                    <div class="model-option-name" style="display:flex;align-items:center;">
+                        <span>${esc(m.description || m.id)}</span>
+                        ${tagPills}
+                    </div>
+                    <div class="model-option-desc">${esc(m.id)}</div>
+                </div>
+                <div class="model-option-check" id="check-${esc(m.id.replace(/:/g, '-'))}">${isSelected ? checkSvg : ''}</div>
+            </div>`;
+        }
+
+        listContainer.innerHTML = html;
+
+        listContainer.querySelectorAll('.model-option').forEach(opt => {
+            opt.addEventListener('click', () => {
+                setModel(opt.dataset.value, true);
+                closeModelPopup();
+            });
+        });
+    } catch (_) {}
 }
 
 function showModelPage(pageId) {
@@ -2074,17 +2353,30 @@ function setModel(value, notify) {
     // Dynamic name resolution — covers both session models and API models
     const sessionNames = {
         auto: 'Auto',
-        claude: 'Claude',
-        chatgpt: 'ChatGPT',
-        gemini: 'Gemini (Auto)',
-        'gemini:3.1-pro': 'Gemini 3.1 Pro',
-        'gemini:3.5-flash': 'Gemini 3.5 Flash',
-        'gemini:3.1-flash-lite': 'Gemini 3.1 Lite',
+        claude: 'Claude Latest',
+        chatgpt: 'ChatGPT Latest',
+        'chatgpt:auto': 'ChatGPT Auto',
+        'claude-latest': 'Claude Latest',
+        'chatgpt-latest': 'ChatGPT Latest',
+        gemini: 'Gemini Auto',
+        'gemini:auto': 'Gemini Auto',
+        'gemini:pro': 'Gemini Pro',
+        'gemini:latest': 'Gemini Latest',
+        'gemini:flash': 'Gemini Flash',
+        'gemini:argon': 'Gemini Argon',
         perplexity: 'Perplexity'
     };
-    // Check API models first
+    // Check dynamic ChatGPT, Gemini, and API models
     let displayName = sessionNames[value];
-    if (!displayName) {
+    if (value && value.startsWith('chatgpt:')) {
+        const sub = value.split(':')[1];
+        if (sub === 'auto') displayName = 'ChatGPT Auto';
+        else displayName = (State._chatgptModelLabels && State._chatgptModelLabels[value]) || `ChatGPT (${sub})`;
+    } else if (value && value.startsWith('gemini:')) {
+        const sub = value.slice(7);
+        if (sub === 'auto') displayName = 'Gemini Auto';
+        else displayName = (State._geminiModelLabels && State._geminiModelLabels[value]) || `Gemini (${sub})`;
+    } else if (!displayName) {
         const allModels = [...State.byokGlobalModels, ...(State._byokLocalModels || [])];
         const apiModel = allModels.find(m => m.id === value);
         if (apiModel) {
@@ -2112,7 +2404,23 @@ function setModel(value, notify) {
     const groupTrigger = document.getElementById('group-gemini-trigger');
     if (groupTrigger) {
         groupTrigger.classList.toggle('selected', isGeminiFamily);
+        const descEl = groupTrigger.querySelector('.model-option-desc');
+        if (descEl && isGeminiFamily) {
+            descEl.textContent = displayName;
+        }
     }
+
+    const isChatGPTFamily = value && (value === 'chatgpt' || value.startsWith('chatgpt:'));
+    const chatgptGroupTrigger = document.getElementById('group-chatgpt-trigger');
+    if (chatgptGroupTrigger) {
+        chatgptGroupTrigger.classList.toggle('selected', isChatGPTFamily);
+        const descEl = document.getElementById('chatgpt-selected-desc');
+        if (descEl && isChatGPTFamily) {
+            descEl.textContent = displayName;
+        }
+    }
+
+    updateThinkingOptionsForModel(value);
 
     if (notify) {
         wsSend({ type: 'set_model', model: value });
@@ -2465,9 +2773,11 @@ function byokRebuildModelDropdown() {
 
     container.innerHTML = html;
 
-    // Hide the Gemini sub-page (not relevant for API models)
+    // Hide the Gemini and ChatGPT sub-pages (not relevant for API models)
     const geminiPage = document.getElementById('model-page-gemini');
     if (geminiPage) geminiPage.style.display = 'none';
+    const chatgptPage = document.getElementById('model-page-chatgpt');
+    if (chatgptPage) chatgptPage.style.display = 'none';
 
     container.querySelectorAll('.model-option').forEach(opt => {
         opt.addEventListener('click', () => {
@@ -2490,9 +2800,11 @@ function byokRestoreSessionModels() {
 
     container.innerHTML = State.byokSessionModelsHTML;
 
-    // Show Gemini sub-page again
+    // Show Gemini and ChatGPT sub-pages again
     const geminiPage = document.getElementById('model-page-gemini');
     if (geminiPage) geminiPage.style.display = '';
+    const chatgptPage = document.getElementById('model-page-chatgpt');
+    if (chatgptPage) chatgptPage.style.display = '';
 
     container.querySelectorAll('.model-option').forEach(opt => {
         opt.addEventListener('click', () => {
@@ -2509,12 +2821,26 @@ function byokRestoreSessionModels() {
         });
     }
 
+    const chatgptGroup = document.getElementById('group-chatgpt-trigger');
+    if (chatgptGroup) {
+        chatgptGroup.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showModelPage('chatgpt');
+        });
+    }
+
+    // Migrate legacy or removed model selections
+    if (State.selectedModel === 'gemini') {
+        State.selectedModel = 'gemini:auto';
+    }
+
     // If current model is an API model that no longer exists, fall back
-    const sessionIds = ['auto', 'claude', 'chatgpt', 'gemini', 'perplexity',
-        'gemini:3.1-pro', 'gemini:3.5-flash', 'gemini:3.1-flash-lite'];
-    if (!sessionIds.includes(State.selectedModel)) {
-        setModel('claude', true);
-        toast('API models no longer available — switched to session model', 'info');
+    const sessionIds = ['auto', 'claude', 'chatgpt', 'chatgpt:auto', 'chatgpt-latest', 'claude-latest',
+        'gemini', 'gemini:auto', 'gemini:pro', 'gemini:latest', 'gemini:flash', 'gemini:argon', 'perplexity'];
+    const isDynamicSession = State.selectedModel && (State.selectedModel.startsWith('chatgpt:') || State.selectedModel.startsWith('gemini:'));
+    if (!sessionIds.includes(State.selectedModel) && !isDynamicSession) {
+        setModel('auto', true);
+        toast('Selected model no longer available — switched to Auto', 'info');
     }
 
     setModel(State.selectedModel, false);

@@ -1,18 +1,20 @@
 # Proxima System Architecture
 
-This document describes the high-level system architecture of **Proxima v5.0.0**. The platform has transitioned from a basic browser-session proxy into a modular, multi-tier agentic ecosystem composed of three primary layers: the **Electron Hub Layer**, the **Node.js MCP Middleware Pipeline**, and the **Autonomous Python Agent Runtime**.
+This document describes the high-level system architecture of **Proxima v5.5.0**. The platform has transitioned from a basic browser-session proxy into a modular, multi-tier agentic ecosystem composed of three primary layers: the **Electron Hub Layer**, the **Node.js MCP Middleware Pipeline**, and the **Autonomous Python Agent Runtime**.
 
 ```mermaid
 graph TD
     User([Developer / IDE Client]) -->|JSON-RPC / stdio| MCP[Node.js MCP Server Pipeline]
-    User -->|OpenAI API / Port 3210| REST[REST API / WS Gateway]
+    User -->|OpenAI API / Dynamic Port| REST[REST API / WS Gateway]
     
     subgraph Electron App Boundary
-        REST -->|IPC Bridge| Electron[Electron Main Process Hub]
+        REST -->|IPC Bridge & Cancel| Electron[Electron Main Process Hub]
         Electron -->|BrowserViews| Chrome[Stealth Browser Instances]
+        Electron -.->|rest-port.json| Discovery[Port Auto-Discovery]
     end
     
     subgraph Node.js Process
+        MCP -->|Universal Discovery| ModelPipe[Model Discovery & Resource Pipeline]
         MCP -->|Smart Router| Router[Smart Router V2]
         MCP -->|Context Injection| C7[Context7 Doc Middleware]
         MCP -->|Semantic Vector| ONNX[ONNX Runtime Vector Memory]
@@ -35,8 +37,8 @@ graph TD
 
 The Electron application acts as the coordinator and system host. It manages state, logins, local settings, and provides access to standard browser session runtimes.
 
-* **Stealth Session Management (`browser-manager.cjs`):** Spins up decoupled BrowserViews matching the active providers (ChatGPT, Claude, Gemini, Perplexity). Configures custom User-Agents, stealth parameters (disabling `AutomationControlled` and Blink automation flags), and handles direct Javascript script injections to extract session tokens.
-* **REST/WS Server (`rest-api.cjs`):** Listens on port `3210` by default. Exposes OpenAI-compatible endpoints (`/v1/chat/completions`, `/v1/models`) so developers can point any standard library (like OpenAI's SDK) to Proxima. Supports static authorization keys (`api-key.json`).
+* **Stealth Session Management (`browser-manager.cjs`):** Spins up decoupled BrowserViews matching the active providers (ChatGPT, Claude, Gemini, Perplexity). Configures custom User-Agents, stealth parameters (disabling `AutomationControlled` and Blink automation flags), and coordinates session script injections with `mtime`-based hot-reloading (`api.cjs`).
+* **REST/WS Gateway (`rest-api.cjs`):** Listens on port `3210` by default (or an OS/environment-specified port) and writes active binding information to `rest-port.json` for automatic client discovery. Exposes OpenAI-compatible endpoints (`/v1/chat/completions`, `/v1/models`, `/v1/cancel`) with thinking controls (`thinking_level`, `reasoning_effort`) and active request cancellation. Supports static authorization keys (`api-key.json`).
 * **Decoupled IPC Channels (`electron/ipc/`):** Communication between the Electron main process, preload scripts, and the renderer is handled via structured modules:
   * `core.cjs` — Coordinates main window visibility and state.
   * `settings.cjs` — Manages settings reading, writes, and cookie cleaning.
@@ -48,6 +50,7 @@ The Electron application acts as the coordinator and system host. It manages sta
 
 The MCP Server implements the official `@modelcontextprotocol/sdk` and acts as the intelligence pipeline. Instead of sending raw prompts to AI endpoints, all queries pass through local in-process middleware layers:
 
+* **Universal Model Discovery Pipeline (`helpers.js` & `tools-chat.js`):** Coordinates with Electron via IPC to query live session models and configured BYOK providers. Normalizes discovered model slugs, capability tags (`Fast`, `Reasoning`, `Pro`), and thinking parameters, serving both the `list_available_models` tool and the `proxima://models` MCP resource.
 * **Context7 Documentation Middleware (`context7-middleware.js`):** Intercepts queries to detect library mentions (React, Vue, FastAPI, Docker, etc.) using regular expression patterns. Retrieves up-to-date documentation via `https://mcp.context7.com` and prepends it to the prompt context. Uses a local map-cache (TTL 10m, Max 200 items).
 * **EMA-based Smart Router (`smart-router.js`):** Classifies incoming tasks (e.g. `code-gen`, `research`, `security`) and matches them to provider strengths. Tracks response times using an Exponential Moving Average (EMA) latency formula (`avg * 0.7 + call_time * 0.3`) and isolates failing providers for 60 seconds if they hit 3 consecutive timeouts or errors.
 * **Memory & Fact Harvesting (`memory-intelligence.js`):** Harvesters parse conversation inputs to automatically extract technology stack preferences and user configurations. These are saved to `enhanced-memory.json` with a 7-day half-life decay function, archiving any facts that decay below a quality threshold.

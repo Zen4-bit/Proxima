@@ -8,9 +8,8 @@ const path = require('path');
 const _scripts = {};
 
 
+const _scriptMtimes = {};
 function _loadScript(provider) {
-    if (_scripts[provider]) return _scripts[provider];
-
     const scriptMap = {
         chatgpt: 'chatgpt-engine.js',
         claude: 'claude-engine.js',
@@ -23,7 +22,12 @@ function _loadScript(provider) {
 
     const scriptPath = path.join(__dirname, 'engines', filename);
     try {
+        const stat = fs.statSync(scriptPath);
+        if (_scripts[provider] && _scriptMtimes[provider] === stat.mtimeMs) {
+            return _scripts[provider];
+        }
         _scripts[provider] = fs.readFileSync(scriptPath, 'utf8');
+        _scriptMtimes[provider] = stat.mtimeMs;
         console.log(`[ProviderAPI] Loaded ${filename} (${_scripts[provider].length} bytes)`);
         return _scripts[provider];
 
@@ -109,6 +113,7 @@ function waitForLoad(webContents, timeoutMs = 8000) {
     });
 }
 
+const _lastInjectedMtime = {};
 async function ensureAPI(provider, webContents) {
     if (provider === 'gemini') {
         const needsWait = webContents.isLoading() || !(await webContents.executeJavaScript(`typeof window.WIZ_global_data !== "undefined"`).catch(() => false));
@@ -118,8 +123,13 @@ async function ensureAPI(provider, webContents) {
             await new Promise(r => setTimeout(r, 1500));
         }
     }
-    if (await isAPIReady(provider, webContents)) return true;
-    return await injectAPI(provider, webContents);
+    const ready = await isAPIReady(provider, webContents);
+    const script = _loadScript(provider);
+    const mtime = _scriptMtimes[provider];
+    if (ready && _lastInjectedMtime[provider] === mtime) return true;
+    const injected = await injectAPI(provider, webContents);
+    if (injected) _lastInjectedMtime[provider] = mtime;
+    return injected;
 }
 
 async function sendViaAPI(provider, webContents, message, attachments = null, onChunk = null, conversationId = null) {
@@ -128,7 +138,7 @@ async function sendViaAPI(provider, webContents, message, attachments = null, on
     if (provider.indexOf(':') !== -1) {
         const parts = provider.split(':');
         baseProvider = parts[0];
-        engine = parts[1];
+        engine = parts.slice(1).join(':');
     }
 
     const ready = await ensureAPI(baseProvider, webContents);
@@ -168,6 +178,7 @@ async function sendViaAPI(provider, webContents, message, attachments = null, on
         const apiPromise = webContents.executeJavaScript(executeStr);
 
         if (onChunk && baseProvider === 'gemini') {
+            const streamVar = '__proximaGeminiStream';
             let lastLen = 0;
             let finished = false;
 
@@ -175,14 +186,15 @@ async function sendViaAPI(provider, webContents, message, attachments = null, on
             apiPromise.then(() => { apiSettled = true; }, () => { apiSettled = true; });
 
             const MAX_POLL_MS = 6 * 60 * 1000;
-            const IDLE_LIMIT_MS = 30 * 1000;
+            const isReasoningEngine = (engine === 'pro' || engine === 'argon');
+            const IDLE_LIMIT_MS = isReasoningEngine ? 90 * 1000 : 45 * 1000;
             const pollStart = Date.now();
             let lastProgressAt = Date.now();
 
             while (!finished) {
                 await new Promise(r => setTimeout(r, 80));
                 try {
-                    const streamData = await webContents.executeJavaScript(`window.__proximaGeminiStream || null`).catch(() => null);
+                    const streamData = await webContents.executeJavaScript(`window.${streamVar} || null`).catch(() => null);
                     if (streamData) {
                         if (streamData.response && streamData.response.length > lastLen) {
                             const newChunk = streamData.response.substring(lastLen);
@@ -190,7 +202,7 @@ async function sendViaAPI(provider, webContents, message, attachments = null, on
                             lastProgressAt = Date.now();
                             onChunk(newChunk);
                         }
-                        if (streamData.status === 'done' || streamData.status === 'error') {
+                        if (streamData.status === 'done' || (streamData.status === 'error' && apiSettled)) {
                             finished = true;
                             continue;
                         }
@@ -198,8 +210,10 @@ async function sendViaAPI(provider, webContents, message, attachments = null, on
                         }
                     }
                 } catch (e) {
-                    finished = true;
-                    continue;
+                    if (apiSettled) {
+                        finished = true;
+                        continue;
+                    }
                 }
 
                 if (apiSettled && Date.now() - lastProgressAt > 500) finished = true;
@@ -218,6 +232,24 @@ async function sendViaAPI(provider, webContents, message, attachments = null, on
     } catch (e) {
         console.error(`[ProviderAPI] [FAIL] ${provider} API error:`, e.message);
         throw e;
+    }
+}
+
+async function abortAPI(provider, webContents) {
+    if (!webContents || webContents.isDestroyed()) return;
+    const baseProvider = (provider || '').split(':')[0];
+    const abortMap = {
+        chatgpt: '__proximaChatGPT.abort?.()',
+        gemini: '__proximaGemini.abort?.()',
+        claude: '__proximaClaude.abort?.()',
+        perplexity: '__proximaPerplexity.abort?.()'
+    };
+    const code = abortMap[baseProvider];
+    if (code) {
+        try {
+            await webContents.executeJavaScript(`try { window.${code}; } catch(e){}`);
+            console.log(`[ProviderAPI] Aborted in-flight API generation for ${provider}`);
+        } catch (e) { }
     }
 }
 
@@ -249,6 +281,7 @@ async function resetConversation(provider, webContentsGetter) {
             const wc = typeof webContentsGetter === 'function' ? webContentsGetter(p) : webContentsGetter;
             if (!wc) continue;
 
+            await ensureAPI(p, wc);
             await wc.executeJavaScript(
                 `if (window.${apiObj} && window.${apiObj}.newConversation) { window.${apiObj}.newConversation(); }`
             );
@@ -259,12 +292,46 @@ async function resetConversation(provider, webContentsGetter) {
     }
 }
 
+async function getProviderModels(provider, webContents, forceRefresh = false) {
+    if (!webContents || webContents.isDestroyed()) return [];
+    const baseProvider = (provider || '').split(':')[0];
+    if (baseProvider === 'chatgpt') {
+        const ready = await ensureAPI('chatgpt', webContents);
+        if (!ready) return [];
+        try {
+            const script = forceRefresh
+                ? 'window.__proximaChatGPT && window.__proximaChatGPT.getAvailableModels ? window.__proximaChatGPT.getAvailableModels(true) : []'
+                : 'window.__proximaChatGPT && window.__proximaChatGPT.getAvailableModels ? window.__proximaChatGPT.getAvailableModels() : []';
+            return await webContents.executeJavaScript(script);
+        } catch (e) {
+            console.error('[ProviderAPI] Failed to get available models for chatgpt:', e.message);
+            return [];
+        }
+    }
+    if (baseProvider === 'gemini') {
+        const ready = await ensureAPI('gemini', webContents);
+        if (!ready) return [];
+        try {
+            const script = forceRefresh
+                ? 'window.__proximaGemini && window.__proximaGemini.getAvailableModels ? window.__proximaGemini.getAvailableModels(true) : []'
+                : 'window.__proximaGemini && window.__proximaGemini.getAvailableModels ? window.__proximaGemini.getAvailableModels() : []';
+            return await webContents.executeJavaScript(script);
+        } catch (e) {
+            console.error('[ProviderAPI] Failed to get available models for gemini:', e.message);
+            return [];
+        }
+    }
+    return [];
+}
+
 module.exports = {
     injectAPI,
     isAPIReady,
     ensureAPI,
     sendViaAPI,
+    abortAPI,
     setupAutoInject,
     resetConversation,
-    clearScriptCache
+    clearScriptCache,
+    getProviderModels
 };

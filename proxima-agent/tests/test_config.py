@@ -81,6 +81,25 @@ class TestConfigRoundTrip(unittest.TestCase):
         # Untouched defaults survive the merge.
         self.assertEqual(cfg["max_tool_iterations"], 50)
 
+    def test_standard_models_and_fallback(self):
+        config.save_config({"model": "gemini:argon"})
+        self.assertEqual(config.load_config()["model"], "gemini:argon")
+
+        config.save_config({"model": "gemini:pro"})
+        self.assertEqual(config.load_config()["model"], "gemini:pro")
+
+        config.save_config({"model": "gemini:flash"})
+        self.assertEqual(config.load_config()["model"], "gemini:flash")
+
+        config.save_config({"model": "gemini:latest"})
+        self.assertEqual(config.load_config()["model"], "gemini:latest")
+
+        config.save_config({"model": "gemini:auto"})
+        self.assertEqual(config.load_config()["model"], "gemini:auto")
+
+        config.save_config({"model": "unknown-nonexistent"})
+        self.assertEqual(config.load_config()["model"], "auto")
+
 
 class TestBYOKKeys(unittest.TestCase):
     def setUp(self):

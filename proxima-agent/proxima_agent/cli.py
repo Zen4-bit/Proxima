@@ -99,10 +99,10 @@ def select_provider_model(console, config) -> str:
     console.print()
     console.print("  [bold]Select Active Provider Model:[/bold]")
     console.print()
-    console.print("    [green]1. Gemini[/green]      — Multimodal ingestion, file/doc upload support")
-    console.print("    [yellow]2. Claude[/yellow]      — Premium coding & reasoning")
-    console.print("    [cyan]3. Perplexity[/cyan]  — Live web research & exploration")
-    console.print("    [purple]4. ChatGPT[/purple]     — General intelligence & code tasking")
+    console.print("    [green]1. Gemini[/green]          — Multimodal ingestion, file/doc upload support")
+    console.print("    [yellow]2. Claude Latest[/yellow]   — Premium coding & reasoning")
+    console.print("    [cyan]3. Perplexity[/cyan]      — Live web research & exploration")
+    console.print("    [purple]4. ChatGPT Latest[/purple]  — General intelligence & code tasking")
     console.print()
 
     try:
@@ -116,35 +116,38 @@ def select_provider_model(console, config) -> str:
     selected_model = "gemini"
     if choice == "2":
         selected_model = "claude"
-        console.print("  [yellow]⚡ CLAUDE selected[/yellow]")
+        console.print("  [yellow]⚡ CLAUDE LATEST selected[/yellow]")
     elif choice == "3":
         selected_model = "perplexity"
         console.print("  [cyan]🔍 PERPLEXITY selected[/cyan]")
     elif choice == "4":
         selected_model = "chatgpt"
-        console.print("  [purple]🤖 CHATGPT selected[/purple]")
+        console.print("  [purple]🤖 CHATGPT LATEST selected[/purple]")
     else:
         console.print()
-        console.print("  [bold cyan]✨ Gemini Ingestion Upgrades Detected! Choose Sub-Engine:[/bold cyan]")
+        console.print("  [bold cyan]✨ Gemini Engine Selection:[/bold cyan]")
         console.print()
-        console.print("    [green]1. auto[/green]                  — Gateway Smart Auto-Routing (Recommended)")
-        console.print("    [green]2. gemini:3.1-pro[/green]       — Premium reasoning & deep coding")
-        console.print("    [green]3. gemini:3.5-flash[/green]     — Super-fast speed & responses")
-        console.print("    [green]4. gemini:3.1-flash-lite[/green] — Lightweight & highly efficient")
+        console.print("    [green]1. gemini:auto[/green]    — Auto-routing Ingestion (Recommended)")
+        console.print("    [green]2. gemini:pro[/green]     — Deep Coding")
+        console.print("    [green]3. gemini:latest[/green]  — High Speed")
+        console.print("    [green]4. gemini:flash[/green]   — Fast & Versatile")
+        console.print("    [green]5. gemini:argon[/green]   — Advanced Intelligence")
         console.print()
         try:
-            sub_choice = console.input("  [bold]Sub-Engine (1/2/3/4) [Default 1]: [/bold]").strip()
+            sub_choice = console.input("  [bold]Sub-Engine (1/2/3/4/5) [Default 1]: [/bold]").strip()
         except (KeyboardInterrupt, EOFError):
             sub_choice = "1"
 
         if sub_choice == "2":
-            selected_model = "gemini:3.1-pro"
+            selected_model = "gemini:pro"
         elif sub_choice == "3":
-            selected_model = "gemini:3.5-flash"
+            selected_model = "gemini:latest"
         elif sub_choice == "4":
-            selected_model = "gemini:3.1-flash-lite"
+            selected_model = "gemini:flash"
+        elif sub_choice == "5":
+            selected_model = "gemini:argon"
         else:
-            selected_model = "gemini"
+            selected_model = "gemini:auto"
         console.print(f"  [green]✓ GEMINI Sub-Engine selected: {selected_model}[/green]")
 
     config["model"] = selected_model
@@ -807,8 +810,11 @@ def main():
                                   
                                 elif ":" in model_id:
                                     base_provider = model_id.split(":")[0]
+                                    sub_engine = model_id.split(":", 1)[1]
                                     meta = provider_meta.get(base_provider, ("Unknown", "Text"))
-                                    prov, caps = meta
+                                    prov = meta[0]
+                                    desc = getattr(m, "description", None) or (m.get("description") if isinstance(m, dict) else None)
+                                    caps = desc if desc else f"{meta[1]} | {sub_engine}"
                                 else:
                                     meta = provider_meta.get(model_id.lower(), ("Unknown", "Text"))
                                     prov, caps = meta

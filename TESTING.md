@@ -109,6 +109,15 @@ src/utils/paths.js            → tests/utils/paths.test.js
 electron/api/routes.cjs       → tests/electron/api/routes.test.js
 proxima_agent/config.py       → proxima-agent/tests/test_config.py
 proxima_agent/recall/vault.py → proxima-agent/tests/test_recall_vault.py
+
+Integration Test Suites (Cross-Component Protocols):
+tests/integration/chatgpt-dynamic-models.test.js     → ChatGPT discovery, filtering & quota fallback
+tests/integration/gemini-dynamic-models.test.js      → Gemini discovery, thinking levels & routing
+tests/integration/session-engine-upgrades.test.js    → Multi-engine sub-models (argon, flash, pro)
+tests/integration/engine-runtime-resilience.test.js  → Engine re-injection, idle timers & timeouts
+tests/integration/issues-1-6.test.js                 → Dynamic port exposure, BYOK deletion & cancellation
+tests/integration/audit-fixes.test.js                → SSRF guards, secret scanning & audit tools
+tests/unit/widget-logic.test.cjs                     → Live chat widget state & Battle Mode logic
 ```
 
 Shared fixtures live in `tests/fixtures/` (JS). Reusable Python fakes are kept

@@ -32,6 +32,9 @@ export function createSmartChat(deps) {
         } else if (providerOrName && providerOrName.instance) {
             providerName = providerOrName.name;
             providerInstance = providerOrName.instance;
+            if (providerName && providerName.indexOf(':') !== -1 && !engineOverride) {
+                engineOverride = providerName.split(':')[1];
+            }
         } else {
             providerInstance = providerOrName;
             providerName = providerInstance?.name || 'unknown';
@@ -74,7 +77,7 @@ export function createSmartChat(deps) {
         let response;
         try {
             response = await withRetry(
-                () => providerInstance.chat(processedMessage, true, options.filePath, engineOverride),
+                () => providerInstance.chat(processedMessage, true, options.filePath, engineOverride, options.thinking_level || options.thinkingLevel),
                 { maxRetries: 2, baseDelay: 1, label: providerName }
             );
             smartRouterV2.recordSuccess(providerName, Date.now() - span.startedAt);

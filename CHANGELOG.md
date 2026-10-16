@@ -7,6 +7,30 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 > Dates reflect the project's 2026 development cycle. Where the repository did
 > not record an exact release day, the day is omitted.
+## [5.5.0] - 2026-10
+
+### Added
+- **Universal Model Discovery & MCP Resource (`list_available_models` & `proxima://models`):** Added a shared discovery pipeline serving both the `list_available_models` tool and the `proxima://models` MCP resource, exposing real-time models across all active session and BYOK providers with availability status, capability tags (`Fast`, `Reasoning`, `Pro`), and exact usage instructions. Supports forced cache invalidation (`refresh: true`).
+- **Account-Based ChatGPT Model Discovery & Selection:** Updated ChatGPT session integration for improved connectivity, real-time response streaming, and dynamic account-based model discovery based on user entitlements (Free, Plus, Team, Enterprise).
+- **Account-Based Gemini Model Discovery & Multi-Engine Support:** Added account-based Gemini model discovery and multi-engine routing (`gemini:argon`, `gemini:flash`, `gemini:pro`, `gemini:latest`) with account-isolated session memory.
+- **Thinking Depth & Reasoning Controls:** Added optional multi-tier thinking controls across Gemini and reasoning models (`default`, `low`, `medium`, `high`), fully supported across MCP (`ask_gemini`, `ask_model`), REST API (`thinking_level` and OpenAI-compatible `reasoning_effort`), Python SDK, JavaScript SDK, CLI (`--thinking`), Agent Web UI, and Desktop Chat widget.
+- **Parameter Validation & Conflict Gating:** REST API validates `thinking_level` and OpenAI `reasoning_effort`, rejecting contradictory values or unsupported options with HTTP 400.
+- **Active Request Cancellation:** Added `POST /v1/cancel` endpoint and cancellation handling across MCP, REST, and WebSocket interfaces to cleanly interrupt in-flight requests and clear provider execution queues.
+- **Dynamic Port Auto-Discovery (`rest-port.json`):** The gateway writes its active listening port to `rest-port.json` on launch, allowing Python and JavaScript SDKs, CLI, and Agent to automatically discover the bound port without manual configuration.
+- **Helpful MCP Guidance on Unavailable Models:** When an explicit model request is unavailable on the active account, the engine returns an actionable error directing the caller to `list_available_models` rather than performing silent model substitution.
+- **Battle Mode in Chat Widget:** Added side-by-side multi-model benchmarking in the in-page chat widget, allowing direct comparison of provider responses with per-cell status and error tracking.
+- **JavaScript / ESM SDK Package:** Added standalone NPM package manifest (`sdk/package.json`) and native ES module export (`sdk/proxima.mjs`) alongside the existing CommonJS library.
+
+### Changed
+- **DuckDuckGo Search Resilience:** Refactored `ddg_search` into a modular search utility with rate-limit and bot challenge detection.
+- **Python Environment Verification:** Enhanced interpreter detection in `python-env.cjs` with active validation of Python version and required agent modules before launch.
+
+### Fixed
+- **Gemini Multi-Turn Streaming Continuity:** Resolved follow-up conversation stalls across Gemini engines by anchoring continuation tuples in request payloads, eliminating premature stream truncation on context tokens, broadening chunk token extraction thresholds, and correcting Electron API stream variable resolution.
+- **Conversation Session Isolation:** Improved session clearing in `newConversation()` to wipe both active and MCP session contexts, preventing cross-turn context overlap.
+- **Agent Error Handling:** Enhanced agent loop error classification to identify terminal provider failures as non-retryable, preventing unnecessary retry loops.
+- **SDK & CLI Packaging:** Standardized SDK imports for both ESM and CommonJS, normalized `/v1` endpoint resolution, and improved CLI piped standard input handling.
+- **Platform Compatibility:** Unified application data path resolution across platforms and improved health check resilience during startup.
 
 ## [5.0.0] - 2026-07
 
@@ -33,7 +57,7 @@ A major release that expands Proxima from a browser-session gateway into a full 
 - **Environment Diagnostics & Guardrails** — Runtime checks (`electron/env-check.cjs`) verifying Google Chrome, Tesseract OCR, and Linux window tools (`xdotool`, `wmctrl`), plus a pre-start script (`scripts/ensure-deps.mjs`) to auto-install missing packages.
 - **New MCP Tools** — `web_scrape` (SSRF-guarded Markdown scraper), `ddg_search` (free web lookup), `run_workflow`, `run_loop`, `crew`, `proxima_cost_report`, `proxima_agentic_status`, and `analyze_file` (repository packer).
 - **Streaming Responses** — SSE streaming from provider engines via a chunk callback (live token output).
-- **Multi-Model Routing** — Target specific engine models (e.g. `gemini:3.5-flash`, `gemini:3.1-pro`, `gemini:auto`).
+- **Multi-Model Routing** — Target specific engine models dynamically (e.g. `gemini:flash`, `gemini:pro`, `gemini:auto`).
 - **Offline Python Runtime Bundling** — Pinned wheels shipped with the app; the Python environment is set up offline, never downloaded from PyPI at runtime (`build/offline/`, `scripts/prepare-offline-python.mjs`, `electron/python-env.cjs`).
 - **Cross-Platform Installers** — Windows (NSIS), macOS (dmg, x64+arm64), Linux (AppImage, deb).
 - **Manual Cookie Import/Export** — Paste custom cookie sessions directly using EditThisCookie/Cookie-Editor format to sign a provider in (`set-cookies` / `get-cookies`).
@@ -88,5 +112,6 @@ A major release that expands Proxima from a browser-session gateway into a full 
 
 ---
 
+[5.5.0]: https://github.com/Zen4-bit/Proxima/releases/tag/v5.5.0
 [5.0.0]: https://github.com/Zen4-bit/Proxima/releases/tag/v5.0.0
 [4.1.0]: https://github.com/Zen4-bit/Proxima/releases/tag/v4.1.0

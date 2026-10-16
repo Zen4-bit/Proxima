@@ -134,3 +134,22 @@ To transition from a helper script runner to a repository-level autonomous engin
 - `find_functions(path)`: Extract classes and functions.
 - `get_imports(path)`: List imported modules.
 - `diff_files(file1, file2)`: Unified diff.
+
+---
+
+## 5. Web Console & CLI Usage
+
+### Web Console (`proxima-agent web`)
+Proxima Agent includes an interactive local web interface powered by FastAPI on port `8500`:
+- **Launch Command**: `proxima-agent web` (also launched automatically from the Proxima desktop app's Agent tab).
+- **Features**: Interactive execution console with real-time WebSocket output streaming, dynamic model selection modal querying live discovered models from the gateway, and reasoning depth dropdowns (`default`, `low`, `medium`, `high`).
+- **Gateway Discovery**: Automatically discovers the local Proxima REST port from `rest-port.json` in user data, or respects `PROXIMA_GATEWAY_PORT` / `PROXIMA_REST_PORT` environment variables.
+
+### Command-Line Interface (`proxima-agent`)
+
+| Command | Options | Description |
+|---|---|---|
+| `proxima-agent run "<prompt>"` | `--model`, `--thinking {default,low,medium,high}`, `--permission {auto,suggest,smart}` | Execute a goal-oriented engineering task with the autonomous loop |
+| `proxima-agent models` | `--refresh` | Inspect available models discovered across active providers and BYOK configurations |
+| `proxima-agent web` | `--host`, `--port` (default: 8500) | Start the local FastAPI Agent Web Console |
+| `proxima-agent test` | None | Run built-in agent diagnostic self-checks |

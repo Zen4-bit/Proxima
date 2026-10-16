@@ -2704,9 +2704,7 @@ Confirm when done</pre>
 
         async function init() {
             settings = await agentHub.getSettings();
-            // Harden against a missing/partial settings payload — updateUI and
-            // the auto-switch logic iterate settings.providers, which would throw
-            // (and abort startup) if it were undefined.
+            // Guard against missing settings payload
             if (!settings || typeof settings !== 'object') settings = {};
             if (!settings.providers || typeof settings.providers !== 'object') settings.providers = {};
             updateUI();
@@ -2727,8 +2725,10 @@ Confirm when done</pre>
                         if (urlBar) urlBar.textContent = url.length > 60 ? url.substring(0, 60) + '...' : url;
                     }
 
-                    // Gemini only: when Google Sign-In page is detected,
-                    // auto-open cookie login modal (Google blocks embedded browser login)
+                    // Auto-update provider login dot when provider finishes navigation
+                    setTimeout(() => updateProviderStatus(provider), 1000);
+
+                    // Gemini: prompt cookie modal on Google sign-in page
                     if (provider === 'gemini' && provider === currentTab &&
                         url.includes('accounts.google.com/') &&
                         (url.includes('/signin') || url.includes('/ServiceLogin') || url.includes('/AccountChooser') || url.includes('/identifier'))) {
@@ -2937,6 +2937,9 @@ Confirm when done</pre>
             currentTab = tabName;
 
             updateProviderStatus(tabName);
+            setTimeout(() => {
+                if (currentTab === tabName) updateProviderStatus(tabName);
+            }, 2000);
         }
 
         async function updateProviderStatus(provider) {

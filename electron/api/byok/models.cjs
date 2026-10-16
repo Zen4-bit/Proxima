@@ -4,14 +4,14 @@
 'use strict';
 
 const FALLBACK_MODELS = Object.freeze({
-    chatgpt:    ['gpt-5.5', 'gpt-4o', 'gpt-4o-mini'],
-    claude:     ['claude-sonnet-5', 'claude-3-5-sonnet-latest', 'claude-3-haiku-20240307'],
-    gemini:     ['gemini-3.5-flash', 'gemini-3.1-pro', 'gemini-2.0-flash-lite'],
-    perplexity: ['sonar-pro', 'sonar'],
+    chatgpt:    ['chatgpt'],
+    claude:     ['claude'],
+    gemini:     ['gemini'],
+    perplexity: ['perplexity'],
     deepseek:   ['deepseek-chat'],
     groq:       ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
     xai:        ['grok-2-1212', 'grok-beta'],
-    openrouter: ['openai/gpt-4o', 'google/gemini-2.0-flash-exp:free'],
+    openrouter: ['auto'],
     together:   ['meta-llama/Llama-3.3-70B-Instruct-Turbo'],
     fireworks:  ['accounts/fireworks/models/llama-v3p1-70b-instruct'],
     mistral:    ['mistral-large-latest', 'mistral-small-latest'],
@@ -34,9 +34,11 @@ const DEFAULT_MODELS = Object.freeze({
 });
 
 const GEMINI_ENGINES = Object.freeze({
-    '3.5-flash':      'gemini-3.5-flash',
-    '3.1-pro':        'gemini-3.1-pro',
-    '3.1-flash-lite': 'gemini-2.0-flash-lite',
+    'auto':    'gemini',
+    'pro':     'gemini-pro',
+    'latest':  'gemini',
+    'flash':   'gemini-flash',
+    'argon':   'gemini-argon',
 });
 
 const API_ENDPOINTS = Object.freeze({

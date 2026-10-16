@@ -1,0 +1,28 @@
+{
+  "name": "proxima-sdk",
+  "version": "5.5.0",
+  "description": "Proxima JavaScript SDK",
+  "type": "commonjs",
+  "main": "proxima.js",
+  "module": "proxima.mjs",
+  "exports": {
+    ".": {
+      "import": "./proxima.mjs",
+      "require": "./proxima.js",
+      "default": "./proxima.js"
+    },
+    "./proxima": {
+      "import": "./proxima.mjs",
+      "require": "./proxima.js",
+      "default": "./proxima.js"
+    },
+    "./proxima.js": {
+      "import": "./proxima.js",
+      "require": "./proxima.js",
+      "default": "./proxima.js"
+    },
+    "./proxima.mjs": {
+      "import": "./proxima.mjs"
+    }
+  }
+}

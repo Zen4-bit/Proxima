@@ -147,18 +147,18 @@ await test('estimateTokens works', () => {
 
 await test('logUsage tracks costs', () => {
   const result = tracker.logUsage({
-    model: 'gpt-5.4',
+    model: 'chatgpt',
     provider: 'chatgpt',
     promptTokens: 500,
     completionTokens: 200,
   });
   assert(result.requestCost > 0, 'Should calculate cost');
-  console.log(`    GPT-5.4 (500+200 tokens) = $${result.requestCost.toFixed(4)} saved`);
+  console.log(`    ChatGPT (500+200 tokens) = $${result.requestCost.toFixed(4)} saved`);
 });
 
 await test('logUsage — multiple providers', () => {
-  tracker.logUsage({ model: 'claude-4.6-sonnet', provider: 'claude', promptTokens: 300, completionTokens: 150 });
-  tracker.logUsage({ model: 'gemini-3.1-pro', provider: 'gemini', promptTokens: 400, completionTokens: 250 });
+  tracker.logUsage({ model: 'claude', provider: 'claude', promptTokens: 300, completionTokens: 150 });
+  tracker.logUsage({ model: 'gemini:pro', provider: 'gemini', promptTokens: 400, completionTokens: 250 });
   const report = tracker.getReport();
   assert(report.totalRequests === 3);
   assert(Object.keys(report.providers).length === 3);
@@ -166,10 +166,10 @@ await test('logUsage — multiple providers', () => {
 });
 
 await test('calculateCost — static method', () => {
-  const cost = TokenTracker.calculateCost('gpt-4', 1000, 500);
+  const cost = TokenTracker.calculateCost('chatgpt', 1000, 500);
   assert(cost.cost > 0);
   assert(cost.costINR > 0);
-  console.log(`    GPT-4 (1K+500 tokens) = $${cost.cost} / ₹${cost.costINR}`);
+  console.log(`    ChatGPT (1K+500 tokens) = $${cost.cost} / ₹${cost.costINR}`);
 });
 
 await test('getReport — full session report', () => {

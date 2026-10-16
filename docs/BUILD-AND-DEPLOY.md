@@ -26,6 +26,8 @@ npm run build:all      # all three (only on a host that can target them)
 - `src/tools/py`, `src/prompts`, `data` — runtime assets.
 - `proxima-agent/` — the full Python agent **source**, with the dev `.venv`,
   `__pycache__`, `*.egg-info`, and tests **excluded** via filter.
+- `build/wheels/*.whl` — shipped as `agent-wheel` to enable direct wheel installation into the user's managed environment without source directory writes.
+- `build/offline/python` and `build/offline/wheels` — shipped as `python` and `wheels` when pre-populated for fully offline installations (see §3a).
 
 The dev virtualenv is intentionally **never** bundled — a venv hardcodes
 absolute interpreter paths and is not relocatable across machines or OSes.

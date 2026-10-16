@@ -14,13 +14,31 @@ export function getUserDataDir() {
     const home = os.homedir();
     if (process.platform === 'win32') {
         const base = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
-        return path.join(base, 'proxima');
+        return resolveCandidateDir(base);
     }
     if (process.platform === 'darwin') {
-        return path.join(home, 'Library', 'Application Support', 'proxima');
+        const base = path.join(home, 'Library', 'Application Support');
+        return resolveCandidateDir(base);
     }
     const xdg = process.env.XDG_CONFIG_HOME || path.join(home, '.config');
-    return path.join(xdg, 'proxima');
+    return resolveCandidateDir(xdg);
+}
+
+function resolveCandidateDir(base) {
+    const packagedDir = path.join(base, 'Proxima');
+    const devDir = path.join(base, 'proxima');
+    try {
+        if (!fs.existsSync(base)) return devDir;
+        const entries = fs.readdirSync(base);
+        const hasPackaged = entries.includes('Proxima');
+        const hasDev = entries.includes('proxima');
+        if (hasPackaged && !hasDev) return packagedDir;
+        if (hasDev && !hasPackaged) return devDir;
+        if (hasPackaged && hasDev) {
+            return fs.statSync(packagedDir).mtimeMs > fs.statSync(devDir).mtimeMs ? packagedDir : devDir;
+        }
+    } catch {}
+    return devDir;
 }
 
 

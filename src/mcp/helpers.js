@@ -21,14 +21,7 @@ export function getEnabledProviders(dirname) {
     } catch (e) { }
 
     try {
-        let appDataPath;
-        if (process.platform === 'win32') {
-            appDataPath = path.join(process.env.APPDATA || '', 'proxima', 'enabled-providers.json');
-        } else if (process.platform === 'darwin') {
-            appDataPath = path.join(process.env.HOME || '', 'Library', 'Application Support', 'proxima', 'enabled-providers.json');
-        } else {
-            appDataPath = path.join(process.env.HOME || '', '.config', 'proxima', 'enabled-providers.json');
-        }
+        const appDataPath = getUserDataFilePath('enabled-providers.json');
 
         if (fs.existsSync(appDataPath)) {
             const data = JSON.parse(fs.readFileSync(appDataPath, 'utf8'));
@@ -49,31 +42,58 @@ export function getEnabledProviders(dirname) {
     return new Set(['chatgpt', 'claude', 'gemini', 'perplexity']);
 }
 
+export function getUserDataFilePath(filename) {
+    if (process.env.PROXIMA_DATA_DIR) {
+        return path.join(process.env.PROXIMA_DATA_DIR, filename);
+    }
+    const home = process.env.HOME || '';
+    let base;
+    if (process.platform === 'win32') {
+        base = process.env.APPDATA || path.join(process.env.USERPROFILE || home, 'AppData', 'Roaming');
+    } else if (process.platform === 'darwin') {
+        base = path.join(home, 'Library', 'Application Support');
+    } else {
+        base = process.env.XDG_CONFIG_HOME || path.join(home, '.config');
+    }
+    const packagedDir = path.join(base, 'Proxima');
+    const devDir = path.join(base, 'proxima');
+    try {
+        if (fs.existsSync(base)) {
+            const entries = fs.readdirSync(base);
+            const hasPackaged = entries.includes('Proxima');
+            const hasDev = entries.includes('proxima');
+            if (hasPackaged && !hasDev) return path.join(packagedDir, filename);
+            if (hasDev && !hasPackaged) return path.join(devDir, filename);
+            if (hasPackaged && hasDev) {
+                const fileP = path.join(packagedDir, filename);
+                const fileD = path.join(devDir, filename);
+                const exP = fs.existsSync(fileP);
+                const exD = fs.existsSync(fileD);
+                if (exP && !exD) return fileP;
+                if (exD && !exP) return fileD;
+                if (exP && exD) {
+                    return fs.statSync(fileP).mtimeMs > fs.statSync(fileD).mtimeMs ? fileP : fileD;
+                }
+                return fs.statSync(packagedDir).mtimeMs > fs.statSync(devDir).mtimeMs ? fileP : fileD;
+            }
+        }
+    } catch {}
+    return path.join(devDir, filename);
+}
 
 export function getByokStorePath() {
-    if (process.platform === 'win32') {
-        return path.join(process.env.APPDATA || '', 'proxima', 'byok.json');
-    } else if (process.platform === 'darwin') {
-        return path.join(process.env.HOME || '', 'Library', 'Application Support', 'proxima', 'byok.json');
-    }
-    return path.join(process.env.HOME || '', '.config', 'proxima', 'byok.json');
+    return getUserDataFilePath('byok.json');
 }
 
 export function isProviderEnabled(provider, dirname) {
-    return getEnabledProviders(dirname).has(provider);
+    const base = (provider || '').split(':')[0].toLowerCase();
+    return getEnabledProviders(dirname).has(base);
 }
 
 
 export function getAgentHubToken() {
     try {
-        let tokenFilePath;
-        if (process.platform === 'win32') {
-            tokenFilePath = path.join(process.env.APPDATA || '', 'proxima', 'ipc-token.json');
-        } else if (process.platform === 'darwin') {
-            tokenFilePath = path.join(process.env.HOME || '', 'Library', 'Application Support', 'proxima', 'ipc-token.json');
-        } else {
-            tokenFilePath = path.join(process.env.HOME || '', '.config', 'proxima', 'ipc-token.json');
-        }
+        const tokenFilePath = getUserDataFilePath('ipc-token.json');
 
         if (fs.existsSync(tokenFilePath)) {
             const data = JSON.parse(fs.readFileSync(tokenFilePath, 'utf8'));
@@ -90,14 +110,7 @@ export function getAgentHubToken() {
 
 export function getAgentHubPort() {
     try {
-        let portFilePath;
-        if (process.platform === 'win32') {
-            portFilePath = path.join(process.env.APPDATA || '', 'proxima', 'ipc-port.json');
-        } else if (process.platform === 'darwin') {
-            portFilePath = path.join(process.env.HOME || '', 'Library', 'Application Support', 'proxima', 'ipc-port.json');
-        } else {
-            portFilePath = path.join(process.env.HOME || '', '.config', 'proxima', 'ipc-port.json');
-        }
+        const portFilePath = getUserDataFilePath('ipc-port.json');
 
         if (fs.existsSync(portFilePath)) {
             const data = JSON.parse(fs.readFileSync(portFilePath, 'utf8'));
@@ -112,14 +125,7 @@ export function getAgentHubPort() {
 
 export function getFileReferenceEnabled() {
     try {
-        let settingsPath;
-        if (process.platform === 'win32') {
-            settingsPath = path.join(process.env.APPDATA || '', 'proxima', 'settings.json');
-        } else if (process.platform === 'darwin') {
-            settingsPath = path.join(process.env.HOME || '', 'Library', 'Application Support', 'proxima', 'settings.json');
-        } else {
-            settingsPath = path.join(process.env.HOME || '', '.config', 'proxima', 'settings.json');
-        }
+        const settingsPath = getUserDataFilePath('settings.json');
 
         if (fs.existsSync(settingsPath)) {
             const data = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
@@ -228,3 +234,188 @@ export function checkDisabled(providerName, dirname) {
     }
     return null;
 }
+
+export async function getAvailableModelsList({ ipcClient, getEnabledProviders, refresh = false }) {
+    let byokData = { enabled: false, providers: [] };
+    if (ipcClient) {
+        try {
+            const raw = await ipcClient.send('getByokStatus');
+            if (raw && raw.success) byokData = raw;
+        } catch (e) { }
+    }
+
+    const enabled = typeof getEnabledProviders === 'function' ? getEnabledProviders() : new Set(['chatgpt', 'gemini', 'claude', 'perplexity']);
+    const enabledSet = enabled instanceof Set ? enabled : new Set(enabled || []);
+
+    const isByokMode = byokData.enabled && byokData.providers && byokData.providers.length > 0;
+    const mode = isByokMode ? 'byok' : 'session';
+    const providers = {};
+
+    if (isByokMode) {
+        for (const p of byokData.providers) {
+            providers[p.name] = {
+                type: 'byok',
+                status: 'ready',
+                configuredModel: p.model,
+                models: [{
+                    id: p.model,
+                    name: p.model,
+                    description: `BYOK API configured model for ${p.name}`,
+                    status: 'ready',
+                    tags: ['BYOK', 'API'],
+                    exact_usage: {
+                        tool: 'ask_model',
+                        arguments: { provider: p.name, model: p.model, message: 'Your prompt here' }
+                    }
+                }]
+            };
+        }
+    } else {
+        if (enabledSet.has('chatgpt')) {
+            let chatgptModels = [];
+            let status = 'ready';
+            if (ipcClient) {
+                try {
+                    const mRes = await ipcClient.send('getProviderModels', 'chatgpt', { refresh: !!refresh });
+                    if (mRes && mRes.success && Array.isArray(mRes.models)) {
+                        chatgptModels = mRes.models;
+                    }
+                } catch (e) {
+                    status = 'error';
+                }
+            }
+
+            const formattedChatgptModels = [];
+            for (const m of chatgptModels) {
+                const slug = m.slug || (m.id && m.id.startsWith('chatgpt:') ? m.id.split(':')[1] : m.id);
+                const tag = m.tag || (m.tags && m.tags[0]) || 'Fast';
+                formattedChatgptModels.push({
+                    id: m.id && m.id.startsWith('chatgpt:') ? m.id : `chatgpt:${slug}`,
+                    slug: slug,
+                    name: m.name || m.displayName || slug,
+                    description: m.description || (slug === 'auto' ? 'Auto-routes to fastest available 5.6+ mini' : `${m.name || slug} (ChatGPT Account Model)`),
+                    status: m.status || (m.hasError ? 'degraded' : 'ready'),
+                    tags: m.tags || (m.tag ? [m.tag] : [tag]),
+                    exact_usage: {
+                        tool: 'ask_chatgpt',
+                        arguments: { message: 'Your prompt here', model: slug }
+                    }
+                });
+            }
+
+            providers.chatgpt = {
+                type: 'session',
+                status: status,
+                description: 'OpenAI ChatGPT browser session with live dynamic 5.6+ model discovery',
+                models: formattedChatgptModels
+            };
+        }
+
+        if (enabledSet.has('gemini')) {
+            let geminiModels = [];
+            let status = 'ready';
+            if (ipcClient) {
+                try {
+                    const mRes = await ipcClient.send('getProviderModels', 'gemini', { refresh: !!refresh });
+                    if (mRes && mRes.success && Array.isArray(mRes.models) && mRes.models.length > 0) {
+                        geminiModels = mRes.models;
+                    }
+                } catch (e) {
+                    status = 'error';
+                }
+            }
+
+            if (geminiModels.length === 0) {
+                geminiModels = [
+                    { id: 'gemini:auto', slug: 'auto', name: 'Gemini Auto', description: 'Auto-routing ingestion model', tag: 'Auto Fast', status: 'enabled', supported_thinking_levels: ['low', 'medium', 'high'] },
+                    { id: 'gemini:flash', slug: 'flash', name: 'Gemini Flash', description: 'Fast & versatile default engine', tag: 'Fast', status: 'enabled' },
+                    { id: 'gemini:pro', slug: 'pro', name: 'Gemini Pro', description: 'Deep coding and complex reasoning', tag: 'Reasoning', status: 'enabled', supported_thinking_levels: ['low', 'medium', 'high'] },
+                    { id: 'gemini:latest', slug: 'latest', name: 'Gemini Latest', description: 'High-speed direct model stream', tag: 'High Speed', status: 'enabled' },
+                    { id: 'gemini:argon', slug: 'argon', name: 'Gemini Argon', description: 'Advanced multimodal intelligence', tag: 'Pro', status: 'enabled', supported_thinking_levels: ['low', 'medium', 'high'] }
+                ];
+            }
+
+            const formattedGeminiModels = [];
+            for (const g of geminiModels) {
+                const slug = g.slug || (g.id && g.id.startsWith('gemini:') ? g.id.split(':')[1] : g.id);
+                const tag = g.tag || (g.tags && g.tags[0]) || 'General';
+                const exactArgs = { message: 'Your prompt here', model: slug };
+                if (g.supported_thinking_levels && g.supported_thinking_levels.length > 0) {
+                    exactArgs.thinking_level = 'optional: low | medium | high';
+                }
+
+                formattedGeminiModels.push({
+                    id: g.id && g.id.startsWith('gemini:') ? g.id : `gemini:${slug}`,
+                    slug: slug,
+                    name: g.name || g.displayName || slug,
+                    description: g.description || (slug === 'auto' ? 'Auto-routes to fastest available Gemini model' : `${g.name || slug} (Gemini Account Model)`),
+                    status: g.status || 'ready',
+                    tags: g.tags || (g.tag ? [g.tag] : [tag]),
+                    supported_thinking_levels: g.supported_thinking_levels || [],
+                    exact_usage: {
+                        tool: 'ask_gemini',
+                        arguments: exactArgs
+                    }
+                });
+            }
+
+            providers.gemini = {
+                type: 'session',
+                status: status,
+                description: 'Google Gemini browser session with live dynamic model discovery & reasoning depth control',
+                models: formattedGeminiModels
+            };
+        }
+
+        if (enabledSet.has('claude')) {
+            providers.claude = {
+                type: 'session',
+                status: 'ready',
+                description: 'Anthropic Claude browser session',
+                models: [{
+                    id: 'claude',
+                    slug: 'default',
+                    name: 'Claude Session Model',
+                    description: 'Active browser session (Claude Latest / Sonnet)',
+                    status: 'ready',
+                    tags: ['Session', 'Reasoning'],
+                    exact_usage: {
+                        tool: 'ask_claude',
+                        arguments: { message: 'Your prompt here' }
+                    }
+                }]
+            };
+        }
+
+        if (enabledSet.has('perplexity')) {
+            providers.perplexity = {
+                type: 'session',
+                status: 'ready',
+                description: 'Perplexity AI browser session',
+                models: [{
+                    id: 'perplexity',
+                    slug: 'default',
+                    name: 'Perplexity Live Search',
+                    description: 'Active browser session with real-time web grounding',
+                    status: 'ready',
+                    tags: ['Session', 'Search'],
+                    exact_usage: {
+                        tool: 'ask_perplexity',
+                        arguments: { message: 'Your prompt here' }
+                    }
+                }]
+            };
+        }
+    }
+
+    return {
+        mode,
+        refreshed: !!refresh,
+        timestamp: new Date().toISOString(),
+        providers,
+        hint: isByokMode
+            ? 'BYOK API mode active. Use ask_model(provider, message, model) with configured model IDs.'
+            : 'Session mode active. Pass the specified model slug to the designated tool (e.g. ask_chatgpt(message, model="gpt-5-6-mini") or ask_gemini(message, model="flash")).'
+    };
+}
+

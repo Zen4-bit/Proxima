@@ -3,7 +3,7 @@
 // Renders the HTML docs page explaining API-key generation and how to connect
 // OpenAI-compatible clients to the local gateway. Reflects current key status.
 const REST_PORT = parseInt(process.env.PROXIMA_REST_PORT) || 3210;
-const VERSION = '5.0.0';
+const VERSION = '5.5.0';
 
 function getAPIKeyPage(loadApiKey) {
     const keyData = loadApiKey();
@@ -107,7 +107,7 @@ function getAPIKeyPage(loadApiKey) {
                 <pre style="margin-top:8px;font-size:14px;line-height:2">
 Base URL:   <span style="color:#ec4899;font-weight:700">http://localhost:${REST_PORT}/v1</span>
 API Key:    <span style="color:#fbbf24;font-weight:700">sk-XXXX-proxima</span> <span style="color:#666">(your generated key)</span>
-Model:      <span style="color:#22c55e;font-weight:700">auto</span> <span style="color:#666">(or: claude, chatgpt, gemini, perplexity, gemini:3.5-flash, gemini:3.1-pro, gemini:3.1-flash-lite, gemini:auto)</span></pre>
+Model:      <span style="color:#22c55e;font-weight:700">auto</span> <span style="color:#666">(or: claude, chatgpt, gemini, perplexity, gemini:auto, gemini:pro, gemini:latest, gemini:flash, gemini:argon)</span></pre>
                 <p style="margin-top:10px"><strong style="color:#ddd">Works with:</strong> OpenClaw, Nanobot, Continue.dev, Cursor, LibreChat, Open WebUI, LobeChat, ChatBox, BetterChatGPT, and any OpenAI-compatible app.</p>
             </div>
         </div>
@@ -268,9 +268,9 @@ curl http://localhost:${REST_PORT}/v1/chat/completions \\
             <div class="st" style="color:#06b6d4">🤖 Available Models</div>
             <table>
                 <tr><td style="color:#22c55e;font-weight:600">auto</td><td>Auto-picks the best available AI. <strong style="color:#22c55e">Recommended for beginners.</strong></td></tr>
-                <tr><td style="color:#a78bfa;font-weight:600">claude</td><td>Anthropic Claude — best for coding & analysis</td></tr>
-                <tr><td style="color:#22c55e;font-weight:600">chatgpt</td><td>OpenAI ChatGPT — great all-rounder</td></tr>
-                <tr><td style="color:#3b82f6;font-weight:600">gemini</td><td>Google Gemini — strong for reasoning (supports: <code>gemini:3.5-flash</code>, <code>gemini:3.1-pro</code>, <code>gemini:3.1-flash-lite</code>, <code>gemini:auto</code>)</td></tr>
+                <tr><td style="color:#a78bfa;font-weight:600">claude</td><td>Claude Latest — best for coding & analysis</td></tr>
+                <tr><td style="color:#22c55e;font-weight:600">chatgpt</td><td>ChatGPT Latest — great all-rounder</td></tr>
+                <tr><td style="color:#3b82f6;font-weight:600">gemini</td><td>Google Gemini — strong for reasoning (supports: <code>gemini:auto</code>, <code>gemini:pro</code>, <code>gemini:latest</code>, <code>gemini:flash</code>, <code>gemini:argon</code>)</td></tr>
                 <tr><td style="color:#f97316;font-weight:600">perplexity</td><td>Perplexity — best for web search & research</td></tr>
             </table>
             <p style="color:#555;font-size:11px;margin-top:8px">Note: Only enabled providers in Proxima Settings will work. If a provider is disabled, use "auto" to pick from available ones.</p>

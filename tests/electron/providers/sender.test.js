@@ -63,7 +63,7 @@ test('sendMessageToProvider: sends to the SAME base provider run strictly one-at
 
     await Promise.all([
         sender.sendMessageToProvider('gemini', 'a'),
-        sender.sendMessageToProvider('gemini:3.5-flash', 'b'),
+        sender.sendMessageToProvider('gemini:flash', 'b'),
     ]);
     assert.equal(maxActive, 1, 'same-tab requests must be serialized to avoid collision');
 });

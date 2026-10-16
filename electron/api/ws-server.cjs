@@ -22,15 +22,28 @@ const wsStats = {
     startTime: null
 };
 
+let currentHttpServer = null;
+let currentUpgradeListener = null;
+
 function initWebSocket(httpServer, mcpHandler, enabledProvidersFn, securityFns) {
     handleMCPRequest = mcpHandler;
     getEnabledProviders = enabledProvidersFn || (() => []);
     security = securityFns || {};
     wsStats.startTime = new Date();
 
+    if (currentHttpServer && currentUpgradeListener) {
+        try { currentHttpServer.removeListener('upgrade', currentUpgradeListener); } catch {}
+        currentUpgradeListener = null;
+        currentHttpServer = null;
+    }
+    if (wss) {
+        try { wss.close(); } catch {}
+        wss = null;
+    }
+
     wss = new WebSocketServer({ noServer: true, maxPayload: WS_MAX_PAYLOAD_BYTES });
 
-    httpServer.on('upgrade', (request, socket, head) => {
+    currentUpgradeListener = (request, socket, head) => {
         let url;
         try {
             url = new URL(request.url, `http://${request.headers.host}`);
@@ -69,7 +82,10 @@ function initWebSocket(httpServer, mcpHandler, enabledProvidersFn, securityFns) 
         wss.handleUpgrade(request, socket, head, (ws) => {
             wss.emit('connection', ws, request);
         });
-    });
+    };
+
+    currentHttpServer = httpServer;
+    httpServer.on('upgrade', currentUpgradeListener);
 
     wss.on('connection', (ws, request) => {
         const clientId = `ws_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -88,7 +104,7 @@ function initWebSocket(httpServer, mcpHandler, enabledProvidersFn, securityFns) 
         sendJSON(ws, {
             type: 'connected',
             clientId,
-            version: '5.0.0',
+            version: '5.5.0',
             message: 'Connected to Proxima WebSocket',
             timestamp: new Date().toISOString()
         });
@@ -143,6 +159,13 @@ function initWebSocket(httpServer, mcpHandler, enabledProvidersFn, securityFns) 
 
 function closeWebSocket() {
     if (pingInterval) { clearInterval(pingInterval); pingInterval = null; }
+    if (currentHttpServer && currentUpgradeListener) {
+        try {
+            currentHttpServer.removeListener('upgrade', currentUpgradeListener);
+        } catch {}
+    }
+    currentHttpServer = null;
+    currentUpgradeListener = null;
     for (const { ws } of clients.values()) {
         try { ws.terminate(); } catch {}
     }
@@ -154,7 +177,7 @@ function closeWebSocket() {
     }
 }
 
-async function queryProvider(provider, message, filePath = null, engine = null, conversationId = null, modelId = null) {
+async function queryProvider(provider, message, filePath = null, engine = null, conversationId = null, modelId = null, thinking_level = null) {
     const byokKey = byok.keys.isEnabled() ? byok.keys.getKey(provider) : null;
     if (byokKey) {
         const messages = [{ role: 'user', content: message }];
@@ -167,7 +190,7 @@ async function queryProvider(provider, message, filePath = null, engine = null, 
     const sendResult = await handleMCPRequest({
         action: 'sendMessage',
         provider,
-        data: { message, filePath, engine, conversationId }
+        data: { message, filePath, engine, conversationId, thinking_level }
     });
     
     if (!sendResult.success) {
@@ -184,15 +207,18 @@ async function queryProvider(provider, message, filePath = null, engine = null, 
 function pickBestProvider(preferred) {
     const enabled = getEnabledProviders ? getEnabledProviders() : [];
     if (preferred && preferred !== 'auto') {
-        const clean = preferred.toLowerCase().trim();
-        if (['3.5-flash', '3.1-pro', '3.1-flash-lite'].includes(clean)) {
+        let base = String(preferred).toLowerCase().trim();
+        if (base.includes('@')) base = base.slice(0, base.indexOf('@'));
+        else if (base.includes(':')) base = base.slice(0, base.indexOf(':'));
+        if (['latest', 'flash', 'pro', 'argon'].includes(base) || base.startsWith('gemini')) {
             return 'gemini';
         }
-        if (clean.startsWith('gemini')) {
-            return 'gemini';
+        if (base.startsWith('chatgpt')) {
+            return 'chatgpt';
         }
 
         if (enabled.includes(preferred)) return preferred;
+        if (enabled.includes(base)) return base;
 
         const alias = preferred.toLowerCase();
         const found = enabled.find(p => p.toLowerCase() === alias);
@@ -248,39 +274,40 @@ async function handleWSMessage(ws, clientId, msg) {
             let engine = null;
             const cleanModel = String(model || 'auto').toLowerCase().trim();
             if (!byokModelId && provider === 'gemini') {
-                if (['3.5-flash', '3.1-pro', '3.1-flash-lite'].includes(cleanModel)) {
-                    engine = cleanModel;
-                } else if (cleanModel.startsWith('gemini')) {
-                    const suffix = cleanModel.replace(/^gemini-?/, '');
-                    if (['3.5-flash', '3.1-pro', '3.1-flash-lite'].includes(suffix)) {
-                        engine = suffix;
-                    }
+                let candidate = cleanModel;
+                if (candidate.startsWith('gemini')) {
+                    candidate = candidate.replace(/^gemini[-:]?/, '');
                 }
-
-                if (!engine) {
-                    engine = filePath ? '3.1-pro' : '3.5-flash';
+                engine = candidate || (filePath ? 'pro' : 'auto');
+            } else if (!byokModelId && provider === 'chatgpt') {
+                let candidate = cleanModel;
+                if (candidate.startsWith('chatgpt')) {
+                    candidate = candidate.replace(/^chatgpt[-:]?/, '');
                 }
+                engine = candidate || 'auto';
             }
 
-            sendJSON(ws, { type: 'status', id: requestId, status: 'processing', model: provider, timestamp: new Date().toISOString() });
+            const thinkingLevel = msg.thinking_level || msg.thinkingLevel || msg.reasoning_effort || null;
+
+            sendJSON(ws, { type: 'status', id: requestId, status: 'processing', model: model || provider, timestamp: new Date().toISOString() });
 
             const conversationId = msg.conversationId || msg.conversation_id || msg.sessionId || msg.session_id || null;
             const startTime = Date.now();
             try {
-                const content = await queryProvider(provider, message, filePath, engine, conversationId, byokModelId);
+                const content = await queryProvider(provider, message, filePath, engine, conversationId, byokModelId, thinkingLevel);
                 const responseTimeMs = Date.now() - startTime;
 
                 sendJSON(ws, {
                     type: 'response',
                     id: requestId,
                     action: 'ask',
-                    model: provider,
+                    model: model || provider,
                     content,
                     responseTimeMs,
                     timestamp: new Date().toISOString()
                 });
             } catch (err) {
-                sendJSON(ws, { type: 'error', id: requestId, error: err.message, timestamp: new Date().toISOString() });
+                sendJSON(ws, { type: 'error', id: requestId, model: model || provider, error: err.message, timestamp: new Date().toISOString() });
             }
             break;
         }
@@ -591,4 +618,4 @@ function broadcast(data) {
 
 function getWSStats() { return wsStats; }
 
-module.exports = { initWebSocket, closeWebSocket, broadcast, getWSStats };
+module.exports = { initWebSocket, closeWebSocket, broadcast, getWSStats, pickBestProvider };

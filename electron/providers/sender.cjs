@@ -5,8 +5,26 @@ let browserManager, providerAPI;
 function init(d) { browserManager = d.browserManager; providerAPI = d.providerAPI; }
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
-// Chain sends to the same provider sequentially to prevent BrowserView execution collisions.
+// Chain sends sequentially per provider
 const _sendQueues = {};
+const _activeCancels = new Map();
+
+function cancelProvider(provider) {
+    const baseProvider = (provider || '').split(':')[0];
+    if (browserManager && providerAPI) {
+        const wc = browserManager.getWebContents(baseProvider);
+        if (wc) providerAPI.abortAPI(baseProvider, wc).catch(() => {});
+    }
+    const set = _activeCancels.get(baseProvider);
+    if (set) {
+        for (const cancelFn of set) {
+            try { cancelFn(); } catch (e) { }
+        }
+        set.clear();
+    }
+    _sendQueues[baseProvider] = Promise.resolve();
+    console.log(`[Sender] Cancelled and flushed queue for provider: ${baseProvider}`);
+}
 
 function sendMessageToProvider(provider, message, attachments = null, onChunk = null, conversationId = null) {
     const baseProvider = (provider || '').split(':')[0];
@@ -19,15 +37,22 @@ function sendMessageToProvider(provider, message, attachments = null, onChunk = 
 
 async function _sendMessageToProviderImpl(provider, message, attachments = null, onChunk = null, conversationId = null) {
     const baseProvider = provider.split(':')[0];
+    let isCancelled = false;
+    const cancelFn = () => { isCancelled = true; };
+
+    if (!_activeCancels.has(baseProvider)) _activeCancels.set(baseProvider, new Set());
+    _activeCancels.get(baseProvider).add(cancelFn);
+
     let webContents = browserManager.getWebContents(baseProvider);
     if (!webContents) {
-        // Wait for the BrowserView to initialize on startup before failing.
         const _deadline = Date.now() + 30000;
-        while (!webContents && Date.now() < _deadline) {
+        while (!webContents && Date.now() < _deadline && !isCancelled) {
             await sleep(500);
             webContents = browserManager.getWebContents(baseProvider);
         }
-        if (!webContents) {
+        if (!webContents || isCancelled) {
+            _activeCancels.get(baseProvider)?.delete(cancelFn);
+            if (isCancelled) throw new Error('Request cancelled by user');
             throw new Error(`Provider ${baseProvider} not initialized`);
         }
         console.log(`[${baseProvider}] Provider ready after waiting for initialization.`);
@@ -39,31 +64,43 @@ async function _sendMessageToProviderImpl(provider, message, attachments = null,
 
     let lastError = null;
 
-    for (let attempt = 1; attempt <= MAX_TRANSIENT_RETRIES; attempt++) {
-        try {
-            console.log(`[${provider}] API attempt ${attempt}/${MAX_TRANSIENT_RETRIES}...`);
-            const apiResponse = await providerAPI.sendViaAPI(provider, webContents, message, attachments, onChunk, conversationId);
-
-            if (apiResponse && apiResponse.length > 0) {
-                console.log(`[${provider}] [OK] API response captured (${apiResponse.length} chars) on attempt ${attempt}`);
-                return { response: apiResponse };
+    try {
+        for (let attempt = 1; attempt <= MAX_TRANSIENT_RETRIES; attempt++) {
+            if (isCancelled) {
+                throw new Error('Request cancelled by user');
             }
 
-            console.log(`[${provider}] API returned empty (deterministic — engine already retried). Not looping.`);
-            throw new Error(`${provider} returned an empty response`);
+            try {
+                console.log(`[${provider}] API attempt ${attempt}/${MAX_TRANSIENT_RETRIES}...`);
+                const apiResponse = await providerAPI.sendViaAPI(provider, webContents, message, attachments, onChunk, conversationId);
 
-        } catch (apiErr) {
-            lastError = apiErr.message;
-            const transient = _isTransient(apiErr.message);
-            console.log(`[${provider}] API attempt ${attempt} failed (${transient ? 'transient' : 'terminal'}): ${apiErr.message}`);
-            if (!transient || attempt >= MAX_TRANSIENT_RETRIES) break;
+                if (apiResponse && apiResponse.length > 0) {
+                    console.log(`[${provider}] [OK] API response captured (${apiResponse.length} chars) on attempt ${attempt}`);
+                    return { response: apiResponse };
+                }
 
-            console.log(`[${provider}] Transient — retrying in ${RETRY_DELAY_MS}ms...`);
-            await sleep(RETRY_DELAY_MS);
+                console.log(`[${provider}] API returned empty (deterministic — engine already retried). Not looping.`);
+                throw new Error(`${provider} returned an empty response`);
+
+            } catch (apiErr) {
+                lastError = apiErr.message;
+                if (isCancelled || apiErr.message.includes('cancelled')) {
+                    throw new Error('Request cancelled by user');
+                }
+
+                const transient = _isTransient(apiErr.message);
+                console.log(`[${provider}] API attempt ${attempt} failed (${transient ? 'transient' : 'terminal'}): ${apiErr.message}`);
+                if (!transient || attempt >= MAX_TRANSIENT_RETRIES) break;
+
+                console.log(`[${provider}] Transient — retrying in ${RETRY_DELAY_MS}ms...`);
+                await sleep(RETRY_DELAY_MS);
+            }
         }
-    }
 
-    throw new Error(`API failed: ${lastError}`);
+        throw new Error(`API failed: ${lastError}`);
+    } finally {
+        _activeCancels.get(baseProvider)?.delete(cancelFn);
+    }
 }
 
-module.exports = { init, sendMessageToProvider };
+module.exports = { init, sendMessageToProvider, cancelProvider };

@@ -63,6 +63,12 @@ _TRANSPORT = (
 )
 
 
+_MODEL_FAILURES = (
+    "failed to parse", "stream aborted", "could not extract reply",
+    "no gemini access", "chat processing failed", "model not available",
+)
+
+
 def _extract_status(error: Exception) -> int | None:
     """Pulls an HTTP status code from an exception."""
     for attr in ("status_code", "status", "http_status", "code"):
@@ -93,6 +99,10 @@ def classify_api_error(error: Exception) -> Decision:
             status_code=status, message=f"{kind.value} ({status})" if status else kind.value,
             hint=hint,
         )
+
+    if _any(text, _MODEL_FAILURES):
+        return d(ErrorKind.BAD_REQUEST, retryable=False,
+                 hint="Provider generation failed — please try another model or check login.")
 
     if status == 413 or _any(text, _CONTEXT):
         return d(ErrorKind.CONTEXT_OVERFLOW, retryable=True, trim=True,

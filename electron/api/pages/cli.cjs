@@ -3,7 +3,7 @@
 // Renders the HTML page documenting the `proxima` terminal client (commands,
 // piping, file context, flags) and embeds the shared in-page chat widget.
 const REST_PORT = parseInt(process.env.PROXIMA_REST_PORT) || 3210;
-const VERSION = '5.0.0';
+const VERSION = '5.5.0';
 const { getChatHTML, getChatJS } = require('./widget.cjs');
 
 function getCLIDocsPage() {
@@ -211,7 +211,7 @@ proxima code debug "function fails on empty array"</pre>
             <div class="cmd-grid">
                 <div class="ex">
                     <h4>Flags</h4>
-                    <pre>--model, -m    Specify AI model (supports: gemini:3.5-flash, gemini:3.1-pro, gemini:3.1-flash-lite, gemini:auto)
+                    <pre>--model, -m    Specify AI model (supports: gemini:auto, gemini:pro, gemini:latest, gemini:flash, gemini:argon)
 --to           Target language (translate)
 --from         Source language (translate)
 --lang, -l     Programming language (code)

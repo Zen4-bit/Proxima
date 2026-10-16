@@ -8,7 +8,7 @@ Security fixes are provided for the latest released major version.
 
 | Version | Supported |
 |---------|-----------|
-| 5.0.x   | ✅ |
+| 5.x     | ✅ |
 | 4.1.x   | ⚠️ Critical fixes only |
 | < 4.1   | ❌ |
 
@@ -48,7 +48,7 @@ Use **GitHub's private vulnerability reporting**:
    **Report a vulnerability** (GitHub Security Advisories):
    `https://github.com/Zen4-bit/Proxima/security/advisories/new`
 2. Include:
-   - Affected version (`5.0.0`, etc.) and OS.
+   - Affected version (`5.5.0`, etc.) and OS.
    - Component (Electron runtime host / BYOK / MCP / Python agent / SDK / CLI).
    - A clear description and **minimal steps to reproduce** (or a PoC).
    - Impact and any suggested fix.

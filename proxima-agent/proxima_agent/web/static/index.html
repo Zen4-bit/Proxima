@@ -258,7 +258,7 @@
                                                     <img class="model-option-icon" src="/static/icons/claude.svg"
                                                         alt="Claude">
                                                     <div class="model-option-info">
-                                                        <div class="model-option-name">Claude 3.5 Sonnet</div>
+                                                        <div class="model-option-name">Claude Latest</div>
                                                         <div class="model-option-desc">Advanced reasoning</div>
                                                     </div>
                                                     <div class="model-option-check" id="check-claude">
@@ -268,14 +268,19 @@
                                                         </svg>
                                                     </div>
                                                 </div>
-                                                <div class="model-option" data-value="chatgpt">
+                                                <div class="model-option-group" id="group-chatgpt-trigger">
                                                     <img class="model-option-icon" src="/static/icons/chatgpt.png"
                                                         alt="ChatGPT">
                                                     <div class="model-option-info">
-                                                        <div class="model-option-name">GPT-4o</div>
-                                                        <div class="model-option-desc">General productivity</div>
+                                                        <div class="model-option-name">ChatGPT</div>
+                                                        <div class="model-option-desc" id="chatgpt-selected-desc">Live dynamic 5.6+ discovery</div>
                                                     </div>
-                                                    <div class="model-option-check" id="check-chatgpt"></div>
+                                                    <div class="model-option-chevron">
+                                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                                                            stroke="currentColor" stroke-width="2.5">
+                                                            <path d="M9 5l7 7-7 7" />
+                                                        </svg>
+                                                    </div>
                                                 </div>
                                                 <div class="model-option-group" id="group-gemini-trigger">
                                                     <img class="model-option-icon" src="/static/icons/gemini.png"
@@ -312,42 +317,41 @@
                                                     </svg>
                                                     <span>Back</span>
                                                 </div>
-                                                <div class="model-popup-label">Gemini Sub-Engines</div>
-                                                <div class="model-option" data-value="gemini">
-                                                    <img class="model-option-icon" src="/static/icons/gemini.png"
-                                                        alt="Gemini Auto">
-                                                    <div class="model-option-info">
-                                                        <div class="model-option-name">Gemini (Auto)</div>
-                                                        <div class="model-option-desc">Auto-routing Ingestion</div>
+                                                <div class="model-popup-label">Gemini Models (Discovered)</div>
+                                                <div id="gemini-sub-models-list">
+                                                    <div class="model-option" data-value="gemini:auto">
+                                                        <img class="model-option-icon" src="/static/icons/gemini.png"
+                                                            alt="Gemini Auto">
+                                                        <div class="model-option-info">
+                                                            <div class="model-option-name">Gemini Auto</div>
+                                                            <div class="model-option-desc">Auto-routing (Fastest answers)</div>
+                                                        </div>
+                                                        <div class="model-option-check" id="check-gemini-auto"></div>
                                                     </div>
-                                                    <div class="model-option-check" id="check-gemini-auto"></div>
                                                 </div>
-                                                <div class="model-option" data-value="gemini:3.1-pro">
-                                                    <img class="model-option-icon" src="/static/icons/gemini.png"
-                                                        alt="Gemini Pro">
-                                                    <div class="model-option-info">
-                                                        <div class="model-option-name">Gemini 3.1 Pro</div>
-                                                        <div class="model-option-desc">Deep Coding</div>
-                                                    </div>
-                                                    <div class="model-option-check" id="check-gemini-pro"></div>
+                                            </div>
+                                        </div>
+
+                                        <div class="model-page" id="model-page-chatgpt">
+                                            <div class="model-popup-section">
+                                                <div class="model-back-btn" id="model-chatgpt-back">
+                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+                                                        stroke="currentColor" stroke-width="2.5">
+                                                        <path d="M19 12H5M12 19l-7-7 7-7" />
+                                                    </svg>
+                                                    <span>Back</span>
                                                 </div>
-                                                <div class="model-option" data-value="gemini:3.5-flash">
-                                                    <img class="model-option-icon" src="/static/icons/gemini.png"
-                                                        alt="Gemini Flash">
-                                                    <div class="model-option-info">
-                                                        <div class="model-option-name">Gemini 3.5 Flash</div>
-                                                        <div class="model-option-desc">High Speed</div>
+                                                <div class="model-popup-label">ChatGPT Models (Discovered)</div>
+                                                <div id="chatgpt-sub-models-list">
+                                                    <div class="model-option" data-value="chatgpt:auto">
+                                                        <img class="model-option-icon" src="/static/icons/chatgpt.png"
+                                                            alt="ChatGPT Auto">
+                                                        <div class="model-option-info">
+                                                            <div class="model-option-name">ChatGPT Auto</div>
+                                                            <div class="model-option-desc">Fastest available 5.6+ mini</div>
+                                                        </div>
+                                                        <div class="model-option-check" id="check-chatgpt-auto"></div>
                                                     </div>
-                                                    <div class="model-option-check" id="check-gemini-flash"></div>
-                                                </div>
-                                                <div class="model-option" data-value="gemini:3.1-flash-lite">
-                                                    <img class="model-option-icon" src="/static/icons/gemini.png"
-                                                        alt="Gemini Lite">
-                                                    <div class="model-option-info">
-                                                        <div class="model-option-name">Gemini 3.1 Lite</div>
-                                                        <div class="model-option-desc">Low Latency</div>
-                                                    </div>
-                                                    <div class="model-option-check" id="check-gemini-lite"></div>
                                                 </div>
                                             </div>
                                         </div>
@@ -356,6 +360,28 @@
                                 </div>
 
                                 <div class="toolbar-divider"></div>
+
+                                <div class="model-dropdown" id="thinking-dropdown" style="display:none;">
+                                    <button class="composer-dropdown-btn" id="thinking-trigger" type="button" title="Set thinking / reasoning depth">
+                                        <svg class="thinking-trigger-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="opacity:0.8;margin-right:1px;flex-shrink:0;">
+                                            <line x1="6" y1="18" x2="6" y2="14" />
+                                            <line x1="12" y1="18" x2="12" y2="9" />
+                                            <line x1="18" y1="18" x2="18" y2="4" />
+                                        </svg>
+                                        <span id="thinking-trigger-text">Default</span>
+                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2.5">
+                                            <path d="M6 9l6 6 6-6" />
+                                        </svg>
+                                    </button>
+                                    <div class="model-popup" id="thinking-popup" style="min-width:140px;">
+                                        <div class="model-popup-section" id="thinking-options-container">
+                                            <!-- Dynamically populated thinking options -->
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="toolbar-divider" id="thinking-divider" style="display:none;"></div>
 
                                 <button type="button" id="multi-agent-composer-btn" class="composer-tools-indicator"
                                     title="Toggle Multi-Agent Mode">

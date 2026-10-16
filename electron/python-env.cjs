@@ -205,14 +205,28 @@ function getStatus() {
     return { ..._state };
 }
 
+function isInterpreterUsable(exe, requireAgent = false) {
+    if (!exe) return false;
+    try {
+        if (!fs.existsSync(exe)) return false;
+        const code = requireAgent
+            ? 'import sys, proxima_agent; sys.exit(0)'
+            : 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)';
+        const r = spawnSync(exe, ['-c', code], {
+            encoding: 'utf8',
+            timeout: 3000,
+            windowsHide: true,
+        });
+        return r.status === 0;
+    } catch {
+        return false;
+    }
+}
+
 function getReadyInterpreter() {
     const envDir = getManagedEnvDir();
     const py = venvPythonPath(envDir);
-    if (!fs.existsSync(py)) return null;
-    try {
-        const r = spawnSync(py, ['-c', 'import proxima_agent'], { encoding: 'utf8', timeout: 2000 });
-        if (r.status === 0) return py;
-    } catch { }
+    if (isInterpreterUsable(py, true)) return py;
     return null;
 }
 
@@ -334,11 +348,25 @@ function resolveInterpreter() {
         const devVenv = IS_WIN
             ? path.join(agentDir, '.venv', 'Scripts', 'python.exe')
             : path.join(agentDir, '.venv', 'bin', 'python');
-        if (fs.existsSync(devVenv)) return devVenv;
+        if (isInterpreterUsable(devVenv, true)) return devVenv;
     }
 
     const base = findBaseInterpreter();
-    return base ? base.exe : null;
+    if (base && isInterpreterUsable(base.exe, true)) {
+        return base.exe;
+    }
+
+    return null;
+}
+
+async function ensureReadyInterpreter(onProgress = () => { }) {
+    const current = resolveInterpreter();
+    if (current) return current;
+    const res = await ensureEnvironmentAsync(onProgress);
+    if (res && res.ok && res.pythonPath && isInterpreterUsable(res.pythonPath, true)) {
+        return res.pythonPath;
+    }
+    return resolveInterpreter();
 }
 
 module.exports = {
@@ -352,7 +380,9 @@ module.exports = {
     findBaseInterpreter,
     getReadyInterpreter,
     ensureEnvironmentAsync,
+    ensureReadyInterpreter,
     resolveInterpreter,
+    isInterpreterUsable,
     getStatus,
     MIN_PY_MINOR,
 };

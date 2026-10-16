@@ -3,7 +3,7 @@
 // Renders the HTML page documenting the /ws real-time API (actions, message
 // format, client examples) and embeds the shared in-page chat widget.
 const REST_PORT = parseInt(process.env.PROXIMA_REST_PORT) || 3210;
-const VERSION = '5.0.0';
+const VERSION = '5.5.0';
 const { getChatHTML, getChatJS } = require('./widget.cjs');
 
 function getWSDocsPage() {
@@ -103,7 +103,7 @@ ws.send(JSON.stringify({
                     <h4>→ Send (Client to Server)</h4>
                     <pre>{
   "action": "ask",
-  "model": "claude", // or chatgpt, perplexity, gemini (gemini:3.5-flash, gemini:3.1-pro, gemini:3.1-flash-lite, gemini:auto)
+  "model": "claude", // or chatgpt, perplexity, gemini (gemini:auto, gemini:pro, gemini:latest, gemini:flash, gemini:argon)
   "message": "What is AI?",
   "filePath": "D:\\\\path\\\\to\\\\file.png", // optional local path for Gemini visual routing
   "id": "optional-request-id"

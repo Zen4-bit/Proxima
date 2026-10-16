@@ -23,7 +23,7 @@ test.afterEach(() => {
 
 test('callProvider: routes a core provider to its native connector with provider injected', async () => {
     let captured;
-    stub(openai, async (key, msg, opts) => { captured = { key, msg, opts }; return { text: 'hi', toolCalls: null, model: 'gpt-5.5', responseTimeMs: 5 }; });
+    stub(openai, async (key, msg, opts) => { captured = { key, msg, opts }; return { text: 'hi', toolCalls: null, model: 'chatgpt', responseTimeMs: 5 }; });
     const res = await router.callProvider('chatgpt', 'sk-key', 'hello');
     assert.equal(res.text, 'hi');
     assert.equal(captured.key, 'sk-key');
@@ -69,9 +69,9 @@ test('callProvider: throws when no message/history is provided', async () => {
 
 test('callProvider: retries other fallback models if the first model fails with 404/503', async () => {
     let attemptedModels = [];
-    stub(openai, async (key, msg, opts) => {
+    stub(compatible, async (key, msg, opts) => {
         attemptedModels.push(opts.modelId);
-        if (opts.modelId === 'gpt-5.5') {
+        if (opts.modelId === 'llama-3.3-70b-versatile') {
             const err = new Error('Model retired');
             err.statusCode = 404;
             throw err;
@@ -79,10 +79,10 @@ test('callProvider: retries other fallback models if the first model fails with 
         return { text: 'fallback-success', toolCalls: null, model: opts.modelId, responseTimeMs: 5 };
     });
 
-    const res = await router.callProvider('chatgpt', 'sk-key', 'hello', { modelId: 'auto' });
+    const res = await router.callProvider('groq', 'sk-key', 'hello', { modelId: 'auto' });
     assert.equal(res.text, 'fallback-success');
-    assert.equal(res.model, 'gpt-4o');
-    assert.deepEqual(attemptedModels, ['gpt-5.5', 'gpt-4o']);
+    assert.equal(res.model, 'llama-3.1-8b-instant');
+    assert.deepEqual(attemptedModels, ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant']);
 });
 
 test('callProvider: does NOT retry fallback models if auth fails (401)', async () => {
@@ -98,5 +98,5 @@ test('callProvider: does NOT retry fallback models if auth fails (401)', async (
         () => router.callProvider('chatgpt', 'sk-key', 'hello', { modelId: 'auto' }),
         /Invalid API key/
     );
-    assert.deepEqual(attemptedModels, ['gpt-5.5']);
+    assert.deepEqual(attemptedModels, ['chatgpt']);
 });

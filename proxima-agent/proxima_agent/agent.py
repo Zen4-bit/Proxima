@@ -1319,6 +1319,8 @@ def run_agent_loop(client: OpenAI, config: dict, user_message: str, messages: li
                     extra_body["filePath"] = effective_file
                 if conversation_id:
                     extra_body["conversationId"] = conversation_id
+                if config.get("thinking_level"):
+                    extra_body["thinking_level"] = config["thinking_level"]
 
                 current_timeout = 45.0 if api_attempt == 0 else 20.0
                 response, cancelled = _call_api_with_cancellation(

@@ -401,29 +401,17 @@
 
 
     function newConversation(sessionId) {
-        if (sessionId) {
-            delete _sessions[sessionId];
-            if (_currentSessionId === sessionId) {
-                _currentSessionId = null;
-                _lastBackendUuid = null;
-            }
-        } else if (_currentSessionId) {
-            // No id given → reset the ACTIVE session only (mirrors the Claude /
-            // Gemini engines), so other conversations keep their own threads.
-            delete _sessions[_currentSessionId];
-            _currentSessionId = null;
-            _lastBackendUuid = null;
-        } else {
-            // Nothing active yet — clear the loose global as a safety net.
-            _lastBackendUuid = null;
+        var sessionsToDelete = sessionId ? [sessionId] : ['default', 'mcp-session', _currentSessionId].filter(Boolean);
+        for (var s = 0; s < sessionsToDelete.length; s++) {
+            delete _sessions[sessionsToDelete[s]];
         }
-        // Token is account-level (not per-conversation); drop it so it is
-        // re-fetched fresh on the next send.
+        _currentSessionId = null;
+        _lastBackendUuid = null;
         _sessionToken = null;
         try {
             localStorage.setItem('proxima_perplexity_sessions', JSON.stringify(_sessions));
         } catch (e) { }
-        console.log('[Proxima Perplexity] Conversation reset:', sessionId || _currentSessionId || 'current');
+        console.log('[Proxima Perplexity] Conversation reset:', sessionId || 'default & mcp');
     }
 
     window.__proximaPerplexity = { send: send, newConversation: newConversation, uploadFileToPerplexity: uploadFileToPerplexity };

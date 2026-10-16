@@ -41,7 +41,7 @@ class BrowserManager {
 
         this.popupWebContentsIds = new Set();
 
-        // Bind ref so destroy() can detach it to prevent listener leaks on the global app object.
+        // Prevent listener leak on destroy
         this._onWebContentsCreated = (event, contents) => {
             if (contents.getType() === 'window') {
                 const partition = contents.session.partition || '';
@@ -74,7 +74,7 @@ class BrowserManager {
                 try {
                     Object.defineProperty(navigator, 'webdriver', { get: () => false, configurable: true });
 
-                    // Exclude 'global' and 'Buffer' to prevent breaking polyfills like Claude's Buffer.isBuffer.
+                    // Avoid breaking polyfills like Claude Buffer.isBuffer
                     const electronGlobals = ['process', 'require', 'module', '__filename', '__dirname'];
                     electronGlobals.forEach(g => {
                         try { delete window[g]; } catch(e) {}
@@ -170,7 +170,7 @@ class BrowserManager {
                     } catch(e) {}
 
                     try {
-                        // Spoof WebGL renderer only when a headless/software renderer is detected to avoid obvious fingerprints.
+                        // Spoof software WebGL renderers
                         const _isSoftwareRenderer = (s) => typeof s === 'string' && /swiftshader|llvmpipe|basic render|software|microsoft basic/i.test(s);
                         const _spoofVendor = 'Google Inc. (NVIDIA)';
                         const _spoofRenderer = 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 Direct3D11 vs_5_0 ps_5_0, D3D11)';
@@ -206,7 +206,7 @@ class BrowserManager {
                         });
                     } catch(e) {}
 
-                    // Spoof screen dimensions to prevent Cloudflare Turnstile CAPTCHA loops.
+                    // Prevent Cloudflare Turnstile loops
                     try {
                         const screenProps = {
                             colorDepth: 24,
@@ -776,10 +776,31 @@ class BrowserManager {
                     `);
                 case 'chatgpt':
                     return await webContents.executeJavaScript(`
-                        (function() {
-                            const hasInput = !!document.querySelector('#prompt-textarea');
-                            const hasLoginModal = !!document.querySelector('[data-testid="login-button"]');
-                            return hasInput && !hasLoginModal;
+                        (async function() {
+                            try {
+                                const res = await fetch('/api/auth/session', { credentials: 'include' });
+                                if (res.ok) {
+                                    const data = await res.json();
+                                    if (data && (data.accessToken || data.user)) return true;
+                                }
+                            } catch (e) { }
+
+                            const hasProfile = !!document.querySelector('[data-testid="profile-button"]') ||
+                                               !!document.querySelector('button[aria-label*="User"]') ||
+                                               !!document.querySelector('nav a[href*="/c/"]') ||
+                                               !!document.querySelector('nav') ||
+                                               !!document.querySelector('[data-testid*="user-menu"]');
+
+                            const hasInput = !!document.querySelector('#prompt-textarea') ||
+                                             !!document.querySelector('textarea') ||
+                                             !!document.querySelector('[contenteditable="true"]') ||
+                                             !!document.querySelector('[data-placeholder*="Ask"]');
+
+                            const hasLoginBtn = !!document.querySelector('[data-testid="login-button"]') ||
+                                                !!document.querySelector('a[href*="/auth/login"]');
+
+                            if (hasProfile || (hasInput && !hasLoginBtn)) return true;
+                            return false;
                         })()
                     `);
                 case 'claude':
@@ -825,7 +846,7 @@ class BrowserManager {
         if (this.isDestroyed) return;
         this.isDestroyed = true;
 
-        // Detach global listener to prevent handler memory leaks on reload.
+        // Detach listener on reload
         if (this._onWebContentsCreated) {
             try { app.removeListener('web-contents-created', this._onWebContentsCreated); } catch (e) { }
             this._onWebContentsCreated = null;

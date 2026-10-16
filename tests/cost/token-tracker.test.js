@@ -49,7 +49,7 @@ describe('TokenTracker', () => {
 
     it('should log usage and calculate cost', () => {
         const result = tracker.logUsage({
-            model: 'gpt-4',
+            model: 'chatgpt',
             provider: 'chatgpt',
             promptTokens: 1000,
             completionTokens: 500,
@@ -59,15 +59,15 @@ describe('TokenTracker', () => {
     });
 
     it('should accumulate costs across multiple calls', () => {
-        tracker.logUsage({ model: 'gpt-4', provider: 'chatgpt', promptTokens: 500, completionTokens: 200 });
-        const r2 = tracker.logUsage({ model: 'claude-3.5-sonnet', provider: 'claude', promptTokens: 300, completionTokens: 150 });
+        tracker.logUsage({ model: 'chatgpt', provider: 'chatgpt', promptTokens: 500, completionTokens: 200 });
+        const r2 = tracker.logUsage({ model: 'claude', provider: 'claude', promptTokens: 300, completionTokens: 150 });
         assert.ok(r2.totalSaved > r2.requestCost, 'Total should be more than just this request');
     });
 
     it('should track per-provider stats', () => {
-        tracker.logUsage({ model: 'gpt-4', provider: 'chatgpt', promptTokens: 100, completionTokens: 50 });
-        tracker.logUsage({ model: 'gpt-4', provider: 'chatgpt', promptTokens: 200, completionTokens: 100 });
-        tracker.logUsage({ model: 'claude-3-haiku', provider: 'claude', promptTokens: 150, completionTokens: 75 });
+        tracker.logUsage({ model: 'chatgpt', provider: 'chatgpt', promptTokens: 100, completionTokens: 50 });
+        tracker.logUsage({ model: 'chatgpt', provider: 'chatgpt', promptTokens: 200, completionTokens: 100 });
+        tracker.logUsage({ model: 'claude', provider: 'claude', promptTokens: 150, completionTokens: 75 });
 
         const report = tracker.getReport();
         assert.equal(report.totalRequests, 3);
@@ -79,7 +79,7 @@ describe('TokenTracker', () => {
 
 
     it('should generate formatted report', () => {
-        tracker.logUsage({ model: 'gpt-4', provider: 'chatgpt', promptTokens: 100, completionTokens: 50 });
+        tracker.logUsage({ model: 'chatgpt', provider: 'chatgpt', promptTokens: 100, completionTokens: 50 });
         const report = tracker.getReport();
 
         assert.ok(report.sessionStart);
@@ -95,14 +95,14 @@ describe('TokenTracker', () => {
 
 
     it('should calculate cost statically', () => {
-        const cost = TokenTracker.calculateCost('gpt-4', 1000, 500);
+        const cost = TokenTracker.calculateCost('chatgpt', 1000, 500);
         assert.ok(cost.cost > 0);
         assert.ok(cost.costINR > 0);
         assert.ok(cost.costINR > cost.cost, 'INR should be more than USD');
     });
 
     it('should get pricing for known model', () => {
-        const pricing = TokenTracker.getPricing('gpt-4');
+        const pricing = TokenTracker.getPricing('chatgpt');
         assert.ok(pricing.input > 0);
         assert.ok(pricing.output > 0);
     });
@@ -115,7 +115,7 @@ describe('TokenTracker', () => {
 
     it('should handle cached tokens in logUsage', () => {
         tracker.logUsage({
-            model: 'gpt-4',
+            model: 'chatgpt',
             provider: 'chatgpt',
             promptTokens: 100,
             completionTokens: 50,

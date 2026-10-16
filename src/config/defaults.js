@@ -49,7 +49,7 @@ export const DEFAULTS = {
 
 
     MCP_SERVER_NAME: 'agent-hub',
-    MCP_SERVER_VERSION: '5.0.0',
+    MCP_SERVER_VERSION: '5.5.0',
     API_PORT: 3210,
 };
 

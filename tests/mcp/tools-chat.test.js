@@ -10,8 +10,7 @@ test('tools-chat: registers exactly the 8 documented chat tools with schemas', (
     const { tools } = registerModule(register);
     assert.deepEqual(
         [...tools.keys()].sort(),
-        ['ask_all_ais', 'ask_chatgpt', 'ask_claude', 'ask_gemini', 'ask_model', 'new_conversation', 'smart_query'].sort()
-            .concat('ask_perplexity').sort(),
+        ['ask_all_ais', 'ask_chatgpt', 'ask_claude', 'ask_gemini', 'ask_model', 'ask_perplexity', 'list_available_models', 'new_conversation', 'smart_query'].sort(),
     );
     // Every tool exposes a non-empty description and an inputSchema object.
     for (const [, { meta }] of tools) {

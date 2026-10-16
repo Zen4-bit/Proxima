@@ -529,7 +529,7 @@ wheels = [
 
 [[package]]
 name = "proxima-agent"
-version = "5.0.0"
+version = "5.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "comtypes", marker = "sys_platform == 'win32'" },

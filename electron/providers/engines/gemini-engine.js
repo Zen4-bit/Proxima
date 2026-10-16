@@ -2,7 +2,7 @@
 // Performs StreamGenerate request routing, Scotty file uploads, and session management.
 
 (function () {
-    if (window.__proximaGeminiUnified) return;
+    // Engine definition (rebinds __proximaGeminiUnified upon reload)
 
     var TIMEOUT = 360000;
     var TOKEN_TTL = 300000;
@@ -20,8 +20,27 @@
     var _responseId = '';
     var _choiceId = '';
     var _contextToken = '';
+    var _turnIndex = 0;
     var _sessionUuid = generateUuid().toUpperCase();
     var _workspaces = { fast: [], thinking: [] };
+
+    var _activeController = null;
+    var _activeReader = null;
+
+    function abortActive() {
+        if (_activeController) {
+            try { _activeController.abort(); } catch (e) { }
+            _activeController = null;
+        }
+        if (_activeReader) {
+            try { _activeReader.cancel(); } catch (e) { }
+            _activeReader = null;
+        }
+        if (window.__proximaGeminiStream) {
+            window.__proximaGeminiStream.status = 'error';
+            window.__proximaGeminiStream.error = 'Cancelled by user';
+        }
+    }
 
     var _sessions = {};
     var _currentSessionId = null;
@@ -43,44 +62,334 @@
         }
     }
 
-    function activateSession(sessionId) {
+    function _sessionKey(sessionId, engineKey) {
         if (!sessionId) sessionId = 'default';
-        _currentSessionId = sessionId;
-        if (!_sessions[sessionId]) {
-            _sessions[sessionId] = {
-                conversationId: '',
-                responseId: '',
-                choiceId: '',
-                contextToken: '',
-                sessionUuid: generateUuid().toUpperCase()
-            };
+        var cleanEngine = (engineKey || 'auto');
+        if (cleanEngine.indexOf(':') !== -1) {
+            cleanEngine = cleanEngine.split(':')[1];
         }
-        var sess = _sessions[sessionId];
+        return sessionId + '::' + cleanEngine;
+    }
+
+    function activateSession(sessionId, engineKey, forceFresh) {
+        if (!sessionId) sessionId = 'default';
+        var key = _sessionKey(sessionId, engineKey);
+        _currentSessionId = key;
+        if (!_sessions[key]) {
+            // Inherit ongoing conversation across sub-engines
+            var existing = _sessions[sessionId];
+            if (!existing || !existing.conversationId) {
+                var prefix = sessionId + '::';
+                for (var sk in _sessions) {
+                    if (sk.indexOf(prefix) === 0 && _sessions[sk] && _sessions[sk].conversationId) {
+                        existing = _sessions[sk];
+                        break;
+                    }
+                }
+            }
+            if (existing && existing.conversationId) {
+                _sessions[key] = {
+                    conversationId: existing.conversationId,
+                    responseId: existing.responseId || '',
+                    choiceId: existing.choiceId || '',
+                    contextToken: existing.contextToken || '',
+                    turnIndex: existing.turnIndex || 0,
+                    sessionUuid: existing.sessionUuid || generateUuid().toUpperCase()
+                };
+            } else {
+                _sessions[key] = {
+                    conversationId: '',
+                    responseId: '',
+                    choiceId: '',
+                    contextToken: '',
+                    turnIndex: 0,
+                    sessionUuid: generateUuid().toUpperCase()
+                };
+            }
+        }
+        var sess = _sessions[key];
         if (!sess.sessionUuid) {
             sess.sessionUuid = generateUuid().toUpperCase();
         }
-        _conversationId = sess.conversationId;
-        _responseId = sess.responseId;
-        _choiceId = sess.choiceId;
-        _contextToken = sess.contextToken || '';
-        _sessionUuid = sess.sessionUuid;
+        _conversationId = forceFresh ? '' : sess.conversationId;
+        _responseId = forceFresh ? '' : sess.responseId;
+        _choiceId = forceFresh ? '' : sess.choiceId;
+        _contextToken = forceFresh ? '' : (sess.contextToken || '');
+        _turnIndex = forceFresh ? 0 : (typeof sess.turnIndex === 'number' ? sess.turnIndex : (_conversationId ? 1 : 0));
+        _sessionUuid = forceFresh ? generateUuid().toUpperCase() : sess.sessionUuid;
         return sess;
     }
 
-    function saveSession(sessionId) {
+    function saveSession(sessionId, engineKey) {
         if (!sessionId) sessionId = 'default';
-        var sess = _sessions[sessionId];
-        if (sess) {
-            sess.conversationId = _conversationId;
-            sess.responseId = _responseId;
-            sess.choiceId = _choiceId;
-            sess.contextToken = _contextToken;
-            sess.sessionUuid = _sessionUuid;
+        var key = _sessionKey(sessionId, engineKey);
+        var sessObj = {
+            conversationId: _conversationId,
+            responseId: _responseId,
+            choiceId: _choiceId,
+            contextToken: _contextToken,
+            turnIndex: _turnIndex,
+            sessionUuid: _sessionUuid
+        };
+        _sessions[key] = sessObj;
+        _sessions[sessionId] = sessObj;
+        var prefix = sessionId + '::';
+        for (var k in _sessions) {
+            if (k.indexOf(prefix) === 0) {
+                _sessions[k] = Object.assign({}, sessObj);
+            }
         }
         try {
             _pruneSessions();
             localStorage.setItem('proxima_sessions', JSON.stringify(_sessions));
         } catch (e) { }
+    }
+
+    var _cachedModelsByAccount = {};
+    var _cachedAccountId = null;
+
+    function _detectAccountIdentifier() {
+        try {
+            if (typeof document !== 'undefined') {
+                var emailEl = document.querySelector('[aria-label*="@"]');
+                if (emailEl) {
+                    var aria = emailEl.getAttribute('aria-label') || '';
+                    var match = aria.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+                    if (match && match[1]) return match[1].toLowerCase();
+                }
+            }
+            if (typeof window !== 'undefined' && window.location && window.location.pathname) {
+                var uMatch = window.location.pathname.match(/^\/u\/(\d+)/);
+                if (uMatch) return 'user_' + uMatch[1];
+            }
+            if (_tokens && _tokens.at) {
+                return 'token_' + _tokens.at.substring(0, 16);
+            }
+        } catch (e) { }
+        return 'default_account';
+    }
+
+    function _slugify(name) {
+        if (!name) return '';
+        return name.toLowerCase()
+            .replace(/[^\w\s\.-]/g, '')
+            .trim()
+            .replace(/[\s\.]+/g, '-');
+    }
+
+    async function _extractLiveMenuModels() {
+        var accountId = _detectAccountIdentifier();
+        if (typeof _modelsLockedByAccount !== 'undefined' && _modelsLockedByAccount[accountId]) {
+            return [];
+        }
+        var items = [];
+        var btn = document.querySelector('[data-test-id="bard-mode-menu-button"]');
+        var menuId = btn ? btn.getAttribute('aria-controls') : null;
+        var menuEl = menuId ? document.getElementById(menuId) : document.querySelector('[role="menu"]');
+
+        var needDismiss = false;
+        if (!menuEl && btn) {
+            ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(function (evtType) {
+                btn.dispatchEvent(new MouseEvent(evtType, { bubbles: true, cancelable: true, view: window }));
+            });
+            needDismiss = true;
+            await new Promise(function (resolve) { setTimeout(resolve, 350); });
+            menuId = btn.getAttribute('aria-controls');
+            menuEl = menuId ? document.getElementById(menuId) : document.querySelector('[role="menu"]');
+        }
+
+        if (menuEl) {
+            var rawItems = Array.from(menuEl.querySelectorAll('gem-menu-item, [role="menuitem"], [data-test-id^="bard-mode-option-"]'));
+            var seenWk = new Set();
+            rawItems.forEach(function (el) {
+                var text = (el.innerText || '').trim();
+                var jslog = el.getAttribute('jslog') || '';
+                var dataTestId = el.getAttribute('data-test-id') || '';
+                var wkId = null;
+                var testIdMatch = dataTestId.match(/bard-mode-option-([0-9a-f]{16})/i);
+                if (testIdMatch) {
+                    wkId = testIdMatch[1];
+                } else {
+                    var veMatch = jslog.match(/BardVeMetadataKey:([^;]+)/);
+                    if (veMatch) {
+                        try {
+                            var decoded = atob(veMatch[1]);
+                            var m = decoded.match(/"([0-9a-f]{16})"/i);
+                            if (m) wkId = m[1];
+                        } catch (e) { }
+                    }
+                }
+
+                if (wkId && !seenWk.has(wkId) && text) {
+                    seenWk.add(wkId);
+                    var lines = text.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+                    var displayName = lines[0] || 'Gemini Model';
+                    var desc = lines.slice(1).join(' - ') || 'Google Gemini Engine';
+                    items.push({
+                        displayName: displayName,
+                        description: desc,
+                        workspaceId: wkId,
+                        rawText: text
+                    });
+                }
+            });
+        }
+
+        if (needDismiss) {
+            try {
+                var backdrop = document.querySelector('.cdk-overlay-backdrop');
+                if (backdrop) {
+                    backdrop.click();
+                } else if (btn) {
+                    btn.click();
+                }
+            } catch (e) { }
+            try {
+                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+            } catch (e) { }
+        }
+
+        return items;
+    }
+
+    var _modelsLockedByAccount = {};
+
+    async function getAvailableModels(forceRefresh) {
+        var accountId = _detectAccountIdentifier();
+
+        // Lock check: once models are discovered for an account, lock them in memory
+        // Never repeatedly re-click DOM elements during normal chat or subsequent queries
+        if (_cachedModelsByAccount[accountId] && _cachedModelsByAccount[accountId].length > 1) {
+            return _cachedModelsByAccount[accountId];
+        }
+
+        if (accountId !== _cachedAccountId) {
+            _cachedAccountId = accountId;
+        }
+
+        _detectWorkspaces();
+
+        var liveItems = [];
+        try {
+            if (typeof document !== 'undefined') {
+                liveItems = await _extractLiveMenuModels();
+            }
+        } catch (e) {
+            console.warn('[Proxima Gemini] Live menu extraction non-fatal warning:', e.message);
+        }
+
+        var hasThinkingSupport = liveItems.some(function (it) {
+            return it.displayName.toLowerCase().indexOf('pro') !== -1 ||
+                   it.displayName.toLowerCase().indexOf('argon') !== -1 ||
+                   it.rawText.toLowerCase().indexOf('reasoning') !== -1 ||
+                   it.rawText.toLowerCase().indexOf('thinking') !== -1;
+        }) || (_workspaces.thinking && _workspaces.thinking.length > 0);
+
+        var supportedThinkingLevels = hasThinkingSupport ? ['low', 'medium', 'high'] : [];
+
+        var richModels = [];
+        var fastestModel = null;
+        var reasoningModel = null;
+
+        liveItems.forEach(function (item) {
+            var slug = _slugify(item.displayName);
+            var fullId = 'gemini:' + slug;
+            var lower = item.displayName.toLowerCase() + ' ' + item.description.toLowerCase();
+
+            var tag = 'General';
+            var tagCls = 'fast';
+            if (lower.indexOf('lite') !== -1 || lower.indexOf('fastest') !== -1) {
+                tag = 'Fast';
+                tagCls = 'fast';
+                if (!fastestModel) fastestModel = item;
+            } else if (lower.indexOf('flash') !== -1) {
+                tag = 'All-Around';
+                tagCls = 'fast';
+                if (!fastestModel) fastestModel = item;
+            } else if (lower.indexOf('argon') !== -1) {
+                tag = 'Pro';
+                tagCls = 'pro';
+                if (!reasoningModel) reasoningModel = item;
+            } else if (lower.indexOf('pro') !== -1 || lower.indexOf('reasoning') !== -1) {
+                tag = 'Reasoning';
+                tagCls = 'reasoning';
+                if (!reasoningModel) reasoningModel = item;
+            }
+
+            richModels.push({
+                id: fullId,
+                slug: slug,
+                name: item.displayName,
+                displayName: item.displayName,
+                description: item.description,
+                workspaceId: item.workspaceId,
+                status: 'enabled',
+                tag: tag,
+                tags: [tag],
+                tagCls: tagCls,
+                supported_thinking_levels: supportedThinkingLevels
+            });
+        });
+
+        // Dynamic fallback from detected workspaces / document HTML
+        if (richModels.length === 0) {
+            var docHtml = (typeof document !== 'undefined' && document.documentElement) ? document.documentElement.innerHTML : '';
+            var hexMatches = docHtml.match(/[0-9a-f]{16}/g) || [];
+            var uniqueHex = Array.from(new Set(hexMatches)).filter(function (h) {
+                return h === '56fdd199312815e2' || h === '8c46e95b1a07cecc' || h === 'e6fa609c3fa255c0' || h === '95a4c0abcba24364';
+            });
+
+            if (uniqueHex.length === 0) {
+                uniqueHex = ['8c46e95b1a07cecc', '56fdd199312815e2', 'e6fa609c3fa255c0', '95a4c0abcba24364'];
+            }
+
+            var defMap = {
+                '8c46e95b1a07cecc': { slug: '3-5-flash-lite', name: '3.5 Flash-Lite', desc: 'Fastest answers', tag: 'Fast' },
+                '56fdd199312815e2': { slug: '3-8-flash', name: '3.8 Flash', desc: 'All-around help', tag: 'General' },
+                'e6fa609c3fa255c0': { slug: '3-1-pro', name: '3.1 Pro', desc: 'Advanced reasoning', tag: 'Reasoning' },
+                '95a4c0abcba24364': { slug: '4-argon', name: '4 Argon', desc: 'Complex tasks', tag: 'Pro' }
+            };
+
+            uniqueHex.forEach(function (h) {
+                var d = defMap[h] || { slug: h, name: 'Gemini ' + h.substring(0, 4), desc: 'Google Gemini Engine', tag: 'General' };
+                richModels.push({
+                    id: 'gemini:' + d.slug,
+                    slug: d.slug,
+                    name: d.name,
+                    displayName: d.name,
+                    description: d.desc,
+                    workspaceId: h,
+                    status: 'enabled',
+                    tag: d.tag,
+                    tags: [d.tag],
+                    tagCls: d.tag.toLowerCase(),
+                    supported_thinking_levels: supportedThinkingLevels
+                });
+            });
+        }
+
+        if (!fastestModel && richModels.length > 0) {
+            fastestModel = richModels[0];
+        }
+
+        var autoName = fastestModel ? 'Auto (' + (fastestModel.displayName || fastestModel.name || 'Gemini') + ')' : 'Gemini Auto';
+        var autoModel = {
+            id: 'gemini:auto',
+            slug: 'auto',
+            name: autoName,
+            displayName: autoName,
+            description: 'Auto-routes to fastest available Gemini model with adaptive reasoning',
+            status: 'enabled',
+            tag: 'Auto Fast',
+            tags: ['Auto Fast'],
+            tagCls: 'fast',
+            supported_thinking_levels: supportedThinkingLevels
+        };
+
+        var finalModels = [autoModel].concat(richModels);
+        _cachedModelsByAccount[accountId] = finalModels;
+        _modelsLockedByAccount[accountId] = true;
+        return finalModels;
     }
 
     function _detectWorkspaces() {
@@ -136,6 +445,32 @@
         }
     }
 
+    function _extractGeminiToken(html, tokenName) {
+        try {
+            var r1 = new RegExp(tokenName + '":"([^"]+)"');
+            var m1 = html.match(r1);
+            if (m1 && m1[1]) return m1[1];
+        } catch (e) { }
+
+        try {
+            var r2 = new RegExp(tokenName + '\\\\?":\\\\?"([^"\\\\]+)');
+            var m2 = html.match(r2);
+            if (m2 && m2[1]) return m2[1];
+        } catch (e) { }
+
+        try {
+            var r3 = new RegExp(tokenName + '[^"]*"\\s*:\\s*"([^"]+)"');
+            var m3 = html.match(r3);
+            if (m3 && m3[1]) return m3[1];
+        } catch (e) { }
+
+        try {
+            return html.split(tokenName)[1].split('":"')[1].split('"')[0];
+        } catch (e) { }
+
+        return null;
+    }
+
     async function _getTokens(forceRefresh) {
         var isExpired = (Date.now() - _tokensFetchedAt) > TOKEN_TTL;
         if (_tokens && !forceRefresh && !isExpired) return _tokens;
@@ -173,12 +508,14 @@
             // 2. Try raw HTML of the current document
             var html = document.documentElement.innerHTML;
             if (!at) {
-                var atMatch = html.match(/"SNlM0e"\s*:\s*"([^"]+)"/) || html.match(/SNlM0e":"([^"]+)"/);
-                if (atMatch) at = atMatch[1];
+                at = _extractGeminiToken(html, 'SNlM0e');
             }
             if (!bl) {
-                var blMatch = html.match(/"cfb2h"\s*:\s*"([^"]+)"/) || html.match(/cfb2h":"([^"]+)"/) || html.match(/boq_assistant-bard-web-server_[a-zA-Z0-9_\.\-]+/);
-                if (blMatch) bl = blMatch[1] || blMatch[0];
+                bl = _extractGeminiToken(html, 'cfb2h');
+                if (!bl) {
+                    var blMatch = html.match(/boq_assistant-bard-web-server_[a-zA-Z0-9_\.\-]+/);
+                    if (blMatch) bl = blMatch[0];
+                }
             }
         } catch (e) {
             console.error('[Proxima API] Failed to extract tokens from page context:', e);
@@ -200,23 +537,67 @@
         clearTimeout(tid);
 
         if (!res.ok) throw new Error('Gemini page fetch failed (' + res.status + ')');
-        var html = await res.text();
+        var faqHtml = await res.text();
 
-        if (html.indexOf('$authuser') === -1) {
+        if (faqHtml.indexOf('$authuser') === -1) {
             throw new Error('Not logged into Google');
         }
 
-        try {
-            at = html.split('SNlM0e')[1].split('":"')[1].split('"')[0];
-        } catch (e) { throw new Error('Failed to extract SNlM0e token'); }
+        at = _extractGeminiToken(faqHtml, 'SNlM0e');
+        if (!at) throw new Error('Failed to extract SNlM0e token');
 
-        try {
-            bl = html.split('cfb2h')[1].split('":"')[1].split('"')[0];
-        } catch (e) { throw new Error('Failed to extract cfb2h token'); }
+        bl = _extractGeminiToken(faqHtml, 'cfb2h');
+        if (!bl) throw new Error('Failed to extract cfb2h token');
 
         _tokens = { at: at, bl: bl };
         _tokensFetchedAt = Date.now();
         return _tokens;
+    }
+
+    var GEMINI_FAILURE_PHRASES = [
+        "I'm having a hard time fulfilling your request right now",
+        "I'm having a hard time fulfilling your request",
+        'having a hard time fulfilling your request right now',
+        'having a hard time fulfilling your request',
+        'I seem to be encountering an error',
+        'Can I try something else for you',
+        'Can I try something else',
+        'Sorry, something went wrong',
+        'I encountered an error doing what you asked',
+        'I encountered an error',
+        'Please try your request again',
+        'Please try again later',
+        'Something went wrong',
+        'An error occurred',
+        'Could you try again',
+        'Can I help you with something else instead',
+        'try something else for you'
+    ];
+
+    function _isGeminiFailureText(text) {
+        if (typeof text !== 'string') return false;
+        var trimmed = text.trim();
+        if (!trimmed) return false;
+        var lower = trimmed.toLowerCase();
+        var matchedAny = false;
+        for (var i = 0; i < GEMINI_FAILURE_PHRASES.length; i++) {
+            var phrase = GEMINI_FAILURE_PHRASES[i].toLowerCase();
+            if (lower === phrase || lower === phrase + '.' || lower === phrase + '?') {
+                return true;
+            }
+            if (lower.indexOf(phrase) !== -1) {
+                matchedAny = true;
+            }
+        }
+        if (!matchedAny) return false;
+        var stripped = lower;
+        var sortedPhrases = GEMINI_FAILURE_PHRASES.slice().sort(function (a, b) { return b.length - a.length; });
+        for (var j = 0; j < sortedPhrases.length; j++) {
+            stripped = stripped.split(sortedPhrases[j].toLowerCase()).join('');
+        }
+        stripped = stripped.replace(/[\s\.\?\!\,\:\;\-]+/g, '');
+        stripped = stripped.replace(/^(im|rightnow|instead|foryou|for|you)+/g, '').replace(/(im|rightnow|instead|foryou|for|you)+$/g, '');
+        return stripped.length === 0;
     }
 
     function _parseResponse(rawText, commitIds) {
@@ -234,7 +615,7 @@
                         var item = arr[ai];
                         if (!Array.isArray(item)) continue;
                         for (var idx = 0; idx < Math.min(item.length, 6); idx++) {
-                            if (typeof item[idx] === 'string' && item[idx].length > 50) {
+                            if (typeof item[idx] === 'string' && item[idx].length > 10) {
                                 try {
                                     JSON.parse(item[idx]);
                                     allItems.push(item);
@@ -251,7 +632,7 @@
         if (allItems.length === 0) {
             var jsonStrings = [];
             function deepSearch(obj) {
-                if (typeof obj === 'string' && obj.length > 50) {
+                if (typeof obj === 'string' && obj.length > 10) {
                     try { JSON.parse(obj); jsonStrings.push(obj); } catch (e) { }
                 } else if (Array.isArray(obj)) {
                     for (var i = 0; i < obj.length; i++) deepSearch(obj[i]);
@@ -269,18 +650,72 @@
         }
 
         if (allItems.length === 0) {
+            if (rawText.indexOf('"37":[0]') !== -1 || rawText.indexOf('\\"37\\":[0]') !== -1) {
+                console.error('[Proxima API] Gemini extension/workspace rejected by Google (error code 37). Raw response: ' + rawText.substring(0, 500));
+                throw new Error('Gemini workspace rejected by Google (code 37: unsupported workspace for this account)');
+            }
             console.error('[Proxima API] Parse error: Raw response length is ' + rawText.length + '. Content: ' + rawText.substring(0, 500));
             throw new Error('Failed to parse Gemini response');
         }
 
+        try {
+            var firstIdx = dataIndices[0] || 2;
+            var inner0 = JSON.parse(allItems[0][firstIdx]);
+            var errorCode = (inner0 && inner0[5] && inner0[5][0]) != null ? inner0[5][0] : null;
+            if (errorCode === 9) throw new Error('No Gemini access — check your Google account');
+        } catch (e) {
+            if (e.message.indexOf('No Gemini') !== -1) throw e;
+        }
+
+        var sawAbortText = false;
+        var notReplyText = function (s) {
+            return /^c_[0-9a-f]+r_[0-9a-f]+$/i.test(s) || /^[rc]_[a-f0-9]{16,}$/i.test(s) || /^(?:https?:)?\/\/\S*$/i.test(s.trim());
+        };
+        var extractParts = function (val) {
+            if (typeof val === 'string') return val;
+            if (Array.isArray(val)) {
+                return val.map(function (p) {
+                    return typeof p === 'string' ? p : (Array.isArray(p) ? extractParts(p) : '');
+                }).join('');
+            }
+            return '';
+        };
+
         var extracted = { conversationId: null, responseId: null, choiceId: null, contextToken: null };
         var _answerFrameSeen = false;
+
+        function find26(obj, depth) {
+            if (!obj || depth > 4) return null;
+            if (typeof obj === 'object') {
+                if (typeof obj['26'] === 'string' && obj['26'].length > 5) return obj['26'];
+                if (Array.isArray(obj)) {
+                    for (var i = 0; i < obj.length; i++) {
+                        var f = find26(obj[i], depth + 1);
+                        if (f) return f;
+                    }
+                } else {
+                    for (var k in obj) {
+                        var f = find26(obj[k], depth + 1);
+                        if (f) return f;
+                    }
+                }
+            }
+            return null;
+        }
 
         for (var ci = 0; ci < allItems.length; ci++) {
             try {
                 var innerC = JSON.parse(allItems[ci][dataIndices[ci] || 2]);
-                var hasChoice = innerC[4] && innerC[4][0]
-                    && typeof innerC[4][0][0] === 'string' && innerC[4][0][0].length > 5;
+                var candChoice = null;
+                if (innerC[4] && Array.isArray(innerC[4]) && innerC[4].length > 0) {
+                    var c0 = innerC[4][0];
+                    if (typeof c0 === 'string') candChoice = c0;
+                    else if (Array.isArray(c0) && c0.length > 0) {
+                        if (typeof c0[0] === 'string') candChoice = c0[0];
+                        else if (Array.isArray(c0[0]) && c0[0].length > 0 && typeof c0[0][0] === 'string') candChoice = c0[0][0];
+                    }
+                }
+                var hasChoice = !!(candChoice && candChoice.length >= 3);
 
                 if (hasChoice) {
                     if (innerC[1] && Array.isArray(innerC[1])) {
@@ -291,7 +726,7 @@
                             extracted.responseId = innerC[1][1];
                         }
                     }
-                    extracted.choiceId = innerC[4][0][0];
+                    extracted.choiceId = candChoice;
                     _answerFrameSeen = true;
                 } else if (!_answerFrameSeen && innerC[1] && Array.isArray(innerC[1])) {
                     if (typeof innerC[1][0] === 'string' && innerC[1][0].length > 5) {
@@ -302,21 +737,15 @@
                     }
                 }
 
-                if (innerC[2] && typeof innerC[2] === 'object' && !Array.isArray(innerC[2])
-                    && typeof innerC[2]['26'] === 'string' && innerC[2]['26'].length > 5) {
-                    extracted.contextToken = innerC[2]['26'];
+                var tok26 = find26(innerC, 0);
+                if (tok26) {
+                    extracted.contextToken = tok26;
                 }
             } catch (e) { }
         }
 
-        if (commitIds) {
-            if (extracted.conversationId) _conversationId = extracted.conversationId;
-            if (extracted.responseId) _responseId = extracted.responseId;
-            if (extracted.choiceId) _choiceId = extracted.choiceId;
-            if (extracted.contextToken) _contextToken = extracted.contextToken;
-        }
-
         var replyText = '';
+        var lastResort = '';
 
         for (var i = 0; i < allItems.length; i++) {
             var item = allItems[i];
@@ -324,41 +753,67 @@
             try {
                 var inner = JSON.parse(item[idx]);
                 var paths = [
+                    function () { return extractParts(inner[4] && inner[4][0] && inner[4][0][1]); },
                     function () { return (Array.isArray(inner[0]) && typeof inner[0][0] === 'string') ? inner[0][0] : ''; },
-                    function () { return (inner[4] && inner[4][0] && inner[4][0][1] && inner[4][0][1][0]) || ''; },
-                    function () { return (inner[4] && inner[4][0] && inner[4][0][1]) || ''; },
-                    function () { return (Array.isArray(inner[1]) && typeof inner[1][0] === 'string') ? inner[1][0] : ''; },
-                    function () { return (inner[0] && inner[0][1] && inner[0][1][0]) || ''; },
-                    function () { return (inner[3] && inner[3][0] && inner[3][0][0]) || ''; },
-                    function () { return (inner[3] && inner[3][1] && inner[3][1][0]) || '' }
+                    function () { return extractParts(inner[0] && inner[0][1]); },
+                    function () { return extractParts(inner[3] && inner[3][0]); },
+                    function () { return extractParts(inner[3] && inner[3][1]); }
                 ];
 
                 for (var pi = 0; pi < paths.length; pi++) {
                     try {
                         var candidate = paths[pi]();
-                        if (typeof candidate === 'string' && candidate.length > 0 && candidate.length > replyText.length && !/^[rc]_[a-f0-9]{16,}$/.test(candidate) && !/^(https?:)?\/\/[^\s]+$/.test(candidate.trim())) {
+                        if (typeof candidate !== 'string' || !candidate.trim()) continue;
+                        if (_isGeminiFailureText(candidate)) {
+                            sawAbortText = true;
+                            continue;
+                        }
+                        if (candidate.length > replyText.length) {
+                            if (notReplyText(candidate)) continue;
                             replyText = candidate;
                         }
                     } catch (e) { }
                 }
 
                 if (!replyText) {
-                    function findLongest(obj, depth) {
+                    function findLongestString(obj, depth) {
                         if (depth > 8) return '';
-                        if (typeof obj === 'string') return obj;
+                        if (typeof obj === 'string') {
+                            if (notReplyText(obj)) return '';
+                            return obj;
+                        }
                         var longest = '';
                         if (Array.isArray(obj)) {
+                            if (obj.length > 0 && obj.every(function (x) { return typeof x === 'string'; })) {
+                                var joined = obj.join('');
+                                if (joined.length > longest.length) longest = joined;
+                            }
                             for (var k = 0; k < obj.length; k++) {
-                                var s = findLongest(obj[k], depth + 1);
+                                var s = findLongestString(obj[k], depth + 1);
                                 if (typeof s === 'string' && s.length > longest.length) longest = s;
                             }
                         }
                         return longest;
                     }
-                    var longest = findLongest(inner, 0);
-                    if (longest.length > 0 && longest.length > replyText.length && !/^[rc]_[a-f0-9]{16,}$/.test(longest) && !/^(https?:)?\/\/[^\s]+$/.test(longest.trim())) replyText = longest;
+                    var longest = findLongestString(inner, 0);
+                    if (longest.trim().length > 0 && longest.length > lastResort.length && !notReplyText(longest)) {
+                        lastResort = longest;
+                    }
                 }
             } catch (e) { }
+        }
+
+        if (!replyText && lastResort) {
+            if (_isGeminiFailureText(lastResort)) {
+                sawAbortText = true;
+            } else {
+                replyText = lastResort;
+            }
+        }
+
+        // Abort if stream failed mid-generation
+        if (sawAbortText) {
+            throw new Error('Gemini stream aborted by Google server mid-generation');
         }
 
         if (!replyText) {
@@ -367,6 +822,16 @@
             }
             throw new Error('Could not extract reply from Gemini');
         }
+
+        // Commit turn state on successful reply
+        if (commitIds) {
+            if (extracted.conversationId) _conversationId = extracted.conversationId;
+            if (extracted.responseId) _responseId = extracted.responseId;
+            if (extracted.choiceId) _choiceId = extracted.choiceId;
+            if (extracted.contextToken) _contextToken = extracted.contextToken;
+            _turnIndex = (_turnIndex || 0) + 1;
+        }
+
         return replyText;
     }
 
@@ -441,18 +906,43 @@
         return token;
     }
 
-    async function _processStreamResponse(res) {
+    async function _processStreamResponse(res, isReasoningEngine, _isRetry) {
         var reader = res.body.getReader();
+        _activeReader = reader;
         var decoder = new TextDecoder();
         var rawText = '';
         window.__proximaGeminiStream = { response: '', status: 'streaming', updates: [] };
 
+        var idleTimeout = null;
+        var stalled = false;
+        var sawAnswer = false;
+
+        var resetIdle = function (customMs) {
+            if (idleTimeout) clearTimeout(idleTimeout);
+            // Streaming idle timeout: 3.5s after reply starts, or engine initial limit
+            var initialMs = _isRetry ? 25000 : (isReasoningEngine ? 30000 : 20000);
+            var ms = customMs || (sawAnswer ? 3500 : initialMs);
+            idleTimeout = setTimeout(function () {
+                stalled = true;
+                try { reader.cancel(); } catch (e) { }
+            }, ms);
+        };
+
         try {
+            resetIdle();
             while (true) {
                 var chunk = await reader.read();
-                if (chunk.done) break;
+                if (chunk.done || stalled) break;
+
                 var chunkStr = decoder.decode(chunk.value, { stream: true });
                 rawText += chunkStr;
+
+                // Fast-fail on RPC code 37 rejection
+                if (rawText.indexOf('"37":[0]') !== -1 || rawText.indexOf('\\"37\\":[0]') !== -1) {
+                    try { reader.cancel(); } catch (e) { }
+                    break;
+                }
+
                 var updateText = window.__proximaGeminiStream.response || '';
                 if (chunkStr.indexOf('\n') !== -1) {
                     try {
@@ -460,11 +950,26 @@
                         if (parsed) {
                             window.__proximaGeminiStream.response = parsed;
                             updateText = parsed;
+                            sawAnswer = true;
                         }
                     } catch (e) {
+                        // Break on abort text so fallback triggers
+                        if (e.message && e.message.indexOf('stream aborted') !== -1) {
+                            try { reader.cancel(); } catch (cancelErr) { }
+                            break;
+                        }
                         updateText = 'error: ' + e.message;
                     }
                 }
+
+                // End-of-stream terminal envelope: [["e", ...]]
+                if (chunkStr.indexOf('["e",') !== -1 || rawText.indexOf('["e",') !== -1) {
+                    try { reader.cancel(); } catch (e) { }
+                    break;
+                }
+
+                resetIdle();
+
                 var _updates = window.__proximaGeminiStream.updates;
                 _updates.push({
                     time: Date.now(),
@@ -474,75 +979,151 @@
                 });
                 if (_updates.length > 50) _updates.shift();
             }
+
+            if (stalled && !sawAnswer && !window.__proximaGeminiStream.response) {
+                var waitSec = _isRetry ? 25 : (isReasoningEngine ? 30 : 20);
+                window.__proximaGeminiStream.status = 'error';
+                window.__proximaGeminiStream.error = 'Gemini stream stalled: no data received for ' + waitSec + 's';
+                throw new Error('Gemini stream stalled: no data received for ' + waitSec + 's');
+            }
+
             window.__proximaGeminiStream.status = 'done';
         } catch (err) {
             window.__proximaGeminiStream.status = 'error';
             window.__proximaGeminiStream.error = err.message;
             throw err;
+        } finally {
+            _activeReader = null;
+            if (idleTimeout) clearTimeout(idleTimeout);
         }
 
         return _parseResponse(rawText, true);
     }
 
-    async function send(message, engine, attachments, sessionId, _isRetry) {
-        activateSession(sessionId);
+    async function send(message, engine, attachments, sessionId, _isRetry, options) {
+        abortActive();
+        if (typeof engine === 'object' && engine !== null) {
+            options = engine;
+            engine = options.model || options.engine || 'auto';
+        }
+        options = options || {};
+        engine = engine || 'auto';
+
+        var requestedThinkingLevel = options.thinking_level || options.thinkingLevel || options.reasoning_effort || null;
+        if (typeof engine === 'string' && engine.indexOf(':') !== -1) {
+            var segs = engine.split(':');
+            if (segs[0] === 'gemini') {
+                engine = segs.slice(1).join(':');
+                segs = engine.split(':');
+            }
+            var lastSeg = segs[segs.length - 1].toLowerCase();
+            if (['low', 'medium', 'high', 'default', 'off'].includes(lastSeg)) {
+                if (!requestedThinkingLevel) requestedThinkingLevel = lastSeg;
+                engine = segs.slice(0, segs.length - 1).join(':');
+            }
+        }
+
+        var thinkingCode = null;
+        var normLevel = null;
+        if (requestedThinkingLevel) {
+            normLevel = String(requestedThinkingLevel).toLowerCase().trim();
+            if (normLevel === 'low') thinkingCode = 1;
+            else if (normLevel === 'medium') thinkingCode = 4;
+            else if (normLevel === 'high') thinkingCode = 2;
+            else if (normLevel === 'default' || normLevel === 'off') thinkingCode = null;
+            else {
+                throw new Error("Unsupported thinking_level '" + requestedThinkingLevel + "'. Supported levels for Gemini are: default, low, medium, high.");
+            }
+        }
+
+        activateSession(sessionId, engine, false);
         _detectWorkspaces();
 
+        var isAuto = (engine === 'auto' || engine === 'gemini' || engine === 'gemini:auto' || !engine);
+
         try {
-            engine = engine || 'auto';
+            var availableModels = await getAvailableModels(false);
+            var rawSub = (engine || 'auto').toLowerCase().trim();
+            if (rawSub.startsWith('gemini:')) rawSub = rawSub.slice(7);
 
-            // Warm up conversation with a simple greeting if first message is large (bypasses safety filters)
-            if (!_conversationId && message.length > 500 && !_isRetry) {
-                console.log('[Proxima API] New conversation with large prompt detected. Warming up conversation first...');
-                try {
-                    await send("Hello!", engine, null, sessionId, true);
-                    console.log('[Proxima API] Conversation warmed up successfully. Sending actual prompt...');
-                } catch (warmupErr) {
-                    console.warn('[Proxima API] Warmup failed, attempting direct send anyway...', warmupErr.message);
-                    newConversation(sessionId);
-                }
-            }
-
-            var workspaceId = 'fbb127bbb056c959';
-            if (engine.indexOf(':') !== -1) {
-                workspaceId = engine.split(':')[1];
-            } else if (engine === '3.5-flash') {
-                workspaceId = _workspaces.fast[0] || '56fdd199312815e2';
-            } else if (engine === '3.1-pro') {
-                workspaceId = _workspaces.thinking[0] || '9d8ca3786ebdfbea';
-            } else if (engine === '3.1-flash-lite') {
-                workspaceId = (document.documentElement.innerHTML.indexOf('8c46e95b1a07cecc') !== -1) ? '8c46e95b1a07cecc' : (_workspaces.fast[0] || '8c46e95b1a07cecc');
-            } else {
-                workspaceId = _workspaces.fast[0] || 'fbb127bbb056c959';
-            }
-
-            var profiles = {
-                '9d8ca3786ebdfbea': { modelId: 3, customIndex11: 1, inner79: 3 },
-                'e6fa609c3fa255c0': { modelId: 3, customIndex11: 1, inner79: 3 },
-                '56fdd199312815e2': { modelId: 1, customIndex11: 2, inner79: 1 },
-                'fbb127bbb056c959': { modelId: 1, customIndex11: 2, inner79: 1 },
-                '797f3d0293f288ad': { modelId: 1, customIndex11: 2, inner79: 1 },
-                '8c46e95b1a07cecc': { modelId: 6, customIndex11: 2, inner79: 6 }
-            };
-
-            var profile = profiles[workspaceId];
-            if (!profile) {
-                if (engine === '3.5-flash' || engine.indexOf('fast:') === 0) {
-                    profile = { modelId: 1, customIndex11: 2, inner79: 1 };
-                } else if (engine === '3.1-pro' || engine.indexOf('thinking:') === 0) {
-                    profile = { modelId: 3, customIndex11: 1, inner79: 3 };
-                } else if (engine === '3.1-flash-lite' || engine.indexOf('lite:') === 0) {
-                    profile = { modelId: 6, customIndex11: 2, inner79: 6 };
+            var targetModel = null;
+            if (isAuto) {
+                if (normLevel === 'high') {
+                    targetModel = availableModels.find(function (m) { return m.slug !== 'auto' && (m.tag === 'Reasoning' || m.tag === 'Pro'); }) ||
+                                  availableModels.find(function (m) { return m.slug !== 'auto'; }) || availableModels[0];
+                } else if (normLevel === 'low') {
+                    targetModel = availableModels.find(function (m) { return m.slug !== 'auto' && (m.tag === 'Fast' || m.slug.includes('lite') || m.slug.includes('flash')); }) ||
+                                  availableModels.find(function (m) { return m.slug !== 'auto'; }) || availableModels[0];
                 } else {
-                    profile = { modelId: 1, customIndex11: 2, inner79: 1 };
+                    targetModel = availableModels.find(function (m) { return m.slug !== 'auto'; }) || availableModels[0];
                 }
+            } else {
+                targetModel = availableModels.find(function (m) {
+                    if (m.slug === 'auto') return false;
+                    if (m.slug === rawSub || m.id === 'gemini:' + rawSub) return true;
+                    if (m.name && m.name.toLowerCase() === rawSub) return true;
+                    if (m.displayName && m.displayName.toLowerCase() === rawSub) return true;
+                    if (m.workspaceId && m.workspaceId.toLowerCase() === rawSub) return true;
+                    if (rawSub === 'flash' && m.name.toLowerCase().includes('flash') && !m.name.toLowerCase().includes('lite')) return true;
+                    if (rawSub === 'pro' && m.name.toLowerCase().includes('pro')) return true;
+                    if (rawSub === 'argon' && m.name.toLowerCase().includes('argon')) return true;
+                    if (rawSub === 'latest' && (m.name.toLowerCase().includes('lite') || m.tag === 'Fast')) return true;
+                    return false;
+                });
             }
 
-            var modelId = profile.modelId;
-            var customIndex11 = profile.customIndex11;
-            var modelIdentifier = profile.inner79;
+            if (!targetModel) {
+                var availableNames = availableModels.filter(function (m) { return m.slug !== 'auto'; }).map(function (m) { return m.displayName || m.name || m.slug; });
+                throw new Error("Model '" + engine + "' is not available in the current Google account. Currently available models: [" + availableNames.join(', ') + "]. Call 'list_available_models' to view available models and usage instructions.");
+            }
 
-            console.log('[Proxima API] Query routing - Engine:', engine, 'Workspace:', workspaceId, 'ModelId:', modelId);
+            var isReasoningEngine = (targetModel.tag === 'Reasoning' || targetModel.tag === 'Pro' || thinkingCode !== null);
+            var workspaceId = (options && options._omitWorkspace) ? null : (targetModel.workspaceId || null);
+
+            if (rawSub === 'latest' && _workspaces.fast && _workspaces.fast.length > 0 && !(options && options._omitWorkspace)) {
+                workspaceId = _workspaces.fast[0];
+            }
+
+            if (isAuto && _isRetry && !(options && options._omitWorkspace)) {
+                var backup = availableModels.find(function (m) { return (m.tag === 'Reasoning' || m.tag === 'Pro') && m.workspaceId !== targetModel.workspaceId; }) ||
+                             availableModels.find(function (m) { return m.slug !== 'auto' && m.workspaceId !== targetModel.workspaceId; });
+                if (backup && backup.workspaceId) workspaceId = backup.workspaceId;
+            }
+
+            var modelId = 1;
+            var customIndex11 = 2;
+            var modelIdentifier = 1;
+
+            if (workspaceId) {
+                var profiles = {
+                    '9d8ca3786ebdfbea': { modelId: 3, customIndex11: 2, inner79: 3 },
+                    'e6fa609c3fa255c0': { modelId: 3, customIndex11: 2, inner79: 3 },
+                    '56fdd199312815e2': { modelId: 1, customIndex11: 2, inner79: 1 },
+                    'fbb127bbb056c959': { modelId: 1, customIndex11: 2, inner79: 1 },
+                    '797f3d0293f288ad': { modelId: 1, customIndex11: 2, inner79: 1 },
+                    '8c46e95b1a07cecc': { modelId: 6, customIndex11: 2, inner79: 6 },
+                    '95a4c0abcba24364': { modelId: 8, customIndex11: 2, inner79: 8 }
+                };
+
+                var profile = profiles[workspaceId];
+                if (!profile) {
+                    if (targetModel.tag === 'Fast' || (targetModel.name && targetModel.name.toLowerCase().includes('lite'))) {
+                        profile = { modelId: 6, customIndex11: 2, inner79: 6 };
+                    } else if (targetModel.tag === 'Reasoning' || (targetModel.name && targetModel.name.toLowerCase().includes('pro'))) {
+                        profile = { modelId: 3, customIndex11: 2, inner79: 3 };
+                    } else if (targetModel.tag === 'Pro' || (targetModel.name && targetModel.name.toLowerCase().includes('argon'))) {
+                        profile = { modelId: 8, customIndex11: 2, inner79: 8 };
+                    } else {
+                        profile = { modelId: 1, customIndex11: 2, inner79: 1 };
+                    }
+                }
+
+                modelId = profile.modelId;
+                customIndex11 = profile.customIndex11;
+                modelIdentifier = profile.inner79;
+            }
+
+            console.log('[Proxima API] Query routing - Model:', targetModel.name, 'Workspace:', workspaceId || 'default (no extension)', 'Thinking:', requestedThinkingLevel || 'default', 'ModelId:', modelId);
 
             var tokens = await _getTokens();
             var reqId = Math.floor(900000 * Math.random()) + 100000;
@@ -552,6 +1133,9 @@
                 rt: 'c',
                 _reqid: reqId.toString()
             });
+            if (typeof window !== 'undefined' && window.WIZ_global_data && window.WIZ_global_data.FdrFJe) {
+                queryParams.set('f.sid', window.WIZ_global_data.FdrFJe);
+            }
 
             var attachmentsArray = null;
             if (attachments && attachments.imageToken) {
@@ -586,33 +1170,47 @@
                 console.log('[Proxima API] Sending message with attachment - Code:', typeCode, 'Mime:', mime);
             }
 
-            // Drop partial continuation state if conversation ID is missing to prevent API errors.
+            // Clear continuation state if conversation ID is absent
             if (!_conversationId) {
                 _responseId = '';
                 _choiceId = '';
                 _contextToken = '';
+                _turnIndex = 0;
             }
 
-            var innerReq = new Array(81).fill(null);
+            var innerReq = new Array(99).fill(null);
             innerReq[0] = [message, 0, null, attachmentsArray, null, null, 0];
             innerReq[1] = ["en-GB"];
-            innerReq[2] = [_conversationId || "", _responseId || "", _choiceId || "", null, null, null, null, null, null, _contextToken || ""];
+            if (_conversationId) {
+                innerReq[2] = [_conversationId, _responseId || "", _choiceId || "", null, null, null, null, null, null, _contextToken || ""];
+                if (_contextToken) {
+                    innerReq[71] = [_conversationId, null, null, null, null, null, null, _contextToken];
+                }
+            } else {
+                innerReq[2] = null;
+            }
 
             innerReq[6] = [1];
             innerReq[7] = 1;
             innerReq[10] = 1;
             innerReq[11] = 0;
-            innerReq[17] = _conversationId ? [[1]] : [[0]];
+            innerReq[17] = [[_turnIndex || 0]];
             innerReq[18] = 0;
             innerReq[27] = 1;
-            innerReq[30] = [4];
+            innerReq[30] = [4, 16, 19];
             innerReq[41] = [1];
+            innerReq[49] = 0;
             innerReq[53] = 0;
             var requestUuid = generateUuid().toUpperCase();
             innerReq[59] = requestUuid;
+            innerReq[61] = [];
+            innerReq[67] = 0;
             innerReq[68] = 2;
             innerReq[79] = modelIdentifier;
             innerReq[80] = 1;
+            innerReq[91] = 1;
+            innerReq[96] = (_turnIndex === 0) ? 1 : 0;
+            innerReq[98] = 1;
 
             var body = new URLSearchParams({
                 at: tokens.at,
@@ -624,25 +1222,38 @@
                 'x-same-domain': '1',
                 'x-goog-ext-73010989-jspb': '[0]',
                 'x-goog-ext-73010990-jspb': '[0,0,0]',
-                'x-goog-ext-525001261-jspb': JSON.stringify([1, null, null, null, workspaceId, null, null, 0, [4, 5, 6, 8], null, null, customIndex11, null, null, modelId, 1, _sessionUuid]),
                 'x-goog-ext-525005358-jspb': JSON.stringify([requestUuid, 1])
             };
 
-            var url = '/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate?' + queryParams;
+            if (workspaceId) {
+                var wkArg = workspaceId;
+                headers['x-goog-ext-525001261-jspb'] = JSON.stringify([1, null, null, null, wkArg, null, null, 0, [4, 5, 6, 8, 16, 19, 20, 4, 5, 6, 8, 16, 19, 20], null, null, customIndex11, null, null, modelId, 1, _sessionUuid, [tokens.bl]]);
+            }
+
+            var userPrefixMatch = (typeof window !== 'undefined' && window.location && window.location.pathname) ? window.location.pathname.match(/^(\/u\/\d+)/) : null;
+            var userPrefix = userPrefixMatch ? userPrefixMatch[1] : '';
+            var url = userPrefix + '/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate?' + queryParams;
 
             var controller = new AbortController();
-            var timeoutId = setTimeout(function () { controller.abort(); }, TIMEOUT);
+            _activeController = controller;
+            var fetchTimeoutMs = _isRetry ? 30000 : (isReasoningEngine ? 35000 : 25000);
+            var timeoutId = setTimeout(function () { controller.abort(); }, fetchTimeoutMs);
 
-            var res = await fetch(url, {
-                method: 'POST',
-                credentials: 'include',
-                headers: headers,
-                body: body,
-                signal: controller.signal
-            });
+            var res;
+            try {
+                res = await fetch(url, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: headers,
+                    body: body,
+                    signal: controller.signal
+                });
+            } finally {
+                clearTimeout(timeoutId);
+                _activeController = null;
+            }
 
             if (res.status === 400) {
-                clearTimeout(timeoutId);
                 _tokens = null;
                 _tokensFetchedAt = 0;
                 var freshTokens = await _getTokens(true);
@@ -666,82 +1277,122 @@
 
                 var retryUrl = '/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate?' + retryParams;
                 var retryController = new AbortController();
+                _activeController = retryController;
                 var retryTimeoutId = setTimeout(function () { retryController.abort(); }, TIMEOUT);
 
-                res = await fetch(retryUrl, {
-                    method: 'POST',
-                    credentials: 'include',
-                    headers: retryHeaders,
-                    body: retryBody,
-                    signal: retryController.signal
-                });
+                try {
+                    res = await fetch(retryUrl, {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: retryHeaders,
+                        body: retryBody,
+                        signal: retryController.signal
+                    });
+                } finally {
+                    clearTimeout(retryTimeoutId);
+                    _activeController = null;
+                }
 
                 if (!res.ok) {
                     if (res.status === 400 && _conversationId) {
                         console.log('[Proxima API] Old conversation ID invalid on current account. Resetting session...');
-                        newConversation(sessionId);
-                        clearTimeout(retryTimeoutId);
+                        newConversation(sessionId, engine);
                         return await send(message, engine, attachments, sessionId)
                             .then(function (newResult) {
                                 var notice = "*[System Notice: Gemini account changed or session expired. Resuming this conversation in a new provider session.]*\n\n";
                                 return notice + newResult;
                             });
                     }
-                    clearTimeout(retryTimeoutId);
                     var err = await res.text().catch(function () { return ''; });
                     throw new Error('Gemini API error (' + res.status + '): ' + err.substring(0, 300));
                 }
 
-                var result;
-                try {
-                    result = await _processStreamResponse(res);
-                } finally {
-                    clearTimeout(retryTimeoutId);
-                }
-                saveSession(sessionId);
+                var result = await _processStreamResponse(res, isReasoningEngine, _isRetry);
+                saveSession(sessionId, engine);
                 return result;
             }
 
             if (!res.ok) {
-                clearTimeout(timeoutId);
                 var err = await res.text().catch(function () { return ''; });
                 throw new Error('Gemini API error (' + res.status + '): ' + err.substring(0, 300));
             }
 
-            // Treat empty responses on HTTP-OK as expired conversations; self-heal by starting a new one.
-            try {
-                var result = await _processStreamResponse(res);
-                saveSession(sessionId);
-                clearTimeout(timeoutId);
-                return result;
-            } catch (parseErr) {
-                clearTimeout(timeoutId);
-                if (!_isRetry && (_conversationId || _responseId || _choiceId || _contextToken)) {
-                    console.log('[Proxima API] Continued conversation unparseable/expired. Starting a fresh conversation and retrying once...');
-                    newConversation(sessionId);
-                    return await send(message, engine, attachments, sessionId, true);
-                }
-                throw parseErr;
-            }
+            var result = await _processStreamResponse(res, isReasoningEngine, _isRetry);
+            saveSession(sessionId, engine);
+            return result;
         } catch (err) {
-            console.error('[Proxima API] Chat processing failed. Resetting sticky error state context.', err.message);
-            newConversation(sessionId);
+            console.error('[Proxima API] Chat processing failed.', err.message);
+            // Fallback Policy: Auto mode fallback on failure, or resilient recovery on code 37 / stream abort
+            var isCode37 = err.message.indexOf('code 37') !== -1;
+            var isStreamAbort = err.message.indexOf('aborted by Google server') !== -1;
+            var canFallback = !_isRetry && (isAuto || isCode37 || isStreamAbort);
+            if (canFallback) {
+                console.warn('[Proxima API] Gemini route failed (' + err.message + '). Bounded fallback...');
+                window.__proximaGeminiStream = { response: '', status: 'streaming', updates: [] };
+                var retryEngine = isAuto ? 'auto' : engine;
+                var baseSess = _sessions[sessionId] || _sessions[_sessionKey(sessionId, engine)];
+                if (baseSess && baseSess.conversationId) {
+                    _conversationId = baseSess.conversationId;
+                    _responseId = baseSess.responseId || '';
+                    _choiceId = baseSess.choiceId || '';
+                    _contextToken = baseSess.contextToken || '';
+                    _turnIndex = baseSess.turnIndex || 0;
+                    _sessionUuid = baseSess.sessionUuid || generateUuid().toUpperCase();
+                    var fallbackKey = _sessionKey(sessionId, retryEngine);
+                    _sessions[fallbackKey] = {
+                        conversationId: _conversationId,
+                        responseId: _responseId,
+                        choiceId: _choiceId,
+                        contextToken: _contextToken,
+                        turnIndex: _turnIndex,
+                        sessionUuid: _sessionUuid
+                    };
+                }
+                try {
+                    var retryOptions = Object.assign({}, options);
+                    if (isCode37 || isStreamAbort) {
+                        retryOptions._omitWorkspace = true;
+                    }
+                    return await send(message, retryEngine, attachments, sessionId, true, retryOptions);
+                } catch (fallbackErr) {
+                    if (window.__proximaGeminiStream) {
+                        window.__proximaGeminiStream.status = 'error';
+                        window.__proximaGeminiStream.error = fallbackErr.message;
+                    }
+                    console.error('[Proxima API] Resilient fallback also failed:', fallbackErr.message);
+                    throw fallbackErr;
+                }
+            }
+            if (window.__proximaGeminiStream) {
+                window.__proximaGeminiStream.status = 'error';
+                window.__proximaGeminiStream.error = err.message;
+            }
             throw err;
         }
     }
 
-    function newConversation(sessionId) {
-        if (sessionId) {
-            delete _sessions[sessionId];
-            if (_currentSessionId === sessionId) _currentSessionId = null;
-        } else if (_currentSessionId) {
-            delete _sessions[_currentSessionId];
-            _currentSessionId = null;
+    function newConversation(sessionId, engineKey) {
+        abortActive();
+        var sessionsToDelete = sessionId ? [sessionId] : ['default', 'mcp-session', _currentSessionId].filter(Boolean);
+        for (var s = 0; s < sessionsToDelete.length; s++) {
+            var sId = sessionsToDelete[s];
+            var prefix = sId + '::';
+            for (var k in _sessions) {
+                if (k === sId || k.indexOf(prefix) === 0) {
+                    delete _sessions[k];
+                }
+            }
+            if (engineKey) {
+                delete _sessions[_sessionKey(sId, engineKey)];
+            }
+            delete _sessions[sId];
         }
+        _currentSessionId = null;
         _conversationId = '';
         _responseId = '';
         _choiceId = '';
         _contextToken = '';
+        _turnIndex = 0;
         _sessionUuid = generateUuid().toUpperCase();
         try {
             localStorage.setItem('proxima_sessions', JSON.stringify(_sessions));
@@ -753,14 +1404,26 @@
         } catch (historyErr) {
             console.warn('[Proxima API] Failed to update history state:', historyErr.message);
         }
-        console.log('[Proxima API] Conversation reset:', sessionId || 'current');
+        console.log('[Proxima API] Conversation reset:', sessionId || 'default & mcp');
     }
 
-    window.__proximaGeminiUnified = { send: send, newConversation: newConversation };
+    window.__proximaGeminiUnified = { send: send, newConversation: newConversation, abort: abortActive, getAvailableModels: getAvailableModels };
     window.__proximaGemini = {
-        send: function (msg, engine, attachments, sessionId) { return send(msg, engine || 'auto', attachments, sessionId); },
+        send: function (msg, engine, attachments, sessionId, maybeForceOrOptions, maybeOptions) {
+            var forceFresh = false;
+            var options = null;
+            if (typeof maybeForceOrOptions === 'boolean') {
+                forceFresh = maybeForceOrOptions;
+                options = maybeOptions;
+            } else if (typeof maybeForceOrOptions === 'object' && maybeForceOrOptions !== null) {
+                options = maybeForceOrOptions;
+            }
+            return send(msg, engine || 'auto', attachments, sessionId, forceFresh, options);
+        },
         newConversation: newConversation,
-        uploadFileToGoogle: uploadFileToGoogle
+        abort: abortActive,
+        uploadFileToGoogle: uploadFileToGoogle,
+        getAvailableModels: getAvailableModels
     };
 
     console.log('[Proxima] Upgraded Unified Multimodal Gemini Engine Loaded');

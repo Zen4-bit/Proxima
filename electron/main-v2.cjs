@@ -69,7 +69,13 @@ async function clearProviderCachesOnStartup() {
     }
     console.log('[CacheClean] Provider caches cleared on startup (logins preserved).');
 }
-
+if (process.env.PROXIMA_DATA_DIR) {
+    try {
+        app.setPath('userData', path.resolve(process.env.PROXIMA_DATA_DIR));
+    } catch (e) {
+        console.warn('[Startup] Could not set custom userData path:', e.message);
+    }
+}
 const userDataPath = app.getPath('userData');
 const settingsPath = path.join(userDataPath, 'settings.json');
 const enabledProvidersPath = path.join(userDataPath, 'enabled-providers.json');
@@ -336,6 +342,18 @@ function startIPCServer() {
         return next;
     }
 
+    function clearProviderQueue(provider) {
+        if (provider) {
+            providerQueues[provider] = Promise.resolve();
+            cancelProvider(provider);
+        } else {
+            for (const p in providerQueues) {
+                providerQueues[p] = Promise.resolve();
+                cancelProvider(p);
+            }
+        }
+    }
+
     const MAX_IPC_CONNECTIONS = 32;
     const MAX_IPC_BUFFER_BYTES = 8 * 1024 * 1024;
     const IPC_SOCKET_IDLE_MS = 10 * 60 * 1000;
@@ -521,10 +539,54 @@ async function handleMCPRequest(request) {
                 return { success: true, provider, loggedIn };
             }
 
+            case 'getProviderModels': {
+                const baseProvider = (provider || (data && data.provider) || '').split(':')[0];
+                const forceRefresh = !!(data && data.refresh);
+                if (baseProvider === 'chatgpt') {
+                    const wc = browserManager.getWebContents('chatgpt');
+                    if (wc) {
+                        const models = await providerAPI.getProviderModels('chatgpt', wc, forceRefresh);
+                        return { success: true, provider: 'chatgpt', models: models || [] };
+                    }
+                    return { success: true, provider: 'chatgpt', models: [] };
+                }
+                if (baseProvider === 'gemini') {
+                    const wc = browserManager.getWebContents('gemini');
+                    if (wc) {
+                        const models = await providerAPI.getProviderModels('gemini', wc, forceRefresh);
+                        if (models && models.length > 0) {
+                            return { success: true, provider: 'gemini', models: models };
+                        }
+                    }
+                    return { success: true, provider: 'gemini', models: [] };
+                }
+                if (baseProvider === 'claude') {
+                    return {
+                        success: true,
+                        provider: 'claude',
+                        models: [{ id: 'claude', slug: 'default', name: 'Claude Session Model', description: 'Active Browser Session (Claude Latest)', tag: 'Session', status: 'enabled' }]
+                    };
+                }
+                if (baseProvider === 'perplexity') {
+                    return {
+                        success: true,
+                        provider: 'perplexity',
+                        models: [{ id: 'perplexity', slug: 'default', name: 'Perplexity Live Search', description: 'Active Browser Session (Online Web Search)', tag: 'Search', status: 'enabled' }]
+                    };
+                }
+                return { success: true, provider: baseProvider, models: [] };
+            }
+
             case 'sendMessage': {
                 const baseProviderName = provider.split(':')[0];
-                const engineOverride = data.gemini || data.engine || null;
-                const targetProvider = engineOverride ? `${provider}:${engineOverride}` : provider;
+                let engineOverride = data.chatgpt || data.gemini || data.engine || data.model || (provider.includes(':') ? provider.split(':').slice(1).join(':') : null);
+                const thinkingLevel = data.thinking_level || data.thinkingLevel || data.reasoning_effort || null;
+                if (thinkingLevel && engineOverride && !engineOverride.includes(':')) {
+                    engineOverride = `${engineOverride}:${thinkingLevel}`;
+                } else if (thinkingLevel && !engineOverride) {
+                    engineOverride = `auto:${thinkingLevel}`;
+                }
+                const targetProvider = engineOverride ? `${baseProviderName}:${engineOverride}` : baseProviderName;
                 const conversationId = data.conversationId || data.conversation_id || data.sessionId || data.session_id || null;
 
                 const byokKey = byok.keys.isEnabled() ? byok.keys.getKey(baseProviderName) : null;
@@ -592,6 +654,12 @@ async function handleMCPRequest(request) {
                     }
                     return { success: true, provider, response: result.response };
                 }
+            }
+
+            case 'cancel': {
+                const targetP = provider || (data && data.provider) || null;
+                clearProviderQueue(targetP);
+                return { success: true, cancelled: true, provider: targetP || 'all' };
             }
 
             case 'uploadFile':
@@ -745,7 +813,7 @@ function initModules() {
     registerCLIHandlers(handlerDeps);
 }
 
-const { sendMessageToProvider } = providerSender;
+const { sendMessageToProvider, cancelProvider } = providerSender;
 
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 

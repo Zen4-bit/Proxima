@@ -11,14 +11,25 @@ pip install proxima-sdk
 ```python
 from proxima import Proxima
 
-ai = Proxima()  # Connects to localhost:3210
+# Automatically discovers the gateway port via rest-port.json (defaults to localhost:3210)
+ai = Proxima()
 
-# 💬 Chat with any AI
+# 💬 Chat with default model
 response = ai.chat("What is machine learning?")
 print(response)
 
-# 🎯 Choose your model
+# 🎯 Choose a specific provider or discovered model
 response = ai.chat("Explain quantum computing", model="claude")
+
+# 🧠 Control reasoning depth for thinking models
+response = ai.chat(
+    "Analyze this mathematical proof",
+    model="gemini",
+    thinking_level="high"  # 'default', 'low', 'medium', 'high'
+)
+
+# 📋 Discover available models for your active account
+available_models = ai.models()
 ```
 
 ## Features
@@ -119,19 +130,24 @@ pip install proxima-sdk[async]
 
 ## Available Models
 
-| Model | Aliases |
-|-------|---------|
-| ChatGPT | `chatgpt`, `gpt`, `gpt-4`, `openai` |
-| Claude | `claude`, `anthropic`, `sonnet` |
-| Gemini | `gemini`, `google`, `bard` |
-| Perplexity | `perplexity`, `pplx`, `sonar` |
-| Auto | `auto` (picks best available) |
+Proxima supports both core provider aliases and dynamically discovered account models:
+
+| Provider | Core Aliases | Discovered Sub-Engines (Examples) |
+|---|---|---|
+| ChatGPT | `chatgpt`, `gpt`, `openai` | Discovered from account (`chatgpt:gpt-5-6-mini`, etc.) |
+| Claude | `claude`, `anthropic`, `sonnet` | Active session models |
+| Gemini | `gemini`, `google`, `bard` | `gemini:argon`, `gemini:flash`, `gemini:pro`, `gemini:latest` |
+| Perplexity | `perplexity`, `pplx`, `sonar` | Active session search models |
+| Auto | `auto` | Dynamically routes to the best responsive model |
+
+Call `ai.models()` at runtime to inspect the exact live models and capability tags (`Fast`, `Reasoning`, `Pro`) available for your account.
 
 ## Available Functions
 
 | Function | Description |
-|----------|-------------|
-| `chat()` | Normal AI conversation |
+|---|---|
+| `chat()` | Normal AI conversation (supports `thinking_level` and `reasoning_effort`) |
+| `models()` | List dynamically discovered and available models |
 | `search()` | AI-powered web search |
 | `ddg_search()` | Free DuckDuckGo search |
 | `scrape()` | URL to markdown |

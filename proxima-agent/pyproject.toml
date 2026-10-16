@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "proxima-agent"
-version = "5.0.0"
+version = "5.5.0"
 description = "AI Agent powered by Proxima — dynamic Python execution with full computer access"
 requires-python = ">=3.10"
 dependencies = [

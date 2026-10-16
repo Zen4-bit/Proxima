@@ -12,7 +12,7 @@ function makeHandler(over = {}) {
     const calls = { json: [], error: [] };
     const deps = {
         API_PREFIX: '/v1',
-        VERSION: '5.0.0',
+        VERSION: '5.5.0',
         MODEL_ALIASES: { gpt: 'chatgpt' },
         sendJSON: (res, code, obj) => calls.json.push({ code, obj }),
         sendError: (res, code, msg, type) => calls.error.push({ code, msg, type }),
@@ -91,18 +91,18 @@ test('GET /v1/models (BYOK mode) lists per-model entries and mode "api"', async 
         byok: {
             keys: {
                 isEnabled: () => true,
-                getModels: (p) => (p === 'chatgpt' ? [{ id: 'gpt-4o', enabled: true }] : []),
+                getModels: (p) => (p === 'chatgpt' ? [{ id: 'chatgpt', enabled: true }] : []),
                 getSelectedModel: () => null,
                 getStatus: () => ({}),
                 KNOWN_PROVIDERS: ['chatgpt', 'claude', 'gemini', 'perplexity'],
             },
-            models: { DEFAULT_MODELS: { claude: 'claude-3' } },
+            models: { DEFAULT_MODELS: { claude: 'claude' } },
         },
     });
     await handle('GET', '/v1/models', {}, mockRes());
     const body = calls.json[0].obj;
     assert.equal(body.mode, 'api');
-    assert.ok(body.data.some((m) => m.id === 'gpt-4o' && m.provider === 'chatgpt'));
+    assert.ok(body.data.some((m) => m.id === 'chatgpt' && m.provider === 'chatgpt'));
 });
 
 test('GET /v1/functions returns the function catalog', async () => {

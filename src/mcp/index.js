@@ -13,7 +13,7 @@ import { IPCClient, AIProvider } from './ipc-bridge.js';
 import {
     getEnabledProviders, isProviderEnabled, buildMessageWithFiles,
     readFileContents, toolResponse, toolError, checkDisabled, getAgentHubPort, getAgentHubToken,
-    getByokStorePath,
+    getByokStorePath, getAvailableModelsList,
 } from './helpers.js';
 import { createSmartChat } from './pipeline.js';
 
@@ -186,9 +186,10 @@ function pickBestProvider(taskType) {
 function resolveProvider(providerName, taskType) {
     if (providerName) {
         const name = providerName.toLowerCase();
+        const baseName = name.split(':')[0];
         const enabled = getEnabled();
-        if (!enabled.has(name)) return null;
-        const inst = allProviders[name] || getOrCreateProvider(name);
+        if (!enabled.has(baseName)) return null;
+        const inst = allProviders[baseName] || getOrCreateProvider(baseName);
         if (!inst) return null;
         return { name, instance: inst };
     }
@@ -206,8 +207,8 @@ async function chatWithProvider(providerName, message) {
 
 const server = new McpServer({
     name: 'agent-hub',
-    version: '5.0.0',
-    description: 'Proxima MCP Server v5.0 — Modular Architecture',
+    version: '5.5.0',
+    description: 'Proxima MCP Server v5.5 — Modular Architecture',
 });
 
 const deps = {
@@ -216,6 +217,7 @@ const deps = {
     // Helpers
     toolResponse, toolError, checkDisabled: (name) => checkDisabled(name, path.resolve(__dirname, '..')),
     getEnabledProviders: getEnabled,
+    getAvailableModelsList,
     buildMessageWithFiles, readFileContents,
     // Providers
     allProviders,
@@ -242,7 +244,7 @@ registerContentTools(server, deps);
 registerUtilityTools(server, deps);
 registerWorkflowTools(server, deps);
 
-console.error(`[MCP] 40 tools registered across 6 modules`);
+console.error(`[MCP] 41 tools registered across 6 modules`);
 
 server.resource(
     'status', 'proxima://status',
@@ -254,7 +256,7 @@ server.resource(
                 mimeType: 'application/json',
                 text: JSON.stringify({
                     server: 'Proxima MCP Server',
-                    version: '5.0.0',
+                    version: '5.5.0',
                     architecture: 'modular',
                     modules: ['ipc-bridge', 'helpers', 'pipeline', 'tools-chat', 'tools-code', 'tools-search', 'tools-content', 'tools-utility', 'tools-workflow'],
                     enabledProviders: Array.from(enabled),
@@ -265,51 +267,20 @@ server.resource(
     }
 );
 
-// The 4 session tool names that map 1:1 to a BYOK provider.
-const SESSION_TOOL_MAP = { chatgpt: 'ask_chatgpt', claude: 'ask_claude', gemini: 'ask_gemini', perplexity: 'ask_perplexity' };
-
 server.resource(
     'models', 'proxima://models',
     async (uri) => {
-        let byokData = { enabled: false, providers: [] };
-        try {
-            const raw = await ipcClient.send('getByokStatus');
-            if (raw && raw.success) byokData = raw;
-        } catch (e) { /* IPC unavailable — assume session mode */ }
-
-        let mode, providers, hint;
-
-        if (byokData.enabled && byokData.providers && byokData.providers.length > 0) {
-            mode = 'api';
-            providers = byokData.providers.map(p => {
-                const sessionTool = SESSION_TOOL_MAP[p.name];
-                return {
-                    name: p.name,
-                    type: 'api',
-                    model: p.model,
-                    tool: sessionTool
-                        ? `${sessionTool}(message) OR ask_model('${p.name}', message)`
-                        : `ask_model('${p.name}', message)`,
-                };
-            });
-            hint = 'API mode active. Use ask_model(provider, message) for any listed provider. Existing tools (ask_chatgpt etc.) also work for mapped providers.';
-        } else {
-            mode = 'session';
-            const enabled = getEnabled();
-            providers = [...enabled].map(name => ({
-                name,
-                type: 'session',
-                model: `${name} (web session)`,
-                tool: SESSION_TOOL_MAP[name] || `ask_model('${name}', message)`,
-            }));
-            hint = 'Session mode. Use ask_chatgpt, ask_claude, ask_gemini, ask_perplexity for browser-based providers.';
-        }
+        const modelData = await getAvailableModelsList({
+            ipcClient,
+            getEnabledProviders: getEnabled,
+            refresh: false
+        });
 
         return {
             contents: [{
                 uri: uri.href,
                 mimeType: 'application/json',
-                text: JSON.stringify({ mode, providers, hint }, null, 2),
+                text: JSON.stringify(modelData, null, 2),
             }],
         };
     }
@@ -336,7 +307,7 @@ try {
 } catch (e) { /* ignore */ }
 
 async function main() {
-    console.error('[MCP] Proxima MCP Server v5.0.0 (Modular) starting...');
+    console.error('[MCP] Proxima MCP Server v5.5.0 (Modular) starting...');
     console.error('[MCP] Connecting to Agent Hub on port', IPC_PORT);
 
     try {

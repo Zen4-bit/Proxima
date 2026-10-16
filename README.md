@@ -8,7 +8,7 @@
 
 **Run frontier LLMs directly inside Cursor, VS Code, Windsurf, or Claude Desktop using free browser login sessions or local offline providers. Ships with a self-healing Python agent, multi-agent delegation, and cross-session memory.**
 
-[![Version](https://img.shields.io/badge/Version-v5.0.0-555555?style=for-the-badge&logo=semver)](https://github.com/Zen4-bit/Proxima/releases)
+[![Version](https://img.shields.io/badge/Version-v5.5.0-555555?style=for-the-badge&logo=semver)](https://github.com/Zen4-bit/Proxima/releases)
 [![Platform](https://img.shields.io/badge/Windows%20·%20macOS%20·%20Linux-475569?style=for-the-badge&logo=electron&logoColor=white)](https://github.com/Zen4-bit/Proxima)
 [![Website](https://img.shields.io/badge/Website-proximamcp.in-d4af37?style=for-the-badge&logo=google-chrome&logoColor=white)](https://www.proximamcp.in)
 [![Sponsor](https://img.shields.io/badge/Sponsor-Proxima-d05c87?style=for-the-badge&logo=github-sponsors&logoColor=white)](https://github.com/sponsors/Zen4-bit)
@@ -377,13 +377,13 @@ When **BYOK Mode** is active, Proxima utilizes a local intelligence buffer:
 *   **Context Compaction Pipeline:** Uses token-estimation and cheap pruning heuristics (`byok/context/`) to summarize long conversation loops when approaching provider limits (preventing out-of-context crashes).
 *   **Ollama/LM Studio Bridge:** Intercepts unknown custom provider configurations and loops them through standard OpenAI-compatible endpoints to support offline, local hardware execution.
 
-Read [docs/architecture.md](docs/architecture.md) for full structural diagrams and details.
+Read [docs/architecture.md](docs/architecture.md) for structural diagrams and [docs/MIGRATION-v5.0-to-v5.5.md](docs/MIGRATION-v5.0-to-v5.5.md) for v5.0.0 → v5.5.0 upgrade notes.
 
 ---
 
-## All MCP Tools (40)
+## All MCP Tools (41)
 
-Registered by the modular MCP server (`src/mcp/`).
+Registered by the modular MCP server (`src/mcp/`). Proxima also provides dynamic model inspection via the `proxima://models` MCP resource.
 
 ### Core Orchestration Tools
 The following signature capabilities represent Proxima's custom orchestration logic:
@@ -408,14 +408,15 @@ The following signature capabilities represent Proxima's custom orchestration lo
 
 | Tool | Description |
 | :-- | :-- |
-| `ask_chatgpt` | Send a message to ChatGPT |
+| `list_available_models` | Discover real-time models across active providers with capability tags and usage instructions (`refresh: true` to invalidate cache) |
+| `ask_chatgpt` | Send a message to ChatGPT (supports discovered model slugs) |
 | `ask_claude` | Send a message to Claude |
-| `ask_gemini` | Send a message to Gemini |
+| `ask_gemini` | Send a message to Gemini (supports `thinking_level`: `default` · `low` · `medium` · `high`, sub-engines: `argon` · `flash` · `pro`) |
 | `ask_perplexity` | Send a message to Perplexity |
-| `ask_model` | Send to any session or BYOK provider |
+| `ask_model` | Send to any session or BYOK provider (supports `thinking_level`) |
 | `ask_all_ais` | Query all enabled providers simultaneously |
 | `smart_query` | Auto-route with modes: `auto` · `verify` · `consensus` · `collaborate` |
-| `new_conversation` | Reset a provider's conversation |
+| `new_conversation` | Reset a provider's conversation context |
 
 </details>
 
@@ -503,16 +504,17 @@ The following signature capabilities represent Proxima's custom orchestration lo
 
 ## REST API
 
-OpenAI-compatible API at `http://localhost:3210` (enable in Settings).
+OpenAI-compatible HTTP gateway running at `http://localhost:3210` by default (configurable via `PROXIMA_REST_PORT` or automatically discovered via `rest-port.json`).
 
 ### Endpoints
 
 ```http
-POST /v1/chat/completions      # OpenAI-compatible chat (stream, tools, functions)
-GET  /v1/models                # List available models (session or BYOK)
+POST /v1/chat/completions      # OpenAI-compatible chat (stream, tools, thinking controls)
+POST /v1/cancel                # Cancel in-flight provider generation and flush queue
+GET  /v1/models                # List dynamically discovered and BYOK models
 GET  /v1/functions             # Function catalog
-GET  /v1/stats                 # Per-provider response stats
-POST /v1/conversations/new     # Reset a provider's conversation
+GET  /v1/stats                 # Per-provider response statistics
+POST /v1/conversations/new     # Reset conversation memory for a provider
 
 # BYOK brain endpoints
 GET  /v1/byok/keys             # BYOK key management
@@ -522,8 +524,8 @@ GET  /v1/brain/experience      # Learned experiences
 GET  /v1/brain/skills          # Stored skills
 GET  /v1/brain/stats           # Brain statistics
 
-GET  /api/status               # Server status
-GET  /                         # Interactive documentation
+GET  /api/status               # Server status (returns active bound port & providers)
+GET  /                         # Interactive documentation & Battle Mode Chat Widget
 ```
 
 ### Example Request
@@ -531,30 +533,48 @@ GET  /                         # Interactive documentation
 ```bash
 curl http://localhost:3210/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model": "claude", "message": "What is AI?"}'
+  -d '{
+    "model": "gemini",
+    "message": "Analyze this architectural trade-off",
+    "thinking_level": "high"
+  }'
 ```
 
-The `model` field accepts: `auto`, a provider name (`claude`, `chatgpt`, `gemini`, `perplexity`), `all`, or an array like `["claude", "chatgpt"]`.
+*   **Model Selection:** Accepts `auto`, core provider names (`claude`, `chatgpt`, `gemini`, `perplexity`), sub-engines (e.g. `gemini:pro`, `gemini:argon`), dynamically discovered model slugs (queried via `GET /v1/models`), or multi-provider arrays `["claude", "chatgpt"]`.
+*   **Thinking Controls:** Optional `thinking_level` (`default`, `low`, `medium`, `high`) or OpenAI-compatible `reasoning_effort`.
+*   **Cancellation:** Send `POST /v1/cancel` with optional `{"provider": "gemini"}` to abort in-flight generations immediately.
+
+---
+
+## Interactive Documentation & Battle Mode
+
+The gateway hosts interactive documentation at `http://localhost:3210` with an embedded live chat widget:
+*   **Model Discovery:** Automatically populates available models from active sessions with capability badges (`Fast`, `Reasoning`, `Pro`).
+*   **Battle Mode:** Benchmark two or more models side-by-side on the same prompt with real-time status and timing comparisons.
+*   **Reasoning Selector:** Dynamically displays thinking depth options when reasoning models are selected.
 
 ---
 
 ## WebSocket
 
-Real-time streaming at `ws://localhost:3210/ws` (requires REST API enabled).
+Real-time bidirectional streaming at `ws://localhost:3210/ws` (requires REST API enabled).
 
 ```javascript
 const ws = new WebSocket("ws://localhost:3210/ws");
 
-ws.send(JSON.stringify({
-  action: "ask",
-  model: "claude",
-  message: "Explain closures in JavaScript",
-  id: "req-1"
-}));
+ws.onopen = () => {
+  ws.send(JSON.stringify({
+    action: "ask",
+    model: "gemini",
+    thinking_level: "high",
+    message: "Explain closures in JavaScript",
+    id: "req-1"
+  }));
+};
 
 ws.onmessage = (e) => {
   const data = JSON.parse(e.data);
-  console.log(data); // status updates + streamed response chunks
+  console.log(data); // Streamed chunks, status events, or completion
 };
 ```
 
@@ -704,7 +724,7 @@ See [LICENSE](LICENSE) for the full license text and terms. For commercial licen
 
 <br/>
 
-**Proxima v5.0.0** — Making every AI work together
+**Proxima v5.5.0** — Making every AI work together
 
 Built by [**Zen4-bit**](https://github.com/Zen4-bit)
 

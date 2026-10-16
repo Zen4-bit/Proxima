@@ -331,6 +331,21 @@ async def byok_remove_key(provider: str):
         return JSONResponse(status_code=400, content={"error": str(e)})
 
 
+@app.get("/api/models")
+async def get_gateway_models():
+    try:
+        from ..config import load_config as _lc, DEFAULT_API_URL as _default_gw
+        _cfg = _lc()
+        gateway_url = (_cfg.get("api_url") or _default_gw).rstrip("/")
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{gateway_url}/models")
+            if r.status_code == 200:
+                return r.json()
+    except Exception as e:
+        return {"data": [], "error": str(e)}
+    return {"data": []}
+
+
 @app.get("/api/byok/models")
 async def byok_get_models():
     from ..config import (
@@ -495,6 +510,7 @@ async def ws_endpoint(ws: WebSocket):
                 model = msg.get("model", config.get("model", "auto"))
                 mode = msg.get("mode", config.get("permission_mode", "smart"))
                 file_path = msg.get("file_path")
+                thinking_level = msg.get("thinking_level")
                 _agent_runner.start(
                     console=console,
                     user_message=content,
@@ -502,6 +518,7 @@ async def ws_endpoint(ws: WebSocket):
                     mode=mode,
                     conversation_id=conv_id,
                     file_path=file_path,
+                    thinking_level=thinking_level,
                 )
 
             elif msg_type == "approve":

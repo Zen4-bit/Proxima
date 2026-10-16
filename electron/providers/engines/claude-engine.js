@@ -256,17 +256,16 @@
     }
 
     function newConversation(sessionId) {
-        if (sessionId) {
-            delete _sessions[sessionId];
-        } else if (_currentSessionId) {
-            delete _sessions[_currentSessionId];
+        var sessionsToDelete = sessionId ? [sessionId] : ['default', 'mcp-session', _currentSessionId].filter(Boolean);
+        for (var s = 0; s < sessionsToDelete.length; s++) {
+            delete _sessions[sessionsToDelete[s]];
         }
         _convId = null;
         _currentSessionId = null;
         try {
             localStorage.setItem('proxima_claude_sessions', JSON.stringify(_sessions));
         } catch (e) { }
-        console.log('[Proxima Claude] Conversation reset:', sessionId || 'current');
+        console.log('[Proxima Claude] Conversation reset:', sessionId || 'default & mcp');
     }
 
     window.__proximaClaude = { send: send, newConversation: newConversation, uploadFileToClaude: uploadFileToClaude };

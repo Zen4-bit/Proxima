@@ -13,11 +13,20 @@ function createRouteHandler(deps) {
         scrapeUrl, searchDDG, formatResultsMarkdown,
         buildToolCallingPrompt, parseToolCallResponse, formatToolCallResponse,
         byok,
+        getBoundPort,
     } = deps;
 
-    return async function handleRoute(method, pathname, body, res) {
-        const handleMCPRequest = getHandler();
+    return async function handleRoute(method, pathname, body, res, req) {
+        const handleMCPRequest = typeof getHandler === 'function' ? getHandler() : null;
         const conversationId = (body && (body.conversationId || body.conversation_id || body.sessionId || body.session_id)) || null;
+
+        if (method === 'POST' && (pathname === `${API_PREFIX}/cancel` || pathname === '/cancel')) {
+            if (handleMCPRequest) {
+                const targetProvider = (body && body.provider) || null;
+                handleMCPRequest({ action: 'cancel', provider: targetProvider });
+            }
+            return sendJSON(res, 200, { success: true, cancelled: true });
+        }
 
         if (method === 'POST' && pathname === `${API_PREFIX}/chat/completions`) {
             const fn = (body.function || '').toLowerCase().trim();
@@ -27,6 +36,31 @@ function createRouteHandler(deps) {
             if (filePath && !fs.existsSync(filePath)) {
                 return sendError(res, 400, `File not found at local path: ${filePath}`);
             }
+
+            // Thinking level / reasoning effort extraction and validation
+            let requestedThinking = body.thinking_level !== undefined ? String(body.thinking_level).toLowerCase().trim() : null;
+            let requestedReasoning = body.reasoning_effort !== undefined ? String(body.reasoning_effort).toLowerCase().trim() : null;
+            
+            let mappedReasoning = null;
+            if (requestedReasoning) {
+                if (['none', 'default', 'auto'].includes(requestedReasoning)) mappedReasoning = 'default';
+                else if (['low', 'medium', 'high'].includes(requestedReasoning)) mappedReasoning = requestedReasoning;
+                else {
+                    return sendError(res, 400, `Unsupported reasoning_effort: "${body.reasoning_effort}". Supported values: default, low, medium, high (or none, auto).`, 'invalid_request_error');
+                }
+            }
+
+            if (requestedThinking) {
+                if (!['default', 'low', 'medium', 'high'].includes(requestedThinking)) {
+                    return sendError(res, 400, `Unsupported thinking_level: "${body.thinking_level}". Supported levels: default, low, medium, high.`, 'invalid_request_error');
+                }
+            }
+
+            if (requestedThinking && mappedReasoning && requestedThinking !== mappedReasoning) {
+                return sendError(res, 400, `Conflicting parameters: thinking_level ("${body.thinking_level}") and reasoning_effort ("${body.reasoning_effort}") cannot have different values.`, 'invalid_request_error');
+            }
+
+            const resolvedThinkingLevel = requestedThinking || mappedReasoning || null;
 
             let modelInput = body.model || 'auto';
             if (filePath && (modelInput === 'auto' || modelInput === 'all')) {
@@ -39,9 +73,10 @@ function createRouteHandler(deps) {
             const wantStream = body.stream === true;
 
             let gemini = resolved.gemini || null;
+            let chatgpt = resolved.chatgpt || null;
             if (!resolved.byokModelId && resolved.mode === 'single' && resolved.providers[0] === 'gemini') {
                 if (!body.model || body.model === 'auto' || body.model === 'gemini') {
-                    gemini = filePath ? '3.1-pro' : '3.5-flash';
+                    gemini = filePath ? 'pro' : 'auto';
                 }
             }
 
@@ -55,13 +90,23 @@ function createRouteHandler(deps) {
                 
                 let runGemini = r.gemini || null;
                 if (!r.byokModelId && r.mode === 'single' && r.providers[0] === 'gemini' && (!body.model || body.model === 'auto')) {
-                    runGemini = filePath ? '3.1-pro' : '3.5-flash';
+                    runGemini = filePath ? 'pro' : 'auto';
                 }
+                let runChatgpt = r.chatgpt || null;
 
                 try {
                     if (r.mode === 'single') {
                         let onChunk = null;
                         let streamedAny = false;
+                        const clientCloseHandler = () => {
+                            if (!res.writableEnded && handleMCPRequest) {
+                                handleMCPRequest({ action: 'cancel', provider: r.providers[0] });
+                            }
+                        };
+                        if (req && typeof req.once === 'function') {
+                            req.once('close', clientCloseHandler);
+                        }
+
                         if (wantStream && r.providers[0] === 'gemini') {
                             res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', ...(res._proximaCors || {}) });
                             const id = `chatcmpl-${Date.now()}`;
@@ -73,7 +118,14 @@ function createRouteHandler(deps) {
                             };
                         }
 
-                        const result = await queryProvider(r.providers[0], prompt, filePath, runGemini, onChunk, conversationId, body._byokKey, null, r.byokModelId);
+                        let result;
+                        try {
+                            result = await queryProvider(r.providers[0], prompt, filePath, runGemini, onChunk, conversationId, body._byokKey, null, r.byokModelId, runChatgpt, resolvedThinkingLevel);
+                        } finally {
+                            if (req && typeof req.removeListener === 'function') {
+                                req.removeListener('close', clientCloseHandler);
+                            }
+                        }
 
                         if (wantStream) {
                             if (r.providers[0] !== 'gemini') {
@@ -81,7 +133,7 @@ function createRouteHandler(deps) {
                             } else {
                                 const id = `chatcmpl-${Date.now()}`;
                                 const created = Math.floor(Date.now() / 1000);
-                                // Send full response text as a chunk for non-streaming BYOK Gemini fallback.
+                                // Non-streaming fallback chunk
                                 if (!streamedAny && result.text) {
                                     res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model: r.providers[0], choices: [{ index: 0, delta: { content: result.text }, finish_reason: null }] })}\n\n`);
                                 }
@@ -98,7 +150,7 @@ function createRouteHandler(deps) {
                     }
                 } catch (e) {
                     if (res.headersSent) {
-                        // Emit terminal SSE error if headers have already been sent.
+                        // Terminal SSE error
                         try { res.write(`data: ${JSON.stringify({ error: { message: e.message } })}\n\n`); res.write('data: [DONE]\n\n'); res.end(); } catch { try { res.end(); } catch { } }
                     } else {
                         sendError(res, 500, e.message);
@@ -167,7 +219,7 @@ function createRouteHandler(deps) {
                 await Promise.all(r2.providers.slice(0, sides).map(async (p, i) => {
                     let runEngine2 = (r2.geminis && r2.geminis[i]) || null;
                     if (p === 'gemini' && (!body.model || body.model === 'auto')) {
-                        runEngine2 = filePath ? '3.1-pro' : '3.5-flash';
+                        runEngine2 = filePath ? 'pro' : 'latest';
                     }
                     try { const r = await queryProvider(p, `You are debating. Position: ${stances[i]}.\n\nTopic: ${topic}\n\nPresent strongest arguments.`, filePath, runEngine2, null, null, body._byokKey); results[p] = { stance: stances[i], response: r.text }; timings[p] = r.responseTimeMs; }
                     catch (e) { results[p] = { stance: stances[i], error: e.message }; }
@@ -220,7 +272,7 @@ function createRouteHandler(deps) {
                     let runEngineCrew = null;
                     if (p === 'gemini') {
                         const resolvedAgent = resolveModels(agent.model || 'auto');
-                        runEngineCrew = resolvedAgent.gemini || (filePath ? '3.1-pro' : '3.5-flash');
+                        runEngineCrew = resolvedAgent.gemini || (filePath ? 'pro' : 'latest');
                     }
                     try { const r = await queryProvider(p, prompt, filePath, runEngineCrew, null, null, body._byokKey); crewResults[agent.role] = { provider: p, response: r.text, responseTimeMs: r.responseTimeMs }; crewTimings[agent.role] = r.responseTimeMs; prev = r.text; }
                     catch (e) { crewResults[agent.role] = { provider: p, error: e.message }; }
@@ -256,7 +308,7 @@ function createRouteHandler(deps) {
                         const toolPrompt = buildToolCallingPrompt(body);
                         if (!toolPrompt) return sendError(res, 400, 'No message provided');
                         if (TOOL_DEBUG) console.log('[TOOL-CALL/Legacy] Provider:', provider, '| Tools:', body.tools.length);
-                        const result = await queryProvider(provider, toolPrompt, filePath, gemini, null, conversationId, body._byokKey, null, resolved.byokModelId);
+                        const result = await queryProvider(provider, toolPrompt, filePath, gemini, null, conversationId, body._byokKey, null, resolved.byokModelId, chatgpt, resolvedThinkingLevel);
                         if (TOOL_DEBUG) console.log('[TOOL-CALL/Legacy] Response text (first 300):', JSON.stringify(result.text?.slice(0, 300)));
                         const parsed = parseToolCallResponse(result.text);
                         if (TOOL_DEBUG) console.log('[TOOL-CALL/Legacy] Parsed:', parsed.isToolCall, '| toolCalls:', parsed.toolCalls?.length || 0);
@@ -298,7 +350,7 @@ function createRouteHandler(deps) {
                         };
                     }
 
-                    const result = await queryProvider(provider, inputMessage, filePath, gemini, onChunk, conversationId, body._byokKey, null, resolved.byokModelId);
+                    const result = await queryProvider(provider, inputMessage, filePath, gemini, onChunk, conversationId, body._byokKey, null, resolved.byokModelId, chatgpt, resolvedThinkingLevel);
 
                     if (wantStream) {
                         if (provider !== 'gemini') {
@@ -379,10 +431,75 @@ function createRouteHandler(deps) {
             }
 
             if (enabled.includes('gemini')) {
-                models.push({ id: '3.5-flash', object: 'model', owned_by: 'proxima', status: 'enabled', description: 'Gemini 3.5 Flash engine' });
-                models.push({ id: '3.1-pro', object: 'model', owned_by: 'proxima', status: 'enabled', description: 'Gemini 3.1 Pro engine' });
-                models.push({ id: '3.1-flash-lite', object: 'model', owned_by: 'proxima', status: 'enabled', description: 'Gemini 3.1 Flash-Lite engine' });
-                models.push({ id: 'gemini:auto', object: 'model', owned_by: 'proxima', status: 'enabled', description: 'Gemini Auto engine' });
+                let discoveredGeminiModels = [];
+                if (handleMCPRequest && !isByokMode) {
+                    try {
+                        const mRes = await handleMCPRequest({ action: 'getProviderModels', provider: 'gemini' });
+                        if (mRes && mRes.success && Array.isArray(mRes.models)) {
+                            discoveredGeminiModels = mRes.models;
+                        }
+                    } catch (_) {}
+                }
+
+                if (discoveredGeminiModels.length > 0) {
+                    const hasAuto = discoveredGeminiModels.some(m => m.slug === 'auto' || m.id === 'gemini:auto');
+                    if (!hasAuto) {
+                        models.push({ id: 'gemini:auto', object: 'model', owned_by: 'proxima', status: 'enabled', description: 'Auto (Best available Gemini model)', thinking_levels: ['default', 'low', 'medium', 'high'] });
+                    }
+                    for (const m of discoveredGeminiModels) {
+                        const mid = m.id && m.id.startsWith('gemini:') ? m.id : `gemini:${m.slug || m.id}`;
+                        models.push({
+                            id: mid,
+                            object: 'model',
+                            owned_by: 'proxima',
+                            status: m.hasError ? 'degraded' : 'enabled',
+                            description: m.displayName || m.name || m.slug,
+                            tags: m.tags || (m.tag ? [m.tag] : []),
+                            thinking_levels: m.thinking_levels || ['default', 'low', 'medium', 'high']
+                        });
+                    }
+                } else {
+                    models.push({ id: 'gemini:auto', object: 'model', owned_by: 'proxima', status: 'enabled', description: 'Gemini Auto engine' });
+                    models.push({ id: 'gemini:latest', object: 'model', owned_by: 'proxima', status: 'enabled', description: 'Gemini 3.5 Flash-Lite' });
+                    models.push({ id: 'gemini:flash', object: 'model', owned_by: 'proxima', status: 'enabled', description: 'Gemini 3.8 Flash' });
+                    models.push({ id: 'gemini:pro', object: 'model', owned_by: 'proxima', status: 'enabled', description: 'Gemini 3.1 Pro' });
+                    models.push({ id: 'gemini:argon', object: 'model', owned_by: 'proxima', status: 'enabled', description: 'Gemini 4 Argon' });
+                }
+            }
+
+            if (enabled.includes('chatgpt')) {
+                let discoveredChatgptModels = [];
+                if (handleMCPRequest && !isByokMode) {
+                    try {
+                        const mRes = await handleMCPRequest({ action: 'getProviderModels', provider: 'chatgpt' });
+                        if (mRes && mRes.success && Array.isArray(mRes.models)) {
+                            discoveredChatgptModels = mRes.models;
+                        }
+                    } catch (_) {}
+                }
+
+                if (discoveredChatgptModels.length > 0) {
+                    const hasAuto = discoveredChatgptModels.some(m => m.slug === 'auto' || m.id === 'chatgpt:auto');
+                    if (!hasAuto) {
+                        models.push({ id: 'chatgpt:auto', object: 'model', owned_by: 'proxima', status: 'enabled', description: 'Auto (Fastest 5.6+ Mini)' });
+                    }
+                    for (const m of discoveredChatgptModels) {
+                        const mid = m.id && m.id.startsWith('chatgpt:') ? m.id : `chatgpt:${m.slug || m.id}`;
+                        models.push({
+                            id: mid,
+                            object: 'model',
+                            owned_by: 'proxima',
+                            status: m.hasError ? 'degraded' : 'enabled',
+                            description: m.displayName || m.name || m.slug,
+                            tags: m.tags || (m.tag ? [m.tag] : [])
+                        });
+                    }
+                } else {
+                    models.push({ id: 'chatgpt:auto', object: 'model', owned_by: 'proxima', status: 'enabled', description: 'ChatGPT Auto/Default model' });
+                    models.push({ id: 'chatgpt:thinking', object: 'model', owned_by: 'proxima', status: 'enabled', description: 'ChatGPT Thinking / Reasoning model' });
+                    models.push({ id: 'chatgpt:instant', object: 'model', owned_by: 'proxima', status: 'enabled', description: 'ChatGPT Instant model' });
+                    models.push({ id: 'chatgpt:mini', object: 'model', owned_by: 'proxima', status: 'enabled', description: 'ChatGPT Lightweight Mini model' });
+                }
             }
 
             models.push({ id: 'auto', object: 'model', owned_by: 'proxima', status: enabled.length > 0 ? 'enabled' : 'disabled', description: 'Auto-picks best available' });
@@ -497,8 +614,21 @@ function createRouteHandler(deps) {
         }
 
         if (method === 'GET' && pathname === '/api/status') {
-            const r = await handleMCPRequest({ action: 'getStatus', provider: 'all', data: {} });
-            return sendJSON(res, 200, { success: true, server: 'Proxima API', version: VERSION, enabledProviders: getEnabled(), providers: r.providers || {}, stats: getFormattedStats() });
+            const r = typeof handleMCPRequest === 'function'
+                ? await Promise.resolve().then(() => handleMCPRequest({ action: 'getStatus', provider: 'all', data: {} })).catch(() => ({}))
+                : {};
+            const resolvedPort = (typeof getBoundPort === 'function' ? getBoundPort() : null)
+                || (res && res.socket && typeof res.socket.localPort === 'number' ? res.socket.localPort : null)
+                || null;
+            return sendJSON(res, 200, {
+                success: true,
+                server: 'Proxima API',
+                version: VERSION,
+                port: resolvedPort,
+                enabledProviders: getEnabled(),
+                providers: (r && r.providers) || {},
+                stats: getFormattedStats()
+            });
         }
 
         if (method === 'GET' && (pathname === '/' || pathname === '/docs')) { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); return res.end(getDocsPage(getEnabled, getFormattedStats)); }
@@ -521,8 +651,13 @@ function createRouteHandler(deps) {
             }
         }
 
-        if (method === 'DELETE' && pathname.startsWith(`${API_PREFIX}/byok/keys/`)) {
-            const provider = pathname.split('/').pop();
+        if (method === 'DELETE' && (pathname.startsWith(`${API_PREFIX}/byok/keys/`) || pathname === `${API_PREFIX}/byok/keys`)) {
+            const raw = pathname.startsWith(`${API_PREFIX}/byok/keys/`)
+                ? pathname.slice(`${API_PREFIX}/byok/keys/`.length).replace(/\/+$/, '')
+                : '';
+            let provider = '';
+            try { provider = decodeURIComponent(raw).trim(); } catch { return sendError(res, 400, 'Malformed provider identifier.'); }
+            if (!provider) return sendError(res, 400, 'Provider identifier is required.');
             try {
                 byok.keys.removeKey(provider);
                 return sendJSON(res, 200, { success: true, provider, message: `BYOK key removed for ${provider}.` });
@@ -658,8 +793,13 @@ function createRouteHandler(deps) {
             return sendJSON(res, 200, result);
         }
 
-        if (method === 'DELETE' && pathname.startsWith(`${API_PREFIX}/brain/recall/`)) {
-            const key = decodeURIComponent(pathname.split('/').pop());
+        if (method === 'DELETE' && (pathname.startsWith(`${API_PREFIX}/brain/recall/`) || pathname === `${API_PREFIX}/brain/recall`)) {
+            const raw = pathname.startsWith(`${API_PREFIX}/brain/recall/`)
+                ? pathname.slice(`${API_PREFIX}/brain/recall/`.length).replace(/\/+$/, '')
+                : '';
+            let key = '';
+            try { key = decodeURIComponent(raw).trim(); } catch { return sendError(res, 400, 'Malformed key identifier.'); }
+            if (!key) return sendError(res, 400, 'Recall key is required.');
             const result = byok.brain.recall.remove(key);
             return sendJSON(res, 200, result);
         }
@@ -706,8 +846,13 @@ function createRouteHandler(deps) {
             return sendJSON(res, 200, result);
         }
 
-        if (method === 'DELETE' && pathname.startsWith(`${API_PREFIX}/brain/skills/`)) {
-            const name = decodeURIComponent(pathname.split('/').pop());
+        if (method === 'DELETE' && (pathname.startsWith(`${API_PREFIX}/brain/skills/`) || pathname === `${API_PREFIX}/brain/skills`)) {
+            const raw = pathname.startsWith(`${API_PREFIX}/brain/skills/`)
+                ? pathname.slice(`${API_PREFIX}/brain/skills/`.length).replace(/\/+$/, '')
+                : '';
+            let name = '';
+            try { name = decodeURIComponent(raw).trim(); } catch { return sendError(res, 400, 'Malformed skill name identifier.'); }
+            if (!name) return sendError(res, 400, 'Skill name is required.');
             const result = byok.brain.skills.remove(name);
             return sendJSON(res, 200, result);
         }

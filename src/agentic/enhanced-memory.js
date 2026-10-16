@@ -193,6 +193,14 @@ class EnhancedMemory {
         };
     }
 
+    clearSession(sessionId = null) {
+        if (sessionId) {
+            delete this.sessions[sessionId];
+        } else {
+            this.sessions = {};
+        }
+        this._scheduleSave();
+    }
 
     _scheduleSave() {
         if (this._saveTimer) {

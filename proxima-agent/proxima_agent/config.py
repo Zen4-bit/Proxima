@@ -18,7 +18,49 @@ def normalize_localhost(url: str) -> str:
      )
 
 
-GATEWAY_PORT = int(os.environ.get("PROXIMA_GATEWAY_PORT", "3210"))
+def _discover_gateway_port() -> int:
+    env_port = os.environ.get("PROXIMA_GATEWAY_PORT") or os.environ.get("PROXIMA_REST_PORT") or os.environ.get("PROXIMA_PORT")
+    if env_port:
+        try:
+            p = int(env_port)
+            if 0 < p <= 65535:
+                return p
+        except ValueError:
+            pass
+    try:
+        import sys
+        candidates = []
+        if os.environ.get("PROXIMA_DATA_DIR"):
+            candidates.append(os.path.join(os.environ["PROXIMA_DATA_DIR"], "rest-port.json"))
+        else:
+            home = os.environ.get("HOME", "")
+            if sys.platform == "win32":
+                base = os.environ.get("APPDATA") or os.path.join(os.environ.get("USERPROFILE", home), "AppData", "Roaming")
+                candidates.extend([os.path.join(base, "Proxima", "rest-port.json"), os.path.join(base, "proxima", "rest-port.json")])
+            elif sys.platform == "darwin":
+                base = os.path.join(home, "Library", "Application Support")
+                candidates.extend([os.path.join(base, "Proxima", "rest-port.json"), os.path.join(base, "proxima", "rest-port.json")])
+            else:
+                xdg = os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")
+                candidates.extend([os.path.join(xdg, "Proxima", "rest-port.json"), os.path.join(xdg, "proxima", "rest-port.json")])
+        existing = [c for c in candidates if os.path.exists(c)]
+        if len(existing) > 1:
+            existing.sort(key=lambda x: os.path.getmtime(x) if os.path.exists(x) else 0, reverse=True)
+        for port_file in existing:
+            try:
+                with open(port_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    p = int(data.get("port", 0))
+                    if 0 < p <= 65535:
+                        return p
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return 3210
+
+
+GATEWAY_PORT = _discover_gateway_port()
 DEFAULT_API_URL = os.environ.get("PROXIMA_API_URL", f"http://{LOCAL_HOST}:{GATEWAY_PORT}/v1")
 
 CDP_PORT = int(os.environ.get("PROXIMA_CDP_PORT", "9222"))
@@ -86,6 +128,12 @@ def load_config():
             config.update(user_config)
         except Exception:
             pass
+        valid_models = (
+            "auto", "claude", "chatgpt", "perplexity",
+            "gemini:auto", "gemini:pro", "gemini:latest", "gemini:flash", "gemini:argon"
+        )
+        if config.get("model") not in valid_models:
+            config["model"] = "auto"
     config["api_url"] = normalize_localhost(config.get("api_url", DEFAULT_API_URL))
     return config
 

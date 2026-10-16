@@ -1,6 +1,6 @@
 {
     "name": "proxima",
-    "version": "5.0.0",
+    "version": "5.5.0",
     "description": "Proxima - Local MCP Server (requires localhost network access for AI coding tools)",
     "license": "SEE LICENSE IN LICENSE",
     "author": "Zen4-bit",
@@ -18,6 +18,29 @@
     "main": "electron/main-v2.cjs",
     "bin": {
         "proxima": "./cli/proxima-cli.cjs"
+    },
+    "exports": {
+        ".": "./electron/main-v2.cjs",
+        "./sdk": {
+            "import": "./sdk/proxima.mjs",
+            "require": "./sdk/proxima.js",
+            "default": "./sdk/proxima.js"
+        },
+        "./sdk/proxima": {
+            "import": "./sdk/proxima.mjs",
+            "require": "./sdk/proxima.js",
+            "default": "./sdk/proxima.js"
+        },
+        "./sdk/proxima.js": {
+            "import": "./sdk/proxima.js",
+            "require": "./sdk/proxima.js",
+            "default": "./sdk/proxima.js"
+        },
+        "./sdk/proxima.mjs": {
+            "import": "./sdk/proxima.mjs"
+        },
+        "./package.json": "./package.json",
+        "./*": "./*"
     },
     "scripts": {
         "prestart": "node scripts/ensure-deps.mjs",
@@ -59,7 +82,11 @@
             "!electron/**/*.dna",
             "!src/enabled-providers.json",
             "!**/__pycache__/**",
-            "!**/*.pyc"
+            "!**/*.pyc",
+            "!**/*.db",
+            "!**/*.db-wal",
+            "!**/*.db-shm",
+            "!**/*.log"
         ],
         "extraResources": [
             {
@@ -72,6 +99,13 @@
                 "filter": [
                     "**/*",
                     "!.venv/**/*",
+                    "!.proxima/**/*",
+                    "!.pytest_cache/**/*",
+                    "!.ruff_cache/**/*",
+                    "!build/**/*",
+                    "!**/*.db",
+                    "!**/*.db-wal",
+                    "!**/*.db-shm",
                     "!**/__pycache__/**",
                     "!**/*.pyc",
                     "!*.egg-info/**",

@@ -209,10 +209,15 @@ class AgentRunner:
 
     def start(self, console: WebConsole, user_message: str,
               model: str = "auto", mode: str = "smart",
-              conversation_id: str = "", file_path: str = None):
+              conversation_id: str = "", file_path: str = None,
+              thinking_level: str = None):
         if self.is_running:
-            console.send_error("Agent is already running. Wait for it to finish.")
-            return
+            is_new_conv = bool(conversation_id and self._conversation_id and self._conversation_id != conversation_id)
+            if (self._console and getattr(self._console, "is_cancelled", False)) or is_new_conv:
+                self.reset()
+            else:
+                console.send_error("Agent is already running. Wait for it to finish.")
+                return
 
         console.reset_cancel()
 
@@ -258,6 +263,8 @@ class AgentRunner:
         config = load_config()
         if model and model != "auto":
             config["model"] = model
+        if thinking_level:
+            config["thinking_level"] = thinking_level
 
         self._thread = threading.Thread(
             target=self._run_loop,
@@ -323,22 +330,24 @@ class AgentRunner:
             console.send_status(running=False)
 
     def stop(self):
-        if self._console and self._thread and self._thread.is_alive():
+        if self._console:
             self._console.cancel()
+        try:
+            import urllib.request
+            req = urllib.request.Request("http://127.0.0.1:3210/v1/cancel", data=b"{}", headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req, timeout=1)
+        except Exception:
+            pass
 
     def reset(self):
         self.stop()
         if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=10)
+            self._thread.join(timeout=1.5)
         if self._thread and self._thread.is_alive() and self._console:
             self._console.disconnect()
-            self._thread.join(timeout=2)
+            self._thread.join(timeout=0.5)
 
-        if self._thread and self._thread.is_alive():
-            print("[Agent Bridge] Previous agent run still finishing; "
-                  "reset deferred until it exits to avoid concurrent loops.")
-            return
-
+        self._running = False
         self._messages = []
         self._conversation_id = None
         self._thread = None

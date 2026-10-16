@@ -112,6 +112,8 @@ export class IPCClient {
                 if (this.socket === socket) {
                     console.error('[MCP] Disconnected from Agent Hub');
                     this.connected = false;
+                    this.socket = null;
+                    this.responseBuffer = '';
                     for (const [, entry] of this.pendingRequests) {
                         if (entry.timer) clearTimeout(entry.timer);
                         entry.reject(new Error('Connection to Agent Hub lost'));
@@ -206,14 +208,15 @@ export class IPCClient {
 
         if (this.socket) {
             try { this.socket.destroy(); } catch (e) { }
-        } else {
-            for (const [, entry] of this.pendingRequests) {
-                if (entry.timer) clearTimeout(entry.timer);
-                try { entry.reject(new Error('Connection to Agent Hub lost')); } catch (e) { /* ignore */ }
-            }
-            this.pendingRequests.clear();
+            this.socket = null;
         }
+        for (const [, entry] of this.pendingRequests) {
+            if (entry.timer) clearTimeout(entry.timer);
+            try { entry.reject(new Error('Connection to Agent Hub lost')); } catch (e) { /* ignore */ }
+        }
+        this.pendingRequests.clear();
         this.connected = false;
+        this.responseBuffer = '';
     }
 }
 
@@ -283,14 +286,18 @@ export class AIProvider {
     }
 
 
-    async _doChat(message, filePath = null, engine = null) {
+    async _doChat(message, filePath = null, engine = null, thinkingLevel = null) {
         await this.ensureInitialized();
 
         console.error(`[${this.name}] Sending message...`);
-        const sendResult = await this.ipc.send('sendMessage', this.name, {
+        const payload = {
             message, filePath, engine,
             conversationId: 'mcp-session',
-        });
+        };
+        if (thinkingLevel) {
+            payload.thinking_level = thinkingLevel;
+        }
+        const sendResult = await this.ipc.send('sendMessage', this.name, payload);
 
         if (sendResult.response && sendResult.response.length > 0) {
             console.error(`[${this.name}] ✓ Got API response (${sendResult.response.length} chars)`);
@@ -306,9 +313,9 @@ export class AIProvider {
         });
     }
 
-    async chat(message, useCache = true, filePath = null, engine = null) {
+    async chat(message, useCache = true, filePath = null, engine = null, thinkingLevel = null) {
 
-        const cacheKey = `${message}\u0000${filePath || ''}\u0000${engine || ''}`;
+        const cacheKey = `${message}\u0000${filePath || ''}\u0000${engine || ''}\u0000${thinkingLevel || ''}`;
 
 
         if (useCache && this.cache.has(cacheKey)) {
@@ -327,7 +334,7 @@ export class AIProvider {
 
         const responsePromise = this._queue.then(async () => {
             console.error(`[${this.name}] Processing request (${position} of ${this._queueLength})...`);
-            const response = await this._doChat(message, filePath, engine);
+            const response = await this._doChat(message, filePath, engine, thinkingLevel);
             this.cache.set(cacheKey, { response, time: Date.now() });
             this._queueLength--;
             return response;
@@ -352,6 +359,7 @@ export class AIProvider {
     }
 
     async newConversation() {
+        this.cache.clear();
         await this.ipc.send('newConversation', this.name);
     }
 

@@ -42,8 +42,8 @@ test('smartChat: resolves a provider by name and returns provider.chat result', 
 test('smartChat: derives the engine from a "provider:engine" name and forwards it to chat', async () => {
     const { deps, rec } = makeDeps();
     const smartChat = createSmartChat(deps);
-    await smartChat('hi', 'gemini:3.5-flash');
-    assert.equal(rec.chatArgs.engine, '3.5-flash', 'engine sub-model must reach provider.chat');
+    await smartChat('hi', 'gemini:argon');
+    assert.equal(rec.chatArgs.engine, 'argon', 'engine sub-model must reach provider.chat');
 });
 
 test('smartChat: an explicit options.engine takes precedence and filePath is forwarded', async () => {

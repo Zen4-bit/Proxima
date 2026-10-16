@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Proxima AI Gateway API",
-    "version": "5.0.0",
+    "version": "5.5.0",
     "description": "Unified AI Gateway — Route to ChatGPT, Claude, Gemini, and Perplexity through a single OpenAI-compatible API. Supports chat, search, translate, code, analyze, debate, and more via a single endpoint with function-based routing.",
     "contact": {
       "name": "Proxima Support",
@@ -28,6 +28,47 @@
     { "name": "WebSocket", "description": "WebSocket-based real-time chat" }
   ],
   "paths": {
+    "/v1/cancel": {
+      "post": {
+        "summary": "Cancel active generation",
+        "description": "Aborts an active in-flight request and flushes execution queues for the specified provider (or all providers if omitted).",
+        "operationId": "cancelGeneration",
+        "tags": ["Chat"],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "description": "Provider name to cancel (e.g. 'gemini', 'chatgpt'). If omitted, cancels active queries across all providers.",
+                    "example": "gemini"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Request cancelled successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "cancelled": { "type": "boolean", "example": true }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/chat/completions": {
       "post": {
         "summary": "Chat Completion (OpenAI-compatible)",
@@ -497,6 +538,18 @@
             "type": "boolean",
             "description": "Enable SSE streaming. Response comes as Server-Sent Events in OpenAI chat.completion.chunk format.",
             "default": false
+          },
+          "thinking_level": {
+            "type": "string",
+            "enum": ["default", "low", "medium", "high"],
+            "description": "Controls reasoning and thinking depth for supported reasoning models (e.g. Gemini).",
+            "example": "high"
+          },
+          "reasoning_effort": {
+            "type": "string",
+            "enum": ["none", "default", "auto", "low", "medium", "high"],
+            "description": "OpenAI-compatible reasoning effort mapped to internal thinking levels.",
+            "example": "high"
           }
         }
       },
@@ -653,7 +706,7 @@
         "properties": {
           "success": { "type": "boolean" },
           "server": { "type": "string", "example": "Proxima API" },
-          "version": { "type": "string", "example": "5.0.0" },
+          "version": { "type": "string", "example": "5.5.0" },
           "port": { "type": "integer", "example": 3210 },
           "enabledProviders": {
             "type": "array",

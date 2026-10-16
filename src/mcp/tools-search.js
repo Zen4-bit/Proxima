@@ -4,6 +4,8 @@
 // Safe DNS resolver for web scraping.
 import webScraperTools from '../tools/web-scraper.cjs';
 const { _resolveSafe } = webScraperTools;
+import ddgSearchTools from '../tools/ddg-search.cjs';
+const { searchDDG, formatResultsMarkdown } = ddgSearchTools;
 
 export function register(server, deps) {
     const {
@@ -175,62 +177,9 @@ export function register(server, deps) {
         annotations: FETCH,
     }, async ({ query, maxResults }) => {
         try {
-            const https = await import('https');
-            const { URL: NodeURL } = await import('url');
             const max = maxResults || 8;
-            const MAX_REDIRECTS = 5;
-            const MAX_SIZE = 5 * 1024 * 1024; // 5MB cap
-
-            const fetchPage = async (target, depth = 0) => {
-
-                const { parsed: p, address, family } = await _resolveSafe(target);
-                return await new Promise((resolve, reject) => {
-                    const req = https.default.request({
-                        host: address, family, servername: p.hostname,
-                        port: p.port || 443,
-                        path: p.pathname + p.search, method: 'GET',
-                        headers: { 'Host': p.host, 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0', 'Accept': 'text/html,*/*' },
-                        timeout: 10000,
-                    }, (res) => {
-                        if ([301,302,303,307].includes(res.statusCode) && res.headers.location) {
-                            res.resume();
-                            if (depth >= MAX_REDIRECTS) return reject(new Error('Blocked: too many redirects'));
-                            const newUrl = res.headers.location.startsWith('http') ? res.headers.location : new NodeURL(res.headers.location, target).href;
-                            return fetchPage(newUrl, depth + 1).then(resolve, reject);
-                        }
-                        const chunks = []; let total = 0;
-                        res.on('data', c => {
-                            total += c.length;
-                            if (total > MAX_SIZE) { req.destroy(); return reject(new Error('Response too large (>5MB)')); }
-                            chunks.push(c);
-                        });
-                        res.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
-                    });
-                    req.on('error', e => reject(e));
-                    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
-                    req.end();
-                });
-            };
-
-            const html = await fetchPage(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`);
-            const results = [];
-            const titleMatches = html.match(/<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi) || [];
-            const snippetMatches = html.match(/<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi) || [];
-
-            for (let i = 0; i < Math.min(titleMatches.length, max); i++) {
-                const tMatch = titleMatches[i].match(/href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/i);
-                if (!tMatch) continue;
-                let url = tMatch[1];
-                let title = tMatch[2].replace(/<[^>]*>/g, '').trim();
-                if (url.includes('uddg=')) { const u = url.match(/uddg=([^&]*)/); if (u) url = decodeURIComponent(u[1]); }
-                let snippet = i < snippetMatches.length ? snippetMatches[i].replace(/<[^>]*>/g, '').trim() : '';
-                if (title && url.startsWith('http')) results.push({ position: i+1, title, url, snippet });
-            }
-
-            let md = `# 🔍 Search: "${query}"\n\n*${results.length} results via DuckDuckGo (free, no API key)*\n\n---\n\n`;
-            for (const r of results) {
-                md += `### ${r.position}. ${r.title}\n🔗 ${r.url}\n\n${r.snippet}\n\n---\n\n`;
-            }
+            const searchResult = await searchDDG(query, { maxResults: max });
+            const md = formatResultsMarkdown(searchResult);
             return toolResponse(md);
         } catch (err) { return toolError(err); }
     });

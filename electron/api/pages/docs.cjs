@@ -4,7 +4,7 @@
 // model list, the one-endpoint function table, and integration guides. Embeds
 // the shared chat widget.
 const REST_PORT = parseInt(process.env.PROXIMA_REST_PORT, 10) || 3210;
-const VERSION = '5.0.0';
+const VERSION = '5.5.0';
 
 const { getChatHTML, getChatJS } = require('./widget.cjs');
 

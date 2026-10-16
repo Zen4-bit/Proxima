@@ -23,7 +23,7 @@ If applicable, add screenshots or terminal output.
 
 **Environment:**
 - OS: [e.g. Windows 11, macOS 14]
-- Proxima version: [e.g. 4.1.0]
+- Proxima version: [e.g. 5.5.0]
 - Node.js version: [e.g. 18.x]
 - Editor: [e.g. Cursor, VS Code, Claude Desktop]
 

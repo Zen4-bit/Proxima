@@ -7,7 +7,7 @@ export function register(server, deps) {
     const {
         z, toolResponse, toolError, checkDisabled,
         smartChat, buildMessageWithFiles, getEnabledProviders,
-        allProviders, initAgenticExecutor,
+        allProviders, initAgenticExecutor, ipcClient, getAvailableModelsList,
     } = deps;
 
 
@@ -44,21 +44,47 @@ export function register(server, deps) {
         return { textFiles, uploadFilePath };
     };
 
+    server.registerTool('list_available_models', {
+        title: 'List Available Models',
+        description: 'Discover all live models available across active providers (ChatGPT dynamically discovered 5.6+ models from logged-in account, Gemini sub-engines, Claude, Perplexity, and configured BYOK providers). Returns exact model IDs, availability status, tags, and instructions on how to use them with ask_* tools.',
+        inputSchema: {
+            refresh: z.boolean().optional().describe('Force live refresh of account discovery instead of using cached models'),
+        },
+        annotations: CHAT,
+    }, async ({ refresh }) => {
+        try {
+            if (typeof getAvailableModelsList !== 'function') {
+                return toolError(new Error('getAvailableModelsList helper not available'));
+            }
+            const data = await getAvailableModelsList({
+                ipcClient,
+                getEnabledProviders,
+                refresh: !!refresh,
+            });
+            return toolResponse(data);
+        } catch (err) {
+            return toolError(err);
+        }
+    });
+
     server.registerTool('ask_chatgpt', {
         title: 'Ask ChatGPT',
-        description: 'Send a message to ChatGPT specifically. Use ask_model for any other/BYOK provider, smart_query to auto-pick the best provider, or ask_all_ais to query several at once.',
+        description: 'Send a message to ChatGPT specifically. Supports "auto" or any dynamically discovered model slug (call list_available_models to discover current models). Use ask_model for any other/BYOK provider, or ask_all_ais to query several at once.',
         inputSchema: {
             message: z.string().describe('Message to send to ChatGPT'),
+            model: z.string().optional().describe('Model override: "auto" (fastest 5.6+ mini) or any dynamically discovered slug (e.g. "gpt-5-6-mini", "gpt-6", "gpt-6-thinking-mini"). Call list_available_models to see all active account models.'),
             files: z.array(z.string()).optional().describe(FILES_DESC),
         },
         annotations: CHAT,
-    }, async ({ message, files }) => {
+    }, async ({ message, model, files }) => {
         const disabled = checkDisabled('chatgpt');
         if (disabled) return disabled;
         try {
             const { textFiles, uploadFilePath } = getFilesSetup(files);
             const fullMessage = buildMessageWithFiles(message, textFiles);
-            return toolResponse(await smartChat(fullMessage, 'chatgpt', { filePath: uploadFilePath }));
+            const opts = { filePath: uploadFilePath };
+            if (model) opts.engine = model;
+            return toolResponse(await smartChat(fullMessage, 'chatgpt', opts));
         } catch (err) {
             return toolError(err);
         }
@@ -69,16 +95,19 @@ export function register(server, deps) {
         description: 'Send a message to Claude specifically (strong at coding/reasoning). Use ask_model for other/BYOK providers, smart_query to auto-pick, or ask_all_ais for several at once.',
         inputSchema: {
             message: z.string().describe('Message to send to Claude'),
+            model: z.string().optional().describe('Specific model override (uses default if omitted)'),
             files: z.array(z.string()).optional().describe(FILES_DESC),
         },
         annotations: CHAT,
-    }, async ({ message, files }) => {
+    }, async ({ message, model, files }) => {
         const disabled = checkDisabled('claude');
         if (disabled) return disabled;
         try {
             const { textFiles, uploadFilePath } = getFilesSetup(files);
             const fullMessage = buildMessageWithFiles(message, textFiles);
-            return toolResponse(await smartChat(fullMessage, 'claude', { filePath: uploadFilePath }));
+            const opts = { filePath: uploadFilePath };
+            if (model) opts.engine = model;
+            return toolResponse(await smartChat(fullMessage, 'claude', opts));
         } catch (err) {
             return toolError(err);
         }
@@ -86,19 +115,24 @@ export function register(server, deps) {
 
     server.registerTool('ask_gemini', {
         title: 'Ask Gemini',
-        description: 'Send a message to Gemini specifically. Use ask_model for other/BYOK providers, smart_query to auto-pick, or ask_all_ais for several at once.',
+        description: 'Send a message to Gemini specifically. Supports live dynamic model selection and optional thinking level depth (default, low, medium, high). Call list_available_models to discover active models and tags.',
         inputSchema: {
             message: z.string().describe('Message to send to Gemini'),
+            model: z.string().optional().describe('Specific model from list_available_models (default: auto).'),
+            thinking_level: z.enum(['default', 'low', 'medium', 'high']).optional().describe('Optional thinking level for reasoning depth: "low", "medium", or "high". Default preserves standard model behavior.'),
             files: z.array(z.string()).optional().describe(FILES_DESC),
         },
         annotations: CHAT,
-    }, async ({ message, files }) => {
+    }, async ({ message, model, thinking_level, files }) => {
         const disabled = checkDisabled('gemini');
         if (disabled) return disabled;
         try {
             const { textFiles, uploadFilePath } = getFilesSetup(files);
             const fullMessage = buildMessageWithFiles(message, textFiles);
-            return toolResponse(await smartChat(fullMessage, 'gemini', { filePath: uploadFilePath }));
+            const opts = { filePath: uploadFilePath };
+            if (model) opts.engine = model;
+            if (thinking_level) opts.thinking_level = thinking_level;
+            return toolResponse(await smartChat(fullMessage, 'gemini', opts));
         } catch (err) {
             return toolError(err);
         }
@@ -109,16 +143,19 @@ export function register(server, deps) {
         description: 'Send a message to Perplexity specifically (best for web search + citations). Use ask_model for other/BYOK providers, or deep_search for structured research.',
         inputSchema: {
             message: z.string().describe('Message to send to Perplexity (best for web search + citations)'),
+            model: z.string().optional().describe('Specific model override (uses default if omitted)'),
             files: z.array(z.string()).optional().describe(FILES_DESC),
         },
         annotations: CHAT,
-    }, async ({ message, files }) => {
+    }, async ({ message, model, files }) => {
         const disabled = checkDisabled('perplexity');
         if (disabled) return disabled;
         try {
             const { textFiles, uploadFilePath } = getFilesSetup(files);
             const fullMessage = buildMessageWithFiles(message, textFiles);
-            return toolResponse(await smartChat(fullMessage, 'perplexity', { filePath: uploadFilePath }));
+            const opts = { filePath: uploadFilePath };
+            if (model) opts.engine = model;
+            return toolResponse(await smartChat(fullMessage, 'perplexity', opts));
         } catch (err) {
             return toolError(err);
         }
@@ -127,15 +164,16 @@ export function register(server, deps) {
     const enabledList = [...getEnabledProviders()].join(', ') || 'gemini, chatgpt, claude, perplexity';
     server.registerTool('ask_model', {
         title: 'Ask Any Model',
-        description: 'Universal chat: send a message to ANY enabled provider by name (the 4 session providers OR any configured BYOK provider). Use this when you need a provider other than the four dedicated ask_* tools.',
+        description: 'Universal chat: send a message to ANY enabled provider by name (the 4 session providers OR any configured BYOK provider). Call list_available_models to see all available provider models and exact arguments.',
         inputSchema: {
             provider: z.string().describe(`Provider name. Currently available: ${enabledList}`),
             message: z.string().describe('Message to send'),
-            model: z.string().optional().describe('Specific model ID override (uses provider default if omitted)'),
+            model: z.string().optional().describe('Specific model ID override (uses provider default if omitted). Call list_available_models for valid model IDs.'),
+            thinking_level: z.enum(['default', 'low', 'medium', 'high']).optional().describe('Optional thinking/reasoning depth for providers that support it (e.g. Gemini, ChatGPT reasoning_effort).'),
             files: z.array(z.string()).optional().describe('Optional: file paths to include as context. Supports line ranges like "path/file.js:10-50".'),
         },
         annotations: CHAT,
-    }, async ({ provider, message, model, files }) => {
+    }, async ({ provider, message, model, thinking_level, files }) => {
         const providerName = provider.toLowerCase().trim();
         const disabled = checkDisabled(providerName);
         if (disabled) return disabled;
@@ -146,6 +184,7 @@ export function register(server, deps) {
             return toolResponse(await smartChat(fullMessage, providerName, {
                 filePath: uploadFilePath,
                 engine: model || null,
+                thinking_level,
             }));
         } catch (err) {
             return toolError(err);
@@ -265,12 +304,18 @@ export function register(server, deps) {
                     return toolResponse({ success: false, message: `Provider '${provider}' is not enabled.` });
                 }
                 await allProviders[name].newConversation();
+                if (deps.enhancedMemory && typeof deps.enhancedMemory.clearSession === 'function') {
+                    deps.enhancedMemory.clearSession(`provider:${name}`);
+                }
                 return toolResponse({ success: true, provider: name, message: `Started new ${name} conversation` });
             }
             const reset = [];
             for (const p of ['perplexity', 'chatgpt', 'claude', 'gemini']) {
                 if (enabled.has(p)) {
                     await allProviders[p].newConversation();
+                    if (deps.enhancedMemory && typeof deps.enhancedMemory.clearSession === 'function') {
+                        deps.enhancedMemory.clearSession(`provider:${p}`);
+                    }
                     reset.push(p);
                 }
             }
