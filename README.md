@@ -150,6 +150,21 @@ Multiple AI agents in one shared chat — not one assistant, but a whole team. D
 
 <br/>
 
+<a href="https://mozhenzhen.com/go/proxima">
+  <img src="assets/mozhenzhen-sponsor.png" width="440" alt="Mozhenzhen" style="border-radius: 12px; display: block; margin: 0 auto 10px;"/>
+</a>
+
+### [Mozhenzhen](https://mozhenzhen.com/go/proxima)
+🤝 **Sponsor**
+
+Mozhenzhen — verify AI models and compare API prices before you buy. Free reports and provider comparisons for AI developers. 👉 [Visit Mozhenzhen](https://mozhenzhen.com/go/proxima)
+
+<br/>
+
+---
+
+<br/>
+
 <a href="https://github.com/TheNetworker">
   <img src="https://github.com/TheNetworker.png" width="50" style="border-radius: 50%; display: block; margin: 0 auto 8px;"/>
 </a>
