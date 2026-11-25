@@ -26,7 +26,6 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - **Python Environment Verification:** Enhanced interpreter detection in `python-env.cjs` with active validation of Python version and required agent modules before launch.
 
 ### Fixed
-- **Gemini Multi-Turn Streaming Continuity:** Resolved follow-up conversation stalls across Gemini engines by anchoring continuation tuples in request payloads, eliminating premature stream truncation on context tokens, broadening chunk token extraction thresholds, and correcting Electron API stream variable resolution.
 - **Conversation Session Isolation:** Improved session clearing in `newConversation()` to wipe both active and MCP session contexts, preventing cross-turn context overlap.
 - **Agent Error Handling:** Enhanced agent loop error classification to identify terminal provider failures as non-retryable, preventing unnecessary retry loops.
 - **SDK & CLI Packaging:** Standardized SDK imports for both ESM and CommonJS, normalized `/v1` endpoint resolution, and improved CLI piped standard input handling.
